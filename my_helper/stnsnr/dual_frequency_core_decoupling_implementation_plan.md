@@ -3422,6 +3422,33 @@ frequency-role signatures in voxel and fiber. Its report binds both the frozen
 fixture SHA and the replay run manifest SHA. Authority and replay reports remain
 separate; replay mode never rewrites either run or cache.
 
+The prepared-task verifier accepts the retained authority's concrete
+`ArtifactRef` and the refactored replay's persisted `IndexedArrayView` as
+distinct exact schemas. A replay view may reference only the explicit replay
+run or replay cache roots. Its parent, optional row selector, and optional
+column selector each pass URI containment, declared SHA, dtype, shape, axis,
+and NPY-header validation. The logical shape and feature-axis SHA must match
+the frozen fixture. To compare against the authority's final NPY SHA without
+writing or allocating a complete subset, the verifier emits the deterministic
+NumPy v1 header into the digest and streams logical rows in C order, gathering
+only a bounded selector block at a time. A parent payload already verified
+through the physical cache closure is not hashed a second time. Duplicate,
+negative, out-of-range, non-`int64`, or axis-inconsistent selectors fail
+closed. Focused replay fixtures must cover identity views, a reordered/subset
+view, cache-root containment, logical-byte parity, corrupt selectors, and
+forbidden paths.
+
+The replay verifier now implements this dual representation. It reuses the
+already validated physical-cache SHA for an identical view parent, validates
+other parents and selectors once, and streams one logical row in bounded
+column blocks into the deterministic NPY digest. The retained concrete
+authority path remains unchanged. Seven focused parity-verifier tests pass,
+including identity and reordered subset views beneath the explicit cache root,
+logical SHA equality, duplicate-selector rejection, and outside-root
+rejection. The complete dual-frequency regression passes 576 tests under
+Conda `leaddbs`. This closes verifier compatibility only; the configured cold
+replay remains ordered after independent OSS.
+
 The corrected fiber-only v2 authority verifier was executed twice on
 2026-07-22. Both runs
 validated the completed parent manifest, all nine complete physical payloads,

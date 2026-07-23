@@ -289,6 +289,93 @@ class Task17ParityFixtureTest(unittest.TestCase):
         path.write_text(json.dumps(fixture), encoding="utf-8")
         return path
 
+    def _convert_prepared_tasks_to_views(
+        self,
+    ) -> tuple[Path, Path]:
+        view_root = self.cache_root / "prepared-view-fixture"
+        view_root.mkdir(parents=True)
+        corruptible_selector: Path | None = None
+        forbidden_parent: Path | None = None
+        for index, task_path in enumerate(
+            sorted((self.parent / "tasks").glob("task_*.json"))
+        ):
+            task = json.loads(task_path.read_text(encoding="utf-8"))
+            payload = task["result"]["payload"]
+            exposure = payload["exposure"]
+            source = Path(exposure["uri"].removeprefix("file://"))
+            logical = np.load(source, allow_pickle=False)
+            row_axis = {
+                "axis_id": f"rows-{index}",
+                "count": logical.shape[0],
+                "sha256": self._digest(f"rows-{index}"),
+            }
+            column_axis = {
+                "axis_id": f"columns-{index}",
+                "count": logical.shape[1],
+                "sha256": payload["feature_axis"]["sha256"],
+            }
+            task_root = view_root / f"view-{index:03d}"
+            task_root.mkdir()
+            if index == 0:
+                parent_values = logical
+                row_positions = None
+                column_positions = None
+            else:
+                parent_values = np.zeros(
+                    (logical.shape[0] + 1, logical.shape[1] + 2),
+                    dtype=np.float32,
+                )
+                row_values = np.array(
+                    [logical.shape[0], 0],
+                    dtype=np.int64,
+                )
+                column_values = np.arange(
+                    1,
+                    logical.shape[1] + 1,
+                    dtype=np.int64,
+                )[::-1]
+                parent_values[
+                    np.ix_(row_values, column_values)
+                ] = logical
+                row_path = task_root / "row_positions.npy"
+                column_path = task_root / "column_positions.npy"
+                np.save(row_path, row_values, allow_pickle=False)
+                np.save(column_path, column_values, allow_pickle=False)
+                row_positions = {
+                    "uri": row_path.resolve().as_uri(),
+                    "sha256": sha256_file(row_path),
+                    "dtype": "int64",
+                    "shape": [logical.shape[0]],
+                    "axis_refs": [row_axis],
+                }
+                column_positions = {
+                    "uri": column_path.resolve().as_uri(),
+                    "sha256": sha256_file(column_path),
+                    "dtype": "int64",
+                    "shape": [logical.shape[1]],
+                    "axis_refs": [column_axis],
+                }
+                corruptible_selector = column_path
+            parent_path = task_root / "parent.npy"
+            np.save(parent_path, parent_values, allow_pickle=False)
+            payload["exposure"] = {
+                "schema_version": "dual_frequency_indexed_array_view_v1",
+                "parent": {
+                    "uri": parent_path.resolve().as_uri(),
+                    "sha256": sha256_file(parent_path),
+                    "dtype": "float32",
+                    "shape": list(parent_values.shape),
+                },
+                "row_positions": row_positions,
+                "column_positions": column_positions,
+                "axis_refs": [row_axis, column_axis],
+            }
+            task_path.write_text(json.dumps(task), encoding="utf-8")
+            forbidden_parent = parent_path
+        if corruptible_selector is None or forbidden_parent is None:
+            raise RuntimeError("prepared view fixture did not create selectors")
+        return corruptible_selector, forbidden_parent
+
     def test_complete_fixture_validates_and_writes_immutable_report(self) -> None:
         fixture = self._fixture()
         report = VALIDATOR.validate(fixture, self.parent)
@@ -336,6 +423,68 @@ class Task17ParityFixtureTest(unittest.TestCase):
         self.assertEqual(report["replay_run_id"], self.parent.name)
         self.assertEqual(len(report["physical_fiber_exposures"]), 9)
         self.assertEqual(len(report["physical_voxel_exposures"]), 3)
+
+    def test_replay_mode_validates_identity_and_subset_views(self) -> None:
+        fixture = self._fixture()
+        self._convert_prepared_tasks_to_views()
+        report = VALIDATOR.validate_replay(
+            fixture,
+            self.cache_root,
+            self.parent,
+        )
+        self.assertEqual(report["status"], "validated")
+        self.assertTrue(
+            all(
+                row["payload_hash_count"] > 0
+                for row in report["prepared_omega_max_exposures"]
+            )
+        )
+
+    def test_replay_mode_rejects_corrupt_view_selector(self) -> None:
+        fixture = self._fixture()
+        selector, _ = self._convert_prepared_tasks_to_views()
+        values = np.load(selector, allow_pickle=False)
+        np.save(selector, np.zeros_like(values), allow_pickle=False)
+        for task_path in sorted((self.parent / "tasks").glob("task_*.json")):
+            task = json.loads(task_path.read_text(encoding="utf-8"))
+            exposure = task["result"]["payload"]["exposure"]
+            column_positions = exposure["column_positions"]
+            if (
+                column_positions is not None
+                and column_positions["uri"] == selector.resolve().as_uri()
+            ):
+                column_positions["sha256"] = sha256_file(selector)
+                task_path.write_text(json.dumps(task), encoding="utf-8")
+        with self.assertRaisesRegex(
+            VALIDATOR.ParityFixtureError,
+            "duplicate or out-of-range",
+        ):
+            VALIDATOR.validate_replay(
+                fixture,
+                self.cache_root,
+                self.parent,
+            )
+
+    def test_replay_mode_rejects_view_parent_outside_allowed_roots(self) -> None:
+        fixture = self._fixture()
+        _, parent = self._convert_prepared_tasks_to_views()
+        outside = self.root / "outside.npy"
+        outside.write_bytes(parent.read_bytes())
+        task_path = sorted((self.parent / "tasks").glob("task_*.json"))[-1]
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+        task["result"]["payload"]["exposure"]["parent"]["uri"] = (
+            outside.resolve().as_uri()
+        )
+        task_path.write_text(json.dumps(task), encoding="utf-8")
+        with self.assertRaisesRegex(
+            VALIDATOR.ParityFixtureError,
+            "escapes the allowed replay roots",
+        ):
+            VALIDATOR.validate_replay(
+                fixture,
+                self.cache_root,
+                self.parent,
+            )
 
     def test_incomplete_parent_manifest_is_rejected(self) -> None:
         fixture = self._fixture()

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
 import re
@@ -12,6 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
+
+import numpy as np
 
 CORE_ROOT = Path(__file__).resolve().parents[1] / "core"
 if str(CORE_ROOT) not in sys.path:
@@ -85,17 +89,18 @@ def _shape(value: object, label: str) -> tuple[int, int]:
     return int(values[0]), int(values[1])
 
 
-def _file_uri(uri: object, parent: Path) -> Path:
+def _file_uri(uri: object, allowed_roots: tuple[Path, ...]) -> Path:
     parsed = urlparse(_token(uri, "artifact URI"))
     if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
         raise ParityFixtureError("authority task artifacts must use local file URIs")
     path = Path(unquote(parsed.path)).resolve()
-    try:
-        path.relative_to(parent)
-    except ValueError as exc:
+    if not any(
+        path == root or root in path.parents
+        for root in allowed_roots
+    ):
         raise ParityFixtureError(
-            f"authority task artifact escapes the parent run: {path}"
-        ) from exc
+            f"prepared artifact escapes the allowed replay roots: {path}"
+        )
     if not path.is_file():
         raise ParityFixtureError(f"authority task artifact is missing: {path}")
     return path
@@ -127,7 +132,11 @@ def _load_fixture(path: Path) -> dict[str, Any]:
 
 def _validate_physical_entries(
     fixture: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, tuple[str, str]]]:
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, tuple[str, str]],
+    dict[Path, str],
+]:
     cache_root = Path(
         _token(fixture["authority_cache_root"], "authority_cache_root")
     ).resolve()
@@ -140,6 +149,7 @@ def _validate_physical_entries(
     }
     seen: set[tuple[str, str]] = set()
     signatures: dict[str, tuple[str, str]] = {}
+    verified_files: dict[Path, str] = {}
     results: list[dict[str, Any]] = []
     for index, raw in enumerate(rows):
         row = _mapping(raw, f"physical entry {index}")
@@ -179,6 +189,7 @@ def _validate_physical_entries(
             raise ParityFixtureError(
                 f"physical cache metadata differs from fixture: {semantic}"
             )
+        verified_files[entry.file_path(cached.relative_path).resolve()] = cached.sha256
         signature = (
             entry.key.component_frequency_hash,
             entry.key.stimulation_hash,
@@ -202,12 +213,16 @@ def _validate_physical_entries(
         raise ParityFixtureError("physical fixture does not cover the complete role matrix")
     if len(set(signatures.values())) != len(_FREQUENCY_ROLES):
         raise ParityFixtureError("frequency roles do not have distinct cache identities")
-    return results, signatures
+    return results, signatures, verified_files
 
 
 def _validate_voxel_entries(
     fixture: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, tuple[str, str]]]:
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, tuple[str, str]],
+    dict[Path, str],
+]:
     cache_root = Path(
         _token(fixture["authority_cache_root"], "authority_cache_root")
     ).resolve()
@@ -215,6 +230,7 @@ def _validate_voxel_entries(
     rows = _sequence(fixture["physical_voxel_exposures"], "voxel entries")
     seen: set[str] = set()
     signatures: dict[str, tuple[str, str]] = {}
+    verified_files: dict[Path, str] = {}
     results: list[dict[str, Any]] = []
     for index, raw in enumerate(rows):
         row = _mapping(raw, f"voxel entry {index}")
@@ -244,6 +260,7 @@ def _validate_voxel_entries(
             raise ParityFixtureError(
                 f"voxel cache metadata differs from fixture: {semantic}"
             )
+        verified_files[entry.file_path(cached.relative_path).resolve()] = cached.sha256
         signatures[role] = (
             entry.key.component_frequency_hash,
             entry.key.stimulation_hash,
@@ -259,7 +276,7 @@ def _validate_voxel_entries(
         )
     if seen != _FREQUENCY_ROLES:
         raise ParityFixtureError("voxel fixture does not cover every frequency role")
-    return results, signatures
+    return results, signatures, verified_files
 
 
 def _prepared_authority(parent: Path) -> dict[tuple[str, str], list[dict[str, Any]]]:
@@ -294,6 +311,166 @@ def _prepared_authority(parent: Path) -> dict[tuple[str, str], list[dict[str, An
     return grouped
 
 
+def _artifact_array(
+    value: object,
+    *,
+    allowed_roots: tuple[Path, ...],
+    verified_files: dict[Path, str],
+    label: str,
+) -> tuple[dict[str, Any], Path, np.ndarray]:
+    artifact = _mapping(value, label)
+    path = _file_uri(artifact.get("uri"), allowed_roots)
+    declared_sha = _sha(artifact.get("sha256"), f"{label} SHA")
+    verified_sha = verified_files.get(path)
+    if verified_sha is None:
+        verified_sha = sha256_file(path)
+        verified_files[path] = verified_sha
+    if verified_sha != declared_sha:
+        raise ParityFixtureError(f"{label} payload SHA differs: {path}")
+    try:
+        array = np.load(path, mmap_mode="r", allow_pickle=False)
+    except (OSError, ValueError) as exc:
+        raise ParityFixtureError(f"{label} NPY payload is unreadable: {path}") from exc
+    declared_shape = artifact.get("shape")
+    if (
+        not isinstance(declared_shape, list)
+        or tuple(declared_shape) != array.shape
+        or artifact.get("dtype") != str(array.dtype)
+    ):
+        raise ParityFixtureError(f"{label} dtype or shape differs: {path}")
+    return artifact, path, array
+
+
+def _axis(value: object, label: str) -> tuple[int, str]:
+    axis = _mapping(value, label)
+    count = axis.get("count")
+    if type(count) is not int or count < 1:
+        raise ParityFixtureError(f"{label} count must be a positive integer")
+    return int(count), _sha(axis.get("sha256"), f"{label} SHA")
+
+
+def _selector(
+    value: object,
+    *,
+    output_axis: tuple[int, str],
+    parent_count: int,
+    allowed_roots: tuple[Path, ...],
+    verified_files: dict[Path, str],
+    label: str,
+) -> np.ndarray | None:
+    if value is None:
+        if output_axis[0] != parent_count:
+            raise ParityFixtureError(
+                f"{label} is absent but its logical and parent counts differ"
+            )
+        return None
+    artifact, _, array = _artifact_array(
+        value,
+        allowed_roots=allowed_roots,
+        verified_files=verified_files,
+        label=label,
+    )
+    if array.dtype != np.dtype(np.int64) or array.shape != (output_axis[0],):
+        raise ParityFixtureError(f"{label} must contain one int64 output position")
+    axes = artifact.get("axis_refs")
+    if not isinstance(axes, list) or len(axes) != 1:
+        raise ParityFixtureError(f"{label} must bind one logical output axis")
+    if _axis(axes[0], f"{label} axis") != output_axis:
+        raise ParityFixtureError(f"{label} logical axis differs from the view")
+    positions = np.asarray(array, dtype=np.int64)
+    if (
+        np.any(positions < 0)
+        or np.any(positions >= parent_count)
+        or np.unique(positions).size != positions.size
+    ):
+        raise ParityFixtureError(
+            f"{label} contains duplicate or out-of-range positions"
+        )
+    positions.flags.writeable = False
+    return positions
+
+
+def _indexed_view_sha(
+    value: object,
+    *,
+    expected_shape: tuple[int, int],
+    expected_feature_axis_sha: str,
+    allowed_roots: tuple[Path, ...],
+    verified_files: dict[Path, str],
+) -> str:
+    view = _mapping(value, "prepared indexed view")
+    if set(view) != {
+        "parent",
+        "row_positions",
+        "column_positions",
+        "axis_refs",
+        "schema_version",
+    }:
+        raise ParityFixtureError("prepared indexed view fields differ")
+    if view["schema_version"] != "dual_frequency_indexed_array_view_v1":
+        raise ParityFixtureError("prepared indexed view schema differs")
+    axes = _sequence(view["axis_refs"], "prepared indexed view axes")
+    if len(axes) != 2:
+        raise ParityFixtureError("prepared indexed view requires two axes")
+    row_axis = _axis(axes[0], "prepared indexed view row axis")
+    column_axis = _axis(axes[1], "prepared indexed view column axis")
+    if (
+        (row_axis[0], column_axis[0]) != expected_shape
+        or column_axis[1] != expected_feature_axis_sha
+    ):
+        raise ParityFixtureError(
+            "prepared indexed view logical shape or feature axis differs"
+        )
+    _, _, parent = _artifact_array(
+        view["parent"],
+        allowed_roots=allowed_roots,
+        verified_files=verified_files,
+        label="prepared indexed view parent",
+    )
+    if parent.ndim != 2 or parent.dtype != np.dtype(np.float32):
+        raise ParityFixtureError(
+            "prepared indexed view parent must be a float32 matrix"
+        )
+    rows = _selector(
+        view["row_positions"],
+        output_axis=row_axis,
+        parent_count=parent.shape[0],
+        allowed_roots=allowed_roots,
+        verified_files=verified_files,
+        label="prepared indexed view row selector",
+    )
+    columns = _selector(
+        view["column_positions"],
+        output_axis=column_axis,
+        parent_count=parent.shape[1],
+        allowed_roots=allowed_roots,
+        verified_files=verified_files,
+        label="prepared indexed view column selector",
+    )
+    header = io.BytesIO()
+    np.lib.format.write_array_header_1_0(
+        header,
+        {
+            "descr": np.lib.format.dtype_to_descr(parent.dtype),
+            "fortran_order": False,
+            "shape": expected_shape,
+        },
+    )
+    digest = hashlib.sha256(header.getvalue())
+    columns_per_block = max(1, (16 * 1024**2) // parent.dtype.itemsize)
+    for logical_row in range(expected_shape[0]):
+        parent_row = logical_row if rows is None else int(rows[logical_row])
+        for start in range(0, expected_shape[1], columns_per_block):
+            stop = min(start + columns_per_block, expected_shape[1])
+            values = (
+                parent[parent_row, start:stop]
+                if columns is None
+                else parent[parent_row, columns[start:stop]]
+            )
+            digest.update(np.asarray(values, dtype=parent.dtype).tobytes(order="C"))
+    return digest.hexdigest()
+
+
 def _validate_prepared_entries(
     fixture: dict[str, Any],
     parent: Path,
@@ -301,6 +478,8 @@ def _validate_prepared_entries(
     fixture_field: str,
     expected_pairs: set[tuple[str, str]],
     hash_all_payloads: bool,
+    allowed_roots: tuple[Path, ...],
+    verified_files: dict[Path, str],
 ) -> list[dict[str, Any]]:
     rows = _sequence(
         fixture[fixture_field], f"{fixture_field} entries"
@@ -342,24 +521,50 @@ def _validate_prepared_entries(
             exposure = _mapping(payload.get("exposure"), "prepared exposure")
             feature_ids = _mapping(payload.get("feature_ids"), "prepared feature IDs")
             feature_axis = _mapping(payload.get("feature_axis"), "prepared feature axis")
-            if (
-                exposure.get("sha256") != expected_exposure
-                or tuple(exposure.get("shape", ())) != expected_shape
-                or exposure.get("dtype") != "float32"
-                or feature_ids.get("sha256") != expected_ids
-                or feature_axis.get("sha256") != expected_axis
+            if feature_ids.get("sha256") != expected_ids or (
+                feature_axis.get("sha256") != expected_axis
             ):
                 raise ParityFixtureError(
                     f"prepared authority metadata differs from fixture: {pair}"
                 )
-            exposure_path = _file_uri(exposure.get("uri"), parent)
-            feature_ids_path = _file_uri(feature_ids.get("uri"), parent)
+            is_view = exposure.get("schema_version") == (
+                "dual_frequency_indexed_array_view_v1"
+            )
+            if not is_view and (
+                exposure.get("sha256") != expected_exposure
+                or tuple(exposure.get("shape", ())) != expected_shape
+                or exposure.get("dtype") != "float32"
+            ):
+                raise ParityFixtureError(
+                    f"prepared authority metadata differs from fixture: {pair}"
+                )
+            feature_ids_path = _file_uri(
+                feature_ids.get("uri"),
+                allowed_roots,
+            )
             if hash_all_payloads or payload_index == 0:
-                if sha256_file(exposure_path) != expected_exposure:
-                    raise ParityFixtureError(
-                        f"prepared exposure payload differs from fixture: {exposure_path}"
+                actual_exposure_sha = (
+                    _indexed_view_sha(
+                        exposure,
+                        expected_shape=expected_shape,
+                        expected_feature_axis_sha=expected_axis,
+                        allowed_roots=allowed_roots,
+                        verified_files=verified_files,
                     )
-                if sha256_file(feature_ids_path) != expected_ids:
+                    if is_view
+                    else sha256_file(
+                        _file_uri(exposure.get("uri"), allowed_roots)
+                    )
+                )
+                if actual_exposure_sha != expected_exposure:
+                    raise ParityFixtureError(
+                        f"prepared exposure payload differs from fixture: {pair}"
+                    )
+                feature_ids_sha = verified_files.get(feature_ids_path)
+                if feature_ids_sha is None:
+                    feature_ids_sha = sha256_file(feature_ids_path)
+                    verified_files[feature_ids_path] = feature_ids_sha
+                if feature_ids_sha != expected_ids:
                     raise ParityFixtureError(
                         f"prepared feature IDs differ from fixture: {feature_ids_path}"
                     )
@@ -429,12 +634,24 @@ def _validate_payload_matrix(
     run_id: str,
 ) -> dict[str, Any]:
     parent_manifest_sha256 = _validate_parent_manifest(parent, run_id)
-    physical, signatures = _validate_physical_entries(fixture)
-    voxels, voxel_signatures = _validate_voxel_entries(fixture)
+    physical, signatures, verified_fiber_files = _validate_physical_entries(
+        fixture
+    )
+    voxels, voxel_signatures, verified_voxel_files = _validate_voxel_entries(
+        fixture
+    )
     if signatures != voxel_signatures:
         raise ParityFixtureError(
             "voxel and fiber frequency roles have different physical identities"
         )
+    cache_root = Path(
+        _token(fixture["authority_cache_root"], "authority_cache_root")
+    ).resolve()
+    allowed_roots = (parent.resolve(), cache_root)
+    verified_files = {
+        **verified_fiber_files,
+        **verified_voxel_files,
+    }
     prepared = _validate_prepared_entries(
         fixture,
         parent,
@@ -445,6 +662,8 @@ def _validate_payload_matrix(
             for connectome in _CONNECTOMES
         },
         hash_all_payloads=True,
+        allowed_roots=allowed_roots,
+        verified_files=verified_files,
     )
     prepared_voxels = _validate_prepared_entries(
         fixture,
@@ -452,6 +671,8 @@ def _validate_payload_matrix(
         fixture_field="prepared_voxel_exposures",
         expected_pairs={(family, "none") for family in _VOXEL_MODEL_FAMILIES},
         hash_all_payloads=False,
+        allowed_roots=allowed_roots,
+        verified_files=verified_files,
     )
     return {
         "run_id": run_id,
