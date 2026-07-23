@@ -7669,6 +7669,32 @@ percent aggregate CPU and 1860419584 bytes RSS. The append-only guard exceeded
 swap use below the active epoch baseline. This remains intermediate,
 nonterminal evidence.
 
+At the user-requested 2026-07-23 13:45 PDT inspection, the reference cache had
+advanced again to 64 passing decisions and 128 row manifests. The eight most
+recent decisions were committed at approximately 48-to-64-minute intervals.
+All 64 decisions still belong to the reference group and pass; no new task
+failure appeared. The active reference gate remains the only running task.
+
+The single failed ledger row is the retained add-on equivalence gate
+`task_7894935452035f4bf4b8`. It started at 2026-07-22T15:46:04Z and stopped
+68 seconds later because an external MATLAB invocation returned code 1. This
+is historical resume state rather than evidence that the currently executing
+reference gate is failing. The resumed run preserves that record until the
+single solver token is released and the add-on task can be retried. Formal OSS
+acceptance still requires that retry to complete and cannot ignore or relabel
+the retained failure.
+
+No exact remaining-time denominator may be inferred from the 64 cumulative
+reference decisions. The group function discovers and deduplicates its full
+physical-row set before execution but publishes the authoritative count only
+in its terminal `row_decision_ids` closure. The observed production rate can
+therefore estimate time per remaining row but cannot prove how many reference
+or add-on rows remain. Current operational planning uses a broad one-to-three
+day range for independent OSS and a three-to-five day range for the full
+remaining Task 17, combined, publication, and postprocess sequence, provided
+there is no new external-tool or VAL interruption. These are scheduling
+estimates, not acceptance evidence.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
