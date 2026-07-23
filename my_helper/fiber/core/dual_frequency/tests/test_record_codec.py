@@ -860,6 +860,24 @@ class RecordCodecTest(unittest.TestCase):
                 column_positions=None,
                 axis_refs=(self.subjects, self.features),
             ),
+            reference_condition_exposure=IndexedArrayView(
+                parent=reference_condition,
+                row_positions=None,
+                column_positions=None,
+                axis_refs=(self.subjects, self.features),
+            ),
+            addon_reference_component_exposure=IndexedArrayView(
+                parent=addon_reference,
+                row_positions=None,
+                column_positions=None,
+                axis_refs=(self.subjects, self.features),
+            ),
+            total_exposure=IndexedArrayView(
+                parent=total,
+                row_positions=None,
+                column_positions=None,
+                axis_refs=(self.subjects, self.features),
+            ),
         )
         self.assertEqual(self._round_trip(view_backed), view_backed)
         self.assertEqual(

@@ -3749,7 +3749,9 @@ complete-view materializer. Sensitivity computes both collinearity means
 blockwise, while bootstrap continues to use its selected-column reader.
 Dedicated voxel and fiber fixtures prove byte-identical scores and support
 rows with complete-view materialization forced to fail. The complete
-dual-frequency suite passes 553 tests.
+prepared-record codec fixture also round-trips all three raw add-on views and
+reconstructs their transitive artifact closure. The complete dual-frequency
+suite passes 553 tests.
 
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
