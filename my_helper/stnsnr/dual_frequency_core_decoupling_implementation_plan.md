@@ -6714,6 +6714,32 @@ terminal exact row inventory, the maximum-row structural memory bound, and
 the prior measured max-size row windows. This evidence remains pending until
 the gate closes; no full-span internal metric may be invented.
 
+The pre-instrumentation path is a distinct acceptance schema, not a relaxed
+mode of the strict validator. Its terminal evidence bundle must contain:
+
+1. the completed run-manifest and exact task closure;
+2. both completed OSS gate records and their complete, unique
+   `row_decision_ids`;
+3. every referenced passing decision and its two valid row manifests;
+4. the row-level `n_fibers` inventory, proving which terminal row or tied rows
+   have the maximum structural size;
+5. one or more already captured guard windows that explicitly bind a maximum
+   structural row identity to UTC start and finish times, guard epoch, observed
+   RSS peak, and swap baseline; and
+6. all surviving external-guard epochs, with no stop event, RSS `< 64 GiB`,
+   swap growth `< 1 byte`, and a cryptographic digest of the original CSV.
+
+The validator must recompute the gate, decision, row, and maximum-size closure
+from terminal files. It may verify a measured window only when every sample in
+the declared UTC interval belongs to one guard epoch and the declared peak is
+the maximum observed peak in that interval. A human-authored label, an
+unbounded snapshot, a window that cannot be tied to a terminal maximum row, or
+an inferred full-span internal metric must fail closed. The report must state
+`external_guard_with_maximum_row_windows`, expose uncovered elapsed intervals,
+and describe the result as pre-instrumentation resource evidence rather than
+continuous full-span monitoring. Scientific completion and this resource
+acceptance remain separate verdicts.
+
 The later combined lineage starts under the instrumented code and must use the
 strict validator with its own terminal segment and guard CSV, the same limits,
 and a distinct acceptance report. A running or pre-instrumentation segment
