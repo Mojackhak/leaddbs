@@ -6740,6 +6740,21 @@ and describe the result as pre-instrumentation resource evidence rather than
 continuous full-span monitoring. Scientific completion and this resource
 acceptance remain separate verdicts.
 
+`validate_task17_preinstrumentation_resources.py` implements this separate
+schema. It requires a terminal completed run and exactly two accepted OSS gate
+records, verifies every decision and row payload against its cache manifest,
+derives the unique maximum-`n_fibers` row set, and accepts only measurement
+windows that select one guard epoch and bind a terminal maximum row to the
+observed interval peak. It rejects instrumented segments so they cannot bypass
+the stricter validator, preserves the incomplete full-span verdict, reports
+the pre-guard and post-guard uncovered intervals, and publishes its report
+atomically. Five focused fixtures cover valid multi-epoch evidence,
+non-maximum-row binding, peak mismatch, corrupt decision payload, and incorrect
+use on an instrumented segment. The complete dual-frequency regression passes
+586 tests under Conda `leaddbs`. The real report remains blocked on terminal
+OSS gate closure and a frozen measured-window input assembled only from the
+already captured runtime observations.
+
 The later combined lineage starts under the instrumented code and must use the
 strict validator with its own terminal segment and guard CSV, the same limits,
 and a distinct acceptance report. A running or pre-instrumentation segment
