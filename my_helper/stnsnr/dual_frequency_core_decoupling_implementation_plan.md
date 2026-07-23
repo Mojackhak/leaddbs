@@ -3362,6 +3362,58 @@ and scientific configuration hash
 Neither the dedicated cache root nor the acceptance run root was created. This
 accepts the replay request only; execution remains intentionally deferred.
 
+The deferred replay has one frozen run identity and command sequence. After the
+independent OSS child releases VAL and connectome bandwidth, execute the cold
+one-worker pass:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_dual_frequency_models.py run \
+  --study-base /Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json \
+  --direct-voxel-model my_helper/stnsnr/config/four_model_v1/direct_voxel_model.yaml \
+  --normative-fiber-model my_helper/stnsnr/config/four_model_v1/normative_fiber_model.yaml \
+  --workflow-profile my_helper/stnsnr/config/four_model_v1/workflow_task17_parity.yaml \
+  --scale adl \
+  --through observed \
+  --workers 1 \
+  --run-id task17-parity-v1-post-refactor-20260722
+```
+
+Then invoke the identical run root with the production worker ceiling and exact
+resume. This invocation must restore every completed task and must not produce
+a second cold cache generation:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_dual_frequency_models.py run \
+  --study-base /Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json \
+  --direct-voxel-model my_helper/stnsnr/config/four_model_v1/direct_voxel_model.yaml \
+  --normative-fiber-model my_helper/stnsnr/config/four_model_v1/normative_fiber_model.yaml \
+  --workflow-profile my_helper/stnsnr/config/four_model_v1/workflow_task17_parity.yaml \
+  --scale adl \
+  --through observed \
+  --workers 14 \
+  --run-id task17-parity-v1-post-refactor-20260722 \
+  --resume
+```
+
+After both invocations, publish the immutable replay report with the
+repository-owned verifier:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_connectome_parity_fixture.py \
+  --fixture my_helper/stnsnr/config/four_model_v1/acceptance/task17_connectome_parity_fixture.json \
+  --parent-run /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717 \
+  --replay-cache-root /Volumes/VAL/STNSNr/cache/dual_frequency_task17_parity_v1 \
+  --replay-run /Volumes/VAL/STNSNr/summary/spot/acceptance/.runs/stnsnr_frequency_addon/task17-parity-v1-post-refactor-20260722 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-physical-parity-replay-v1.json
+```
+
+The first command is the only cold replay. The second command is a same-root
+resume and the third command is read-only except for its atomic acceptance
+report. None is permitted while the independent OSS solver lineage is active.
+
 After execution, invoke the same verifier with explicit replay cache and replay
 run roots. Replay mode must require a completed new run, resolve the exact
 fixture semantic IDs from the dedicated cache, validate full payload bytes,
