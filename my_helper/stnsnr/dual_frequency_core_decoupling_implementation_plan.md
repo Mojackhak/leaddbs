@@ -7357,6 +7357,30 @@ while a value at the boundary or a changed persisted tolerance must fail.
 This aligns acceptance with the immutable scientific decision rather than
 weakening it or relying on the zero differences observed so far.
 
+The active independent OSS runner also predates the in-process resource and
+scheduler instrumentation. A source-history replay of the executor boundary
+loaded by that lineage confirms that its segment opens with the stable
+`dual_frequency_execution_segment_v1` identity, `spawn_process` pool mode,
+worker and token settings, and a running status; normal closure adds
+`finished_at` and `swap_delta_bytes` before atomically changing the status to
+`finished`. It does not claim `resource_sample_count`, task-tree RSS, or
+scheduler admission counters. The pre-instrumentation validator intentionally
+accepts exactly this smaller segment and derives the missing continuous
+resource evidence from the retained one-second external guard.
+
+Successor execution segments use the current instrumented executor and must be
+accepted only by the strict resource validator. The current writer and
+validator agree on the finished status, spawn pool mode, worker ceiling,
+single solver token, BLAS thread boundary, internal resource sample count,
+task-tree RSS and swap fields, restored and scheduled task counts, terminal
+task closure, pool generations, recovery counters, and scheduler admission
+metrics. Recovery-path inspection confirms that every rescheduled invocation
+increments `transient_retry_count`, including timeout and broken-pool
+recovery, so the validator's scheduled-versus-terminal closure remains valid.
+The independent OSS segment must never be upgraded by inference to this
+instrumented schema, and the combined segment must never fall back to the
+pre-instrumentation validator.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
