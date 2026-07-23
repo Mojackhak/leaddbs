@@ -103,6 +103,30 @@ is
 Promotion and the subsequent formal render remain ordered after the active OSS
 solver releases VAL.
 
+Promotion must use the repository-owned
+`my_helper/fiber/pipelines/repair_task17_display_smoothing_publication.py`
+command rather than an ad hoc file loop. Its `stage` mode reads only indexed
+canonical selected raw maps, deterministically writes both v2 derivatives and
+their metadata to a new caller-selected local directory, and writes a complete
+repair manifest plus candidate artifact index. Its `validate` mode requires
+the current canonical index to retain the manifest's frozen source SHA-256,
+checks every staged byte and metadata record, proves exact finite-support
+preservation, and permits index changes only to the target SHA-256 and byte
+count fields.
+
+Its `promote` mode is permitted only after the independent OSS process exits.
+It requires an explicit same-volume destination below
+`/Volumes/VAL/.Trashes/501`, copies each staged replacement to a temporary
+sibling, verifies it, archives every replaced untracked canonical file in that
+Trash tree, and uses same-parent atomic replacement. The completed
+`model_manifest.json` is temporarily withdrawn while any target or index may
+be mixed, so concurrent consumers fail closed. The original manifest is
+restored byte-identically only after all replacement payloads, metadata, and
+the candidate artifact index validate. Interrupted promotion remains
+resumable from the repair manifest and archived files; an unknown destination
+or changed source index fails closed. A final `validate` invocation must accept
+the promoted root before formal postprocess starts.
+
 ## Goal
 
 Add one reusable visualization package under

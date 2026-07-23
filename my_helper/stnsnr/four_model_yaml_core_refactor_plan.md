@@ -1746,6 +1746,18 @@ other field changes. The canonical index still matches its recorded pre-stage
 SHA-256. Promotion remains deferred until the active independent OSS solver
 releases VAL bandwidth.
 
+The canonical repair must be executed through
+`my_helper/fiber/pipelines/repair_task17_display_smoothing_publication.py`.
+That repository-owned tool stages only from indexed selected raw maps, freezes
+the source artifact-index SHA-256, verifies exact v2 payload and metadata
+closure, and restricts candidate-index changes to target SHA-256 and byte
+count. Promotion archives every replaced untracked file below an explicit
+same-volume VAL Trash root and withdraws the completed model manifest until
+all same-parent atomic replacements and the new index validate. It restores
+the original model manifest bytes last. This keeps scientific parent identity
+unchanged, makes partial promotion fail closed, and preserves a resumable
+archive rather than overwriting an unrecoverable external artifact.
+
 A bounded real-payload audit on 2026-07-22 then verified both PDQ-39 roles in
 each physical domain. Every sampled payload SHA-256 and byte count matched its
 canonical artifact-index row. For reference and add-on direct voxel, the
