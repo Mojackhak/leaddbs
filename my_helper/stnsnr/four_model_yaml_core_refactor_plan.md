@@ -1758,8 +1758,8 @@ the original model manifest bytes last. This keeps scientific parent identity
 unchanged, makes partial promotion fail closed, and preserves a resumable
 archive rather than overwriting an unrecoverable external artifact.
 
-The repair command and its six transaction fixtures are implemented. A
-29-test affected regression passes, including canonical publication and formal
+The repair command and its seven transaction fixtures are implemented. A
+30-test affected regression passes, including canonical publication and formal
 postprocess component boundaries. A second complete real-data stage generated
 by the command matched the retained 226-file stage byte-for-byte and reproduced
 the same repair-manifest SHA-256. The redundant stage was moved to the user

@@ -554,6 +554,29 @@ def validate(publication_root: Path, stage_root: Path) -> dict[str, Any]:
         state = "promoted"
     else:
         raise DisplaySmoothingRepairError("canonical artifact index changed unexpectedly")
+    if state == "staged":
+        for record in manifest["records"]:
+            relative = _safe_relative(record["relative_path"])
+            target = publication_root / relative
+            if (
+                not target.is_file()
+                or target.is_symlink()
+                or _sha256_file(target) != record["old_sha256"]
+            ):
+                raise DisplaySmoothingRepairError(
+                    f"canonical staged-state payload differs: {relative}"
+                )
+            metadata = Path(f"{target}.metadata.json")
+            if not metadata.is_file() or metadata.is_symlink():
+                raise DisplaySmoothingRepairError(
+                    f"canonical staged-state metadata is missing: {relative}"
+                )
+            if bool(record["byte_changed"]):
+                _old_metadata_is_acceptable(metadata, record)
+            elif _sha256_file(metadata) != record["metadata_sha256"]:
+                raise DisplaySmoothingRepairError(
+                    f"canonical unchanged v2 metadata differs: {relative}"
+                )
     if state == "promoted":
         candidate_by = {row["relative_path"]: row for row in candidate_rows}
         for record in manifest["records"]:
@@ -692,6 +715,12 @@ def promote(publication_root: Path, stage_root: Path, trash_root: Path) -> dict[
         return {**result, "status": "promoted", "trash_root": str(trash_root.resolve())}
     if current_index_sha not in {source_index_sha, staged_index_sha}:
         raise DisplaySmoothingRepairError("canonical artifact index changed unexpectedly")
+    if (
+        current_index_sha == source_index_sha
+        and model_path.is_file()
+        and not maintenance_path.exists()
+    ):
+        validate(publication_root, stage_root)
     _validate_staged_files(publication_root, stage_root, manifest)
     _validate_candidate_index(publication_root, stage_root, manifest)
     trash_root.mkdir(parents=True, exist_ok=True)

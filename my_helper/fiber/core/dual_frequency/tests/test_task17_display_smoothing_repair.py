@@ -285,3 +285,28 @@ def test_tampered_stage_fails_before_manifest_withdrawal(tmp_path: Path) -> None
         repair.promote(publication, stage_root, trash)
     assert _sha256(model_manifest) == model_sha
     assert not (publication / repair._MAINTENANCE_NAME).exists()
+
+
+def test_tampered_canonical_metadata_fails_before_manifest_withdrawal(
+    tmp_path: Path,
+) -> None:
+    publication = tmp_path / "publication"
+    model_manifest, model_sha = _publication(publication)
+    stage_root = tmp_path / "stage"
+    repair.stage(publication, stage_root)
+    metadata = (
+        publication
+        / "old_scale/reference/report/display/"
+        "benefit_map_smooth_fwhm1mm.nii.gz.metadata.json"
+    )
+    payload = json.loads(metadata.read_text())
+    payload["provenance"]["algorithm"] = "changed"
+    _write_json(metadata, payload)
+    trash = tmp_path / ".Trashes" / str(os.getuid()) / "display-repair"
+    with pytest.raises(
+        repair.DisplaySmoothingRepairError,
+        match="canonical metadata changed",
+    ):
+        repair.promote(publication, stage_root, trash)
+    assert _sha256(model_manifest) == model_sha
+    assert not (publication / repair._MAINTENANCE_NAME).exists()

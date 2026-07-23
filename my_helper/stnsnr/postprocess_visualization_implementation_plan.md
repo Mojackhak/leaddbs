@@ -127,13 +127,14 @@ resumable from the repair manifest and archived files; an unknown destination
 or changed source index fails closed. A final `validate` invocation must accept
 the promoted root before formal postprocess starts.
 
-The repository-owned repair command was implemented on 2026-07-23. Six
+The repository-owned repair command was implemented on 2026-07-23. Seven
 transaction fixtures cover deterministic staging, read-only validation,
 same-volume Trash promotion, identical repeated promotion, refusal to overwrite
 an existing stage, source-index drift, invalid Trash placement, staged-payload
-tampering, and resume after an injected interruption with the model manifest
-withheld. All six pass. The affected publication, repair, and formal
-postprocess regression passes 29 tests under Conda `leaddbs`; the visualization
+tampering, canonical metadata drift before manifest withdrawal, and resume
+after an injected interruption with the model manifest withheld. All seven
+pass. The affected publication, repair, and formal postprocess regression
+passes 30 tests under Conda `leaddbs`; the visualization
 launcher preloads Numba before pytest adds test directories, preventing the
 project `core/coverage` package from shadowing an absent third-party
 `coverage` dependency during collection.
