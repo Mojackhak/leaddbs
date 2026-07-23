@@ -5606,6 +5606,19 @@ still prove failure before their respective physical producer calls. The real
 combined lineage remains pending until the independent formal OSS child reaches
 terminal acceptance.
 
+A current executor-coverage audit on 2026-07-22 confirmed that a second
+micro-fixture containing only two cache-first tasks would not add an uncovered
+boundary. The synthetic acceptance above runs through `WorkflowService`, the
+compiled sensitivity plan, the production executor, the production jitter
+block service, and the production OSS axis-gate service. It therefore proves
+more than the generic executor probe: both cache-first domains enter with
+expensive authorization disabled, their populated caches are consumed, their
+dependent endpoint services complete, and the parent checkpoint remains
+byte-identical. The separate jitter-provider and OSS-axis miss fixtures retain
+the complementary proof that a true cache miss stops before the respective
+physical producer. No duplicate executor test or production behavior change
+was added.
+
 A separate 2026-07-22 end-to-end replay passed all three lineage-control
 fixtures under Conda `leaddbs`: a missing parent creates a new main lineage
 before extension execution, jitter and OSS execute as independent children of
@@ -6847,6 +6860,12 @@ had not grown. The task ledger remained at 196 completed, one running
 reference gate, one historical failed add-on gate, and 392 dependency-derived
 skips. This is progress evidence only; the reference group still lacks its
 terminal authoritative closure.
+
+A process-only audit at 2026-07-22 21:44 PDT confirmed that the formal runner,
+its persistent worker, one OSS-DBS solver child, and the local one-second
+resource guard were all live. This audit did not traverse the shared cache or
+advance the scheduled two-hour durable-progress poll. The guard remains a
+local process safeguard rather than a model-driven monitoring turn.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 
