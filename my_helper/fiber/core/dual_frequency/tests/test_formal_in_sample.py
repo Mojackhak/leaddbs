@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 import tempfile
@@ -17,6 +18,7 @@ from dual_frequency.contracts import (
     FormalResult,
     HardComputabilityLimits,
     InSampleRequest,
+    IndexedArrayView,
 )
 from dual_frequency.reporting import (
     build_formal_in_sample_results,
@@ -209,6 +211,39 @@ class FinalInSampleBackendTest(unittest.TestCase):
                 self.assertEqual(
                     summary["schedule_pairing_status"],
                     "independent_deterministic_schedule",
+                )
+                view_publisher = RunScopedArtifactPublisher(
+                    root / "view",
+                    "in_sample_view_test",
+                    "1",
+                )
+                view_request = dataclasses.replace(
+                    request,
+                    exposure=IndexedArrayView(
+                        parent=exposure_ref,
+                        row_positions=None,
+                        column_positions=None,
+                        axis_refs=(subject_axis, parent_axis),
+                    ),
+                )
+                view_result = FinalInSampleBackend(
+                    view_publisher,
+                    artifact_store=ArtifactStore((root,)),
+                ).run(view_request)
+                view_summary_ref = next(
+                    item
+                    for item in view_result.artifacts
+                    if item.kind == "formal_in_sample_summary"
+                )
+                view_summary = json.loads(
+                    Path(
+                        view_summary_ref.uri.removeprefix("file://")
+                    ).read_text()
+                )
+                self.assertEqual(view_summary["in_sample"], summary["in_sample"])
+                self.assertEqual(
+                    view_summary["candidate_feature_count"],
+                    summary["candidate_feature_count"],
                 )
 
 

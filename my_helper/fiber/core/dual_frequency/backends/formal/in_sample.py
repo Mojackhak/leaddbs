@@ -9,11 +9,12 @@ from typing import Any
 
 import numpy as np
 
-from ...cache import ArtifactStore
+from ...cache import ArtifactStore, IndexedArrayReader
 from ...contracts import (
     AxisRef,
     FormalResult,
     InSampleRequest,
+    IndexedArrayView,
     NormativeFiberScoreSettings,
     canonical_hash,
 )
@@ -159,7 +160,7 @@ def _nuisance(
 
 def _candidate(
     request: InSampleRequest,
-    exposure: np.ndarray,
+    exposure: np.ndarray | IndexedArrayReader,
     feature_ids: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     final_key = request.final_model.final_key
@@ -460,6 +461,12 @@ class FinalInSampleBackend:
     def run(self, request: InSampleRequest) -> FormalResult:
         if not isinstance(request, InSampleRequest):
             raise FormalBackendInputError("request must be InSampleRequest")
+        if isinstance(request.exposure, IndexedArrayView):
+            with self.artifact_store.open_indexed_array_view(
+                request.exposure,
+                max_block_bytes=16 * 1024**3,
+            ) as exposure:
+                return self._run_materialized(request, exposure)
         exposure = finite_exposure(
             materialize_array(
                 request.exposure,
@@ -472,6 +479,13 @@ class FinalInSampleBackend:
             ),
             request,
         )
+        return self._run_materialized(request, exposure)
+
+    def _run_materialized(
+        self,
+        request: InSampleRequest,
+        exposure: np.ndarray | IndexedArrayReader,
+    ) -> FormalResult:
         outcome = finite_vector(
             materialize_array(
                 request.outcome,

@@ -1,16 +1,87 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+import tempfile
 
 import numpy as np
 
+from ..cache import ArtifactStore, sha256_file
+from ..contracts import ArtifactRef, AxisRef, IndexedArrayView
 from ..runtime.bootstrap_provider import (
     StudyBootstrapNuisanceProviderError,
     _aligned_selected_fiber_exposures,
+    _materialize_columns,
 )
 
 
 class BootstrapProviderFiberAlignmentTests(unittest.TestCase):
+    def test_materializes_only_selected_columns_from_indexed_view(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rows = AxisRef("rows", 2, "1" * 64)
+            parent_columns = AxisRef("parent-columns", 4, "2" * 64)
+            logical_columns = AxisRef("logical-columns", 3, "3" * 64)
+            values = np.arange(8, dtype=np.float32).reshape(2, 4)
+            parent_path = root / "parent.npy"
+            positions_path = root / "positions.npy"
+            np.save(parent_path, values, allow_pickle=False)
+            np.save(
+                positions_path,
+                np.asarray([3, 1, 0], dtype=np.int64),
+                allow_pickle=False,
+            )
+
+            def artifact(
+                path: Path,
+                *,
+                dtype: str,
+                axes: tuple[AxisRef, ...],
+                units: str | None,
+                space: str | None,
+            ) -> ArtifactRef:
+                return ArtifactRef(
+                    kind=path.stem,
+                    schema_version="dual_frequency_array_v1",
+                    uri=path.as_uri(),
+                    sha256=sha256_file(path),
+                    dtype=dtype,
+                    shape=tuple(axis.count for axis in axes),
+                    axis_refs=axes,
+                    axis_hashes=tuple(axis.sha256 for axis in axes),
+                    units=units,
+                    space=space,
+                    producer_id="bootstrap_test",
+                    producer_version="1",
+                )
+
+            parent = artifact(
+                parent_path,
+                dtype="float32",
+                axes=(rows, parent_columns),
+                units="V/m",
+                space="synthetic",
+            )
+            selector = artifact(
+                positions_path,
+                dtype="int64",
+                axes=(logical_columns,),
+                units="index",
+                space=None,
+            )
+            view = IndexedArrayView(
+                parent=parent,
+                row_positions=None,
+                column_positions=selector,
+                axis_refs=(rows, logical_columns),
+            )
+            output = _materialize_columns(
+                ArtifactStore((root,)),
+                view,
+                np.asarray([2, 0], dtype=np.int64),
+            )
+            np.testing.assert_array_equal(output, values[:, [0, 3]])
+
     def test_aligns_locked_ids_independently_across_two_parent_axes(self) -> None:
         reference_parent_ids = np.asarray([10, 20, 30, 40, 50], dtype=np.int64)
         addon_parent_ids = np.asarray([20, 30, 40, 60], dtype=np.int64)

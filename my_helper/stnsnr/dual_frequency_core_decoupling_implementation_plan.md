@@ -3671,6 +3671,22 @@ same 16 GiB contiguous replay budget only at its existing voxel publication
 boundary. Resume artifact closure continues to enumerate and verify the parent
 and selectors separately.
 
+Adjusted-bootstrap nuisance reconstruction does not materialize a complete
+view. It resolves the locked final feature positions first, then gathers only
+those columns through a reader budget equal to the selected output bytes.
+Artifact-only parents use the same selected-column path, so voxel and fiber
+bootstrap reconstruction retain one alignment rule and view-backed reference
+preparation cannot increase its scientific working set.
+
+`InSampleRequest.exposure` also accepts the view because its frozen contract
+starts from the complete prepared parent axis before applying the selected
+tau/Coverage. The in-sample backend scans coverage through bounded blocks,
+gathers only the resulting full-sample candidate columns, and closes the reader
+before returning or raising. It never converts the complete parent view to a
+NumPy array. Its explicit candidate gather budget is 16 GiB, matching the
+existing contiguous replay ceiling while retaining the exact full-parent
+selection semantics.
+
 The preparation-kernel phase is now implemented. `_TemporaryMatrix` carries
 immutable optional row and column positions over one parent memmap, composes
 ordered subject and feature selections, exposes bounded column reads, and

@@ -745,7 +745,7 @@ class InSampleRequest:
     """Full-parent-axis request for conditional final in-sample inference."""
 
     final_model: FinalModelRecord
-    exposure: ArtifactRef
+    exposure: ScientificMatrixInput
     outcome: ArtifactRef
     baseline: ArtifactRef
     delta_reference_full: ArtifactRef | None
@@ -775,8 +775,8 @@ class InSampleRequest:
         ):
             raise RequestError("in-sample axes must be AxisRef values")
 
+        _scientific_matrix_input(self.exposure, "exposure")
         for value, field in (
-            (self.exposure, "exposure"),
             (self.outcome, "outcome"),
             (self.baseline, "baseline"),
             (self.feature_ids, "feature_ids"),

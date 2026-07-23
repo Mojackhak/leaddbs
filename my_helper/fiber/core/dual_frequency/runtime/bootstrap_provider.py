@@ -21,12 +21,13 @@ from ..contracts import (
     DeltaReferenceBundle,
     EndpointInputRecord,
     FormalRequest,
+    IndexedArrayView,
     NormativeFiberScoreSettings,
     PreparedExposureRecord,
     ReferenceDependencyRecord,
     SourceRecord,
 )
-from ..contracts.records import ACCEPTED_SOURCE_STATUSES
+from ..contracts.records import ACCEPTED_SOURCE_STATUSES, ScientificArrayRef
 from .input_provider import StudyRuntimeInputProvider
 
 
@@ -61,6 +62,37 @@ def _materialize(store: ArtifactStore, artifact: ArtifactRef) -> np.ndarray:
         expected_space=artifact.space,
         mmap_mode="r",
     )
+
+
+def _materialize_columns(
+    store: ArtifactStore,
+    value: ScientificArrayRef,
+    positions: np.ndarray,
+) -> np.ndarray:
+    selected = np.asarray(positions, dtype=np.int64)
+    if selected.ndim != 1 or selected.size < 1:
+        raise StudyBootstrapNuisanceProviderError(
+            "selected exposure positions must be a nonempty integer vector"
+        )
+    if (
+        int(selected.min()) < 0
+        or int(selected.max()) >= value.shape[1]
+        or np.unique(selected).size != selected.size
+    ):
+        raise StudyBootstrapNuisanceProviderError(
+            "selected exposure positions must be unique and in range"
+        )
+    if isinstance(value, IndexedArrayView):
+        max_bytes = (
+            value.shape[0] * selected.size * np.dtype(value.dtype).itemsize
+        )
+        with store.open_indexed_array_view(
+            value,
+            max_block_bytes=max_bytes,
+        ) as reader:
+            return np.asarray(reader[:, selected], dtype=np.float64)
+    array = _materialize(store, value)
+    return np.asarray(array[:, selected], dtype=np.float64)
 
 
 def _finite_vector(value: np.ndarray, name: str, count: int) -> np.ndarray:
@@ -551,40 +583,45 @@ class StudyBootstrapNuisanceProvider:
                 runtime_provider.configuration.normative_fiber.delta_reference_support
             )
 
-        reference_exposure = _materialize(artifact_store, reference_prepared.exposure)
-        reference_condition = _materialize(
-            artifact_store,
-            addon_prepared.reference_condition_exposure,
-        )
-        addon_reference_component = _materialize(
-            artifact_store,
-            addon_prepared.addon_reference_component_exposure,
-        )
         if self._model_family.endswith("voxel"):
-            self._reference_exposure = np.asarray(
-                reference_exposure[:, positions],
-                dtype=np.float64,
+            self._reference_exposure = _materialize_columns(
+                artifact_store,
+                reference_prepared.exposure,
+                positions,
             )
-            self._reference_condition_exposure = np.asarray(
-                reference_condition[:, positions],
-                dtype=np.float64,
+            self._reference_condition_exposure = _materialize_columns(
+                artifact_store,
+                addon_prepared.reference_condition_exposure,
+                positions,
             )
-            self._addon_reference_component_exposure = np.asarray(
-                addon_reference_component[:, positions],
-                dtype=np.float64,
+            self._addon_reference_component_exposure = _materialize_columns(
+                artifact_store,
+                addon_prepared.addon_reference_component_exposure,
+                positions,
             )
         else:
-            (
-                self._reference_exposure,
-                self._reference_condition_exposure,
-                self._addon_reference_component_exposure,
-            ) = _aligned_selected_fiber_exposures(
+            reference_feature_positions = _selected_parent_positions(
                 reference_parent_ids,
+                selected_ids,
+            )
+            addon_feature_positions = _selected_parent_positions(
                 addon_parent_ids,
                 selected_ids,
-                reference_exposure,
-                reference_condition,
-                addon_reference_component,
+            )
+            self._reference_exposure = _materialize_columns(
+                artifact_store,
+                reference_prepared.exposure,
+                reference_feature_positions,
+            )
+            self._reference_condition_exposure = _materialize_columns(
+                artifact_store,
+                addon_prepared.reference_condition_exposure,
+                addon_feature_positions,
+            )
+            self._addon_reference_component_exposure = _materialize_columns(
+                artifact_store,
+                addon_prepared.addon_reference_component_exposure,
+                addon_feature_positions,
             )
         if not (
             np.all(np.isfinite(self._reference_exposure))
