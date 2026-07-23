@@ -6911,6 +6911,52 @@ publication to prove same-byte idempotent resume, followed by a complete
 manifest, artifact-index, payload SHA-256, parent-binding, and forbidden-path
 audit before postprocess may consume the extension.
 
+The audit is repository-owned and repeatable rather than an ad hoc shell
+inspection. `validate_task17_extension_publication.py` accepts one completed
+source child plus one or more extension-v2 roots and performs no writes unless
+an explicit report path is provided. For every root it requires a terminal
+`completed` v2 manifest, complete publication scope, an extension ID matching
+the directory name, and a completed parent model manifest whose bytes match
+the declared SHA-256. The source child manifest must be terminal, match the
+declared source run and SHA-256, and carry the same parent run and scientific-
+configuration identities as the extension. The CSV index must contain unique
+safe relative paths, terminal rows, valid byte counts and SHA-256 values, and
+exact closure over every regular publication file except the index and manifest
+themselves and filesystem-generated AppleDouble or `.DS_Store` sidecars. The
+validator hashes every indexed payload, checks aggregate result counts and
+analysis families against the manifest, and rejects `file://`, `.runs`,
+`tasks`, `work`, or `runtime_work` text in public JSON and CSV metadata. It
+emits one deterministic JSON summary per root; an explicit report uses atomic
+same-byte publication and refuses a changed collision. Focused fixtures cover
+a valid extension, payload corruption, an unindexed file, parent-manifest
+drift, source-child drift, and a forbidden run-store path. The accepted
+jitter-v2, later OSS-v2, and later combined-v2 roots must all pass this same
+command.
+
+The validator is implemented with six focused fixtures. They cover a valid
+complete extension, atomic same-byte report reuse and changed-report
+rejection, payload corruption, an unindexed payload, parent-manifest drift,
+source-child drift, and forbidden run-store text after otherwise valid
+reindexing. The complete dual-frequency regression passes 573 tests under
+Conda `leaddbs`. Real jitter-v2 validation is intentionally ordered after the
+active independent OSS solver releases VAL bandwidth; the validator itself
+does not weaken the requirement to hash every indexed byte.
+
+The frozen jitter-v2 invocation is:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_extension_publication.py \
+  --source-run /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-jitter-v8-support-preserving-formal-20260719 \
+  --extension-root /Volumes/VAL/STNSNr/summary/spot/direct_voxel/dual_frequency_four_model_v1/extensions/task17-jitter-v8-support-preserving-formal-20260719-v2 \
+  --extension-root /Volumes/VAL/STNSNr/summary/spot/normative_fiber/dual_frequency_four_model_v1/extensions/task17-jitter-v8-support-preserving-formal-20260719-v2 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-jitter-v8-extension-v2-validation-v1.json
+```
+
+The later OSS and combined invocations use their exact completed child and
+canonical `-v2` roots with distinct acceptance report names. Independent OSS
+passes only its normative-fiber root; combined passes both domain roots.
+
 The completed jitter lineage was replayed on 2026-07-22 with the first command
 above. It created
 `direct_voxel/dual_frequency_four_model_v1/extensions/`
