@@ -43,6 +43,144 @@ class ArtifactPublicationError(CacheError):
     """Raised when a run-scoped artifact cannot be published without overwrite."""
 
 
+class IndexedArrayReader:
+    """Context-managed, byte-bounded reader for one verified indexed view."""
+
+    def __init__(
+        self,
+        parent: np.ndarray,
+        row_positions: np.ndarray | None,
+        column_positions: np.ndarray | None,
+        *,
+        logical_shape: tuple[int, int],
+        max_block_bytes: int,
+    ) -> None:
+        self._parent = parent
+        self._row_positions = row_positions
+        self._column_positions = column_positions
+        self.shape = logical_shape
+        self.ndim = 2
+        self.dtype = parent.dtype
+        self.max_block_bytes = max_block_bytes
+        self._closed = False
+
+    @staticmethod
+    def _logical_positions(
+        key: object,
+        size: int,
+        role: str,
+    ) -> tuple[slice | np.ndarray, int, bool]:
+        if type(key) is int:
+            index = int(key)
+            if index < 0:
+                index += size
+            if index < 0 or index >= size:
+                raise IndexError(f"{role} index is outside the logical axis")
+            return np.asarray([index], dtype=np.int64), 1, True
+        if isinstance(key, slice):
+            start, stop, step = key.indices(size)
+            if step != 1:
+                raise ArtifactValidationError(
+                    f"{role} slice must use a positive unit step"
+                )
+            return slice(start, stop), max(0, stop - start), False
+        values = np.asarray(key)
+        if values.ndim != 1 or values.dtype == np.dtype(bool) or not np.issubdtype(
+            values.dtype,
+            np.integer,
+        ):
+            raise ArtifactValidationError(
+                f"{role} selector must be an integer, unit-step slice, "
+                "or one-dimensional integer positions"
+            )
+        indices = np.asarray(values, dtype=np.int64)
+        if indices.size and (
+            int(indices.min()) < -size or int(indices.max()) >= size
+        ):
+            raise IndexError(f"{role} positions exceed the logical axis")
+        indices = np.where(indices < 0, indices + size, indices).astype(
+            np.int64,
+            copy=False,
+        )
+        return indices, int(indices.size), False
+
+    @staticmethod
+    def _parent_selector(
+        logical: slice | np.ndarray,
+        persisted: np.ndarray | None,
+    ) -> slice | np.ndarray:
+        if persisted is None:
+            return logical
+        return persisted[logical]
+
+    def __getitem__(self, key: object) -> np.ndarray:
+        if self._closed:
+            raise ArtifactValidationError("IndexedArrayReader is closed")
+        if not isinstance(key, tuple) or len(key) != 2:
+            raise ArtifactValidationError(
+                "IndexedArrayReader requires explicit two-dimensional indexing"
+            )
+        logical_rows, row_count, row_scalar = self._logical_positions(
+            key[0],
+            self.shape[0],
+            "row",
+        )
+        logical_columns, column_count, column_scalar = self._logical_positions(
+            key[1],
+            self.shape[1],
+            "column",
+        )
+        requested_bytes = row_count * column_count * self.dtype.itemsize
+        if requested_bytes > self.max_block_bytes:
+            raise ArtifactValidationError(
+                "IndexedArrayReader request exceeds its block byte budget"
+            )
+        rows = self._parent_selector(logical_rows, self._row_positions)
+        columns = self._parent_selector(logical_columns, self._column_positions)
+        if isinstance(rows, slice) and isinstance(columns, slice):
+            selected = self._parent[rows, columns]
+        elif isinstance(rows, slice):
+            selected = self._parent[rows, columns]
+        elif isinstance(columns, slice):
+            selected = self._parent[rows, columns]
+        else:
+            selected = self._parent[np.ix_(rows, columns)]
+        block = np.array(selected, dtype=self.dtype, copy=True)
+        if row_scalar:
+            block = block[0]
+        if column_scalar:
+            block = block[..., 0]
+        block.flags.writeable = False
+        return block
+
+    def __array__(
+        self,
+        dtype: np.dtype | None = None,
+        copy: bool | None = None,
+    ) -> np.ndarray:
+        del dtype, copy
+        raise ArtifactValidationError(
+            "IndexedArrayReader forbids implicit NumPy materialization"
+        )
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        mmap = getattr(self._parent, "_mmap", None)
+        close = getattr(mmap, "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self) -> "IndexedArrayReader":
+        if self._closed:
+            raise ArtifactValidationError("IndexedArrayReader is closed")
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
 def _token(value: str, field: str) -> str:
     token = str(value).strip()
     if not token:
@@ -1059,7 +1197,38 @@ class ArtifactStore:
             raise TypeError("view must be an IndexedArrayView")
         if type(block_columns) is not int or block_columns < 1:
             raise ArtifactValidationError("block_columns must be a positive integer")
+        maximum_columns = min(block_columns, view.shape[1])
+        block_budget = (
+            view.shape[0] * maximum_columns * np.dtype(view.dtype).itemsize
+        )
+        with self.open_indexed_array_view(
+            view,
+            max_block_bytes=block_budget,
+        ) as reader:
+            for start in range(0, view.shape[1], block_columns):
+                stop = min(start + block_columns, view.shape[1])
+                block = reader[:, start:stop]
+                expected_shape = (view.shape[0], stop - start)
+                if block.shape != expected_shape:
+                    raise ArtifactValidationError(
+                        "IndexedArrayView block shape differs from its logical axes"
+                    )
+                yield start, stop, block
 
+    def open_indexed_array_view(
+        self,
+        view: IndexedArrayView,
+        *,
+        max_block_bytes: int,
+    ) -> IndexedArrayReader:
+        """Open one verified logical view for explicitly bounded indexed reads."""
+
+        if not isinstance(view, IndexedArrayView):
+            raise TypeError("view must be an IndexedArrayView")
+        if type(max_block_bytes) is not int or max_block_bytes < 1:
+            raise ArtifactValidationError(
+                "max_block_bytes must be a positive integer"
+            )
         row_positions = self._materialize_view_positions(
             view.row_positions,
             output_axis=view.axis_refs[0],
@@ -1081,32 +1250,13 @@ class ArtifactStore:
             expected_space=view.space,
             mmap_mode="r",
         )
-        try:
-            for start in range(0, view.shape[1], block_columns):
-                stop = min(start + block_columns, view.shape[1])
-                if column_positions is None:
-                    columns: slice | np.ndarray = slice(start, stop)
-                else:
-                    columns = column_positions[start:stop]
-                if row_positions is None:
-                    selected = parent[:, columns]
-                elif isinstance(columns, slice):
-                    selected = parent[row_positions, columns]
-                else:
-                    selected = parent[np.ix_(row_positions, columns)]
-                block = np.array(selected, dtype=np.dtype(view.dtype), copy=True)
-                expected_shape = (view.shape[0], stop - start)
-                if block.shape != expected_shape:
-                    raise ArtifactValidationError(
-                        "IndexedArrayView block shape differs from its logical axes"
-                    )
-                block.flags.writeable = False
-                yield start, stop, block
-        finally:
-            mmap = getattr(parent, "_mmap", None)
-            close = getattr(mmap, "close", None)
-            if callable(close):
-                close()
+        return IndexedArrayReader(
+            parent,
+            row_positions,
+            column_positions,
+            logical_shape=view.shape,
+            max_block_bytes=max_block_bytes,
+        )
 
     def materialize_indexed_array_view(
         self,

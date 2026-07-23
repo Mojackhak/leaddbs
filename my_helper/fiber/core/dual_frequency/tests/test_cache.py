@@ -756,6 +756,30 @@ class ArtifactStoreTest(unittest.TestCase):
         )
         np.testing.assert_array_equal(output, expected)
         self.assertFalse(output.flags.writeable)
+        with self.store.open_indexed_array_view(
+            view,
+            max_block_bytes=expected.nbytes,
+        ) as reader:
+            self.assertEqual(reader.shape, (2, 2))
+            self.assertEqual(reader.ndim, 2)
+            np.testing.assert_array_equal(reader[:, 0:1], expected[:, 0:1])
+            np.testing.assert_array_equal(reader[1, :], expected[1, :])
+            np.testing.assert_array_equal(
+                reader[[1, 0], [1, 0]],
+                expected[np.ix_([1, 0], [1, 0])],
+            )
+            with self.assertRaisesRegex(ArtifactValidationError, "implicit"):
+                np.asarray(reader)
+            with self.assertRaisesRegex(ArtifactValidationError, "selector"):
+                reader[np.asarray([True, False]), :]
+        with self.assertRaisesRegex(ArtifactValidationError, "closed"):
+            reader[:, :]
+        with self.store.open_indexed_array_view(
+            view,
+            max_block_bytes=np.dtype("float64").itemsize,
+        ) as reader:
+            with self.assertRaisesRegex(ArtifactValidationError, "block byte budget"):
+                reader[:, 0:1]
         with self.assertRaisesRegex(ArtifactValidationError, "budget"):
             self.store.materialize_indexed_array_view(
                 view,

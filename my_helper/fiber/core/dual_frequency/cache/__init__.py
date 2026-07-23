@@ -14,6 +14,7 @@ from .store import (
     CacheShardInterval,
     CachedFile,
     ContentAddressedCache,
+    IndexedArrayReader,
     ReindexedView,
     RunScopedArtifactPublisher,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "CacheShardInterval",
     "CachedFile",
     "ContentAddressedCache",
+    "IndexedArrayReader",
     "ReindexedView",
     "RunScopedArtifactPublisher",
     "ScientificCacheKey",

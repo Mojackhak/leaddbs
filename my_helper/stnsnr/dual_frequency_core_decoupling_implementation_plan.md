@@ -3615,6 +3615,18 @@ after their kernels use this bounded interface or declare and meter an external
 contiguous-array boundary. Document artifacts and one-dimensional identity axes
 remain plain `ArtifactRef` values.
 
+For long-lived fiber hot loops, `ArtifactStore.open_indexed_array_view` returns
+one context-managed read-only reader over the verified parent mapping. The
+reader supports only explicit two-dimensional indexing with an integer, a
+contiguous unit-step slice, or a one-dimensional integer position vector on
+each axis. It preserves normal scalar-axis removal, preserves declared selector
+order, applies the Cartesian product when both axes use position vectors,
+rejects boolean or multidimensional selectors, and rejects a requested block
+before gathering when block bytes > the positive open-time budget.
+Implicit NumPy conversion always raises. Closing the reader invalidates later
+reads and closes the parent memmap; callers may not retain it beyond the
+backend workspace lifetime.
+
 The first persisted consumer migration covers the two-dimensional scientific
 arrays in `PreparedExposureRecord`: `exposure`,
 `reference_condition_exposure`, `addon_reference_component_exposure`,
