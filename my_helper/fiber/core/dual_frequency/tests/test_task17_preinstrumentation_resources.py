@@ -38,6 +38,17 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _task_id(key: dict[str, str]) -> str:
+    payload = json.dumps(
+        key,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return f"task_{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:20]}"
+
+
 class Task17PreinstrumentationResourceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -166,10 +177,16 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
         rows = ("a" * 64, "b" * 64, "c" * 64, "d" * 64)
         tasks = []
         for index, (group, decision) in enumerate(zip(groups, decisions, strict=True)):
-            task_id = f"task_gate_{index}"
+            key = {
+                "endpoint_id": f"endpoint_gate_{index}",
+                "stage": f"oss_axis_equivalence_{index}",
+                "branch": "none",
+                "parameter_identity": str(index + 1) * 64,
+            }
+            task_id = _task_id(key)
             tasks.append(
                 {
-                    "task_id": task_id,
+                    "key": key,
                     "service_id": "establish_oss_axis_equivalence",
                 }
             )
@@ -313,6 +330,21 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
         with self.assertRaisesRegex(
             validator.PreinstrumentationResourceError,
             "payload SHA-256 differs",
+        ):
+            self._validate()
+
+    def test_derived_task_identity_mismatch_fails(self) -> None:
+        plan_path = self.root / "sensitivity_plan.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        key = plan["plan"]["tasks"][0]["key"]
+        task_id = _task_id(key)
+        task_path = self.root / "tasks" / f"{task_id}.json"
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+        task["task_id"] = "task_wrong"
+        _write_json(task_path, task)
+        with self.assertRaisesRegex(
+            validator.PreinstrumentationResourceError,
+            "task identity differs",
         ):
             self._validate()
 

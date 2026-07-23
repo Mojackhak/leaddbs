@@ -6751,9 +6751,20 @@ the pre-guard and post-guard uncovered intervals, and publishes its report
 atomically. Five focused fixtures cover valid multi-epoch evidence,
 non-maximum-row binding, peak mismatch, corrupt decision payload, and incorrect
 use on an instrumented segment. The complete dual-frequency regression passes
-586 tests under Conda `leaddbs`. The real report remains blocked on terminal
+587 tests under Conda `leaddbs`. The real report remains blocked on terminal
 OSS gate closure and a frozen measured-window input assembled only from the
 already captured runtime observations.
+
+The first production-plan dry read exposed one serialization boundary in that
+validator before it was used for acceptance: persisted
+`sensitivity_plan.json` task entries contain the complete `TaskKey` under
+`key`, not a redundant top-level `task_id`. The validator must derive
+`task_<first-20-hex-of-canonical-key-SHA256>` from that exact key and compare it
+with the corresponding task document. A fixture that uses only synthetic
+top-level task IDs is insufficient. Focused coverage now uses the production
+plan shape and rejects a task document whose derived identity differs. A
+read-only audit of the active production plan derived 590 unique IDs and found
+590 task documents with no missing or mismatched identity.
 
 The later combined lineage starts under the instrumented code and must use the
 strict validator with its own terminal segment and guard CSV, the same limits,
@@ -7271,6 +7282,26 @@ its persistent worker, one OSS-DBS solver child, and the local one-second
 resource guard were all live. This audit did not traverse the shared cache or
 advance the scheduled two-hour durable-progress poll. The guard remains a
 local process safeguard rather than a model-driven monitoring turn.
+
+At the scheduled 2026-07-22 23:26 PDT checkpoint, the active reference group
+had durably published 50 pass decisions and 100 corresponding row manifests.
+The newest decision is
+`8e231e4c5b32942b45963bfcec597f289dc4580d57f1057cc7c56b21fd32ac90`;
+its final and `Omega_max` row identities are
+`c5283d6064d450982f1b274636be86367ceab5863793ee92528f28403d98588a`
+and
+`97beab6dcc45bb7a3c45a31214dd001f6513bf86a76747bd09084cbea304fd3f`.
+It passed with maximum probability difference 0, state mismatch count 0, and
+activation-count mismatch count 0. All 50 cumulative decisions still belong
+to `oss_axis_group_078d3c2f2b8ac612a268`; the reference gate remains running
+and has not published its authoritative closure. The 590-task ledger remains
+196 completed, one running reference gate, one historical failed add-on gate,
+and 392 dependency-derived skips. Runner PID 15265, persistent worker PID
+15357, and one solver child were live. A one-second process sample measured
+100.2 percent task-tree CPU and 2607742976 bytes RSS. The current external
+guard epoch contains 27076 samples, observed a 46511964160-byte peak
+`< 64 GiB`, and swap growth `< 1` byte. The write probe passed. This is
+intermediate progress only.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 

@@ -76,6 +76,27 @@ def _timestamp(value: object, label: str) -> datetime:
     return result
 
 
+def _task_id(item: Mapping[str, Any]) -> str:
+    key = item.get("key")
+    if (
+        not isinstance(key, Mapping)
+        or set(key)
+        != {"endpoint_id", "stage", "branch", "parameter_identity"}
+        or any(not str(key[field]).strip() for field in key)
+    ):
+        raise PreinstrumentationResourceError(
+            "sensitivity plan task key is invalid"
+        )
+    payload = json.dumps(
+        dict(key),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+    return f"task_{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:20]}"
+
+
 def _task_closure(run_root: Path) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
     plan_path = run_root / "sensitivity_plan.json"
     plan_document = _read_json(plan_path, "sensitivity plan")
@@ -92,8 +113,8 @@ def _task_closure(run_root: Path) -> tuple[dict[str, Any], tuple[dict[str, Any],
             raise PreinstrumentationResourceError(
                 "sensitivity plan task must be an object"
             )
-        task_id = str(item.get("task_id", "")).strip()
-        if not task_id or any(task["task_id"] == task_id for task in plan_tasks):
+        task_id = _task_id(item)
+        if any(task["task_id"] == task_id for task in plan_tasks):
             raise PreinstrumentationResourceError(
                 "sensitivity plan task IDs must be nonempty and unique"
             )
