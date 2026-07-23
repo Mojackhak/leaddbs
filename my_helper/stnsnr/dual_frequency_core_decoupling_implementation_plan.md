@@ -3591,13 +3591,15 @@ writer writes a logical view blockwise into its one final NPY on a miss and
 returns before any block read on a hit. Cache-disabled execution retains the
 concrete compatibility path.
 
-The focused provider suite passes 30 tests plus 5 subtests. It proves zero
+The focused provider suite passes 31 tests plus 5 subtests. It proves zero
 subset-memmap allocator calls for cache-backed subject and feature views,
 logical-value parity, direct-voxel add-on overlap parity, absence of task-local
 large NPY payloads, and a cache hit that succeeds while every logical payload
-read is forced to fail. The complete dual-frequency suite passes 559 tests plus
-310 subtests. Persisted downstream `IndexedArrayView` records and configured-
-data parity replay remain open and are not claimed by this phase.
+read is forced to fail. A dedicated normative-fiber fixture also proves that
+blockwise reference overlap remains inclusive at the exact tau boundary and
+preserves the add-on-only values. The complete dual-frequency suite passes 559
+tests plus 310 subtests. Persisted downstream `IndexedArrayView` records and
+configured-data parity replay remain open and are not claimed by this phase.
 
 - [ ] **Step 3: Implement distinct voxel sampling and shared physical rows**
 

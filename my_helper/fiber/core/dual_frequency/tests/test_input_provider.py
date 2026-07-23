@@ -1828,6 +1828,95 @@ class InputProviderTest(unittest.TestCase):
         finally:
             provider._release_temporary_matrix(feature_view)
 
+    def test_fiber_overlap_views_preserve_inclusive_threshold(self) -> None:
+        provider, _catalog, _artifact_store, artifact_root = self._provider(
+            self._study(missing_addon_for_last_subject=False),
+            shared_cache=True,
+        )
+        reference_key = EndpointKey(
+            "synthetic-study",
+            SCALE_ID,
+            "reference-binding",
+            "reference_fiber",
+            FORMAL_CONNECTOME_ID,
+        )
+        addon_key = EndpointKey(
+            "synthetic-study",
+            SCALE_ID,
+            "addon-binding",
+            "addon_fiber",
+            FORMAL_CONNECTOME_ID,
+        )
+        selected_axis = AxisRef("selected-fibers", 1, canonical_hash([1]))
+        source_artifact = RunScopedArtifactPublisher(
+            artifact_root / "fiber-overlap-source",
+            "fiber-overlap-source",
+            "1",
+        ).array(
+            "weights.npy",
+            np.ones(1, dtype=np.float64),
+            kind="benefit_oriented_feature_weights",
+            axes=(selected_axis,),
+            units="coefficient",
+            space=None,
+        )
+        source = SourceRecord(
+            endpoint=reference_key,
+            input_status="valid",
+            source_status="pre_specified_accepted",
+            prediction_status="error_predictive",
+            threshold_source="pre_specified",
+            selected_tau=200.0,
+            selected_coverage=1,
+            adjacent_support=1,
+            feature_axis=FeatureAxisRef(
+                selected_axis,
+                "selected_normative_fiber_full_fold_valid_union",
+            ),
+            artifacts=(source_artifact,),
+        )
+        dependency = ReferenceDependencyRecord(
+            addon_endpoint=addon_key,
+            matched_reference_endpoint_id=reference_key.identifier,
+            dependency_status="ready",
+            reference_record=source,
+            delta_reference=None,
+        )
+        endpoint = mock.Mock(
+            endpoint_id=addon_key.identifier,
+            key=addon_key,
+        )
+        addon = provider._temporary_matrix("fiber-addon-view", (2, 4), np.float32)
+        reference = provider._temporary_matrix(
+            "fiber-reference-view",
+            (2, 4),
+            np.float32,
+        )
+        addon.array[:] = 80.0
+        reference.array[:] = np.asarray(
+            ([199.0, 200.0, 201.0, 0.0], [200.0, 199.0, 0.0, 250.0]),
+            dtype=np.float32,
+        )
+        addon.array.flush()
+        reference.array.flush()
+        prepared, overlap = provider._prepare_fiber_overlap_views(
+            endpoint=endpoint,
+            addon=addon,
+            reference=reference,
+            reference_record=source,
+            reference_dependency=dependency,
+        )
+        try:
+            expected_overlap = reference.materialize() >= 200.0
+            np.testing.assert_array_equal(overlap.materialize(), expected_overlap)
+            np.testing.assert_array_equal(
+                prepared.materialize(),
+                np.where(expected_overlap, 0.0, 80.0).astype(np.float32),
+            )
+        finally:
+            for matrix in (prepared, overlap, addon, reference):
+                provider._release_temporary_matrix(matrix)
+
     def test_omega_max_is_the_exact_inclusive_minimum_grid_candidate_union(self) -> None:
         provider, _catalog, _artifact_store, _artifact_root = self._provider(
             self._study(missing_addon_for_last_subject=False)
