@@ -5490,7 +5490,10 @@ spent by a terminal failed or retried attempt. Callers do not enter either
 byte total. A duplicate, malformed, path-mismatched, or counter-incomplete
 fragment fails the sample instead of contributing zero. The live index is
 static during the run; the probe CSV records the monotonically increasing
-derived totals.
+derived totals. A repository-owned initializer creates this index from one
+validated run root and refuses source/scratch values or an output path inside
+that run. The benchmark harness must use the initializer rather than authoring
+the index JSON directly.
 
 After the run and selected execution segment are terminal, the repository
 ledger builder repeats the same aggregation over the event report's exact
