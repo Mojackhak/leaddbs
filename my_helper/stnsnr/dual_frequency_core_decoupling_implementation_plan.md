@@ -5509,7 +5509,11 @@ sidecar staged, and each temporary memmap's logical file allocation once.
 `dual_frequency_artifact_static_audit_v1` source. It binds the terminal event
 report and artifact index, restricts task inspection to the event report's
 fragment task closure, and checks every retained artifact against the indexed
-publication. It reports retained null artifacts only when one artifact has
+publication. The segment, event report, artifact index, and task-state paths
+must resolve inside the declared run root. A terminal completed run whose
+event-report fragment closure contains any failed or noncompleted task fails
+the audit; failed tasks cannot be skipped to obtain an apparently clean
+artifact result. It reports retained null artifacts only when one artifact has
 both a permutation axis and a voxel/fiber/feature axis. Its AST audit scans the
 scientific `runtime`, `backends`, and `cache` packages for process- or
 thread-pool construction; the single parent scheduler in `workflow/executor.py`
