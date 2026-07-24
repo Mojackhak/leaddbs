@@ -313,6 +313,54 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
         ):
             validator.validate(self.manifest)
 
+    def test_decreasing_probe_byte_counter_is_rejected(self) -> None:
+        probe = Path(str(self.runs[3]["probe"]))
+        with probe.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        rows[0]["source_bytes"] = "11"
+        rows[1]["source_bytes"] = "10"
+        with probe.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=rows[0])
+            writer.writeheader()
+            writer.writerows(rows)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "not monotonic",
+        ):
+            validator.validate(self.manifest)
+
+    def test_early_runner_exit_is_rejected(self) -> None:
+        probe = Path(str(self.runs[3]["probe"]))
+        with probe.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        rows[1]["event"] = "runner_exit"
+        rows[1]["process_count"] = "0"
+        rows[1]["tree_rss_bytes"] = "0"
+        with probe.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=rows[0])
+            writer.writeheader()
+            writer.writerows(rows)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "boundary differs",
+        ):
+            validator.validate(self.manifest)
+
+    def test_non_utc_or_nonincreasing_timestamp_is_rejected(self) -> None:
+        probe = Path(str(self.runs[3]["probe"]))
+        with probe.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        rows[1]["timestamp_utc"] = rows[0]["timestamp_utc"]
+        with probe.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=rows[0])
+            writer.writeheader()
+            writer.writerows(rows)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "strictly increasing UTC",
+        ):
+            validator.validate(self.manifest)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -184,6 +184,9 @@ def _read_probe(path: Path) -> tuple[list[dict[str, object]], dict[str, object]]
     rows: list[dict[str, object]] = []
     previous_elapsed = -1.0
     previous_cpu = -1.0
+    previous_source_bytes = -1
+    previous_scratch_bytes = -1
+    previous_timestamp: datetime | None = None
     for line, raw in enumerate(raw_rows, start=2):
         try:
             timestamp = datetime.fromisoformat(raw["timestamp_utc"])
@@ -191,21 +194,59 @@ def _read_probe(path: Path) -> tuple[list[dict[str, object]], dict[str, object]]
             raise PerformanceAcceptanceError(
                 f"probe timestamp is invalid on line {line}"
             ) from exc
+        if (
+            timestamp.utcoffset() is None
+            or timestamp.utcoffset().total_seconds() != 0
+            or (
+                previous_timestamp is not None
+                and timestamp <= previous_timestamp
+            )
+        ):
+            raise PerformanceAcceptanceError(
+                "probe timestamps must be strictly increasing UTC values"
+            )
         elapsed = _number(raw["elapsed_monotonic_seconds"], "probe elapsed")
         cpu = _number(raw["aggregate_cpu_seconds"], "probe CPU")
-        if elapsed <= previous_elapsed or cpu < previous_cpu:
+        try:
+            process_count = int(raw["process_count"])
+            rss = int(raw["tree_rss_bytes"])
+            swap = int(raw["swap_used_bytes"])
+            source_bytes = int(raw["source_bytes"])
+            scratch_bytes = int(raw["scratch_bytes"])
+        except ValueError as exc:
+            raise PerformanceAcceptanceError(
+                f"probe integer field is invalid on line {line}"
+            ) from exc
+        if (
+            elapsed <= previous_elapsed
+            or cpu < previous_cpu
+            or source_bytes < previous_source_bytes
+            or scratch_bytes < previous_scratch_bytes
+        ):
             raise PerformanceAcceptanceError("probe counters are not monotonic")
+        is_last = line == len(raw_rows) + 1
+        expected_event = "runner_exit" if is_last else "sample"
+        if (
+            raw["event"] != expected_event
+            or (is_last and (process_count != 0 or rss != 0))
+            or (not is_last and process_count < 1)
+        ):
+            raise PerformanceAcceptanceError(
+                "probe sample and runner-exit boundary differs"
+            )
         row = {
             "timestamp": timestamp,
             "elapsed": elapsed,
             "cpu": cpu,
-            "rss": int(raw["tree_rss_bytes"]),
-            "swap": int(raw["swap_used_bytes"]),
-            "source_bytes": int(raw["source_bytes"]),
-            "scratch_bytes": int(raw["scratch_bytes"]),
+            "process_count": process_count,
+            "rss": rss,
+            "swap": swap,
+            "source_bytes": source_bytes,
+            "scratch_bytes": scratch_bytes,
             "event": raw["event"],
         }
         if min(
+            row["process_count"],
             row["rss"],
             row["swap"],
             row["source_bytes"],
@@ -215,6 +256,9 @@ def _read_probe(path: Path) -> tuple[list[dict[str, object]], dict[str, object]]
         rows.append(row)
         previous_elapsed = elapsed
         previous_cpu = cpu
+        previous_source_bytes = source_bytes
+        previous_scratch_bytes = scratch_bytes
+        previous_timestamp = timestamp
     wall = float(rows[-1]["elapsed"]) - float(rows[0]["elapsed"])
     cpu = float(rows[-1]["cpu"]) - float(rows[0]["cpu"])
     if wall <= 0:
