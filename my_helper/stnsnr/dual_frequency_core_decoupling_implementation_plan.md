@@ -5325,6 +5325,123 @@ new main lineage before sensitivity. Direct-copy portable entries and inject
 payload, shard, and axis corruption before extension startup. Compare extension
 outputs with one-shot outputs under the existing numerical tolerances.
 
+#### Repository-owned performance acceptance contract
+
+Step 10 requires two repository-owned entrypoints rather than an ad hoc
+spreadsheet assembled from terminal logs:
+
+- `run_task17_performance_probe.py` records descendant aggregate CPU time,
+  task-tree RSS, swap, and source/scratch byte counters at one-second cadence
+  outside the guarded mount; and
+- `validate_task17_performance_acceptance.py` joins those measurements to
+  scheduler windows and validates the complete declared benchmark matrix.
+
+The executor retains scheduler samples in memory at five-second cadence and
+publishes them once, atomically, when the execution segment closes. Each sample
+contains UTC start and finish times, ready and running task counts,
+`runnable_cpu_slots`, reserved CPU, memory, connectome-reader and solver slots,
+and the active admission reasons. This adds no hot-loop path lookup, hash,
+lock, or per-sample filesystem write. The terminal segment records the
+scheduler-window payload SHA and row count.
+
+The benchmark manifest uses schema
+`dual_frequency_task17_performance_matrix_v1`. Its rows are keyed by:
+
+```text
+benchmark_class
+connectome_id
+cache_state
+solver_mode
+workers
+```
+
+The required classes are direct voxel, each configured fiber connectome,
+formal permutation, bootstrap, spatial jitter, and pPAM. Workers are exactly
+1, 3, 6, and 12. Every non-pPAM class has cold and warm rows. pPAM has injected
+solver cold and warm rows plus real cache-hit warm rows. A real cold solver row
+is accepted only with a separate authorization document; otherwise it is an
+explicit `not_run` row and cannot support a default or utilization claim.
+Duplicate, missing, silently skipped, or extra keys fail validation.
+
+Every executed row binds one immutable run root, one finished execution
+segment, one performance-probe CSV, one scheduler-window payload, one
+numerical-identity digest, and the exact resolved configuration digest. It
+reports wall and aggregate CPU time, effective cores, peak RSS, swap delta,
+source and scratch bytes, cache verification counts, physical producer counts,
+pool generations, nested executors, metadata work, copies, bytes, reader and
+solver peaks, queue and admission waits, cancellation, timeout and retry
+counts. The validator rejects a row when any required counter is absent; zero
+is data, but an omitted value is not.
+
+For the 12-worker rows, the validator aligns probe and scheduler samples into
+five-second windows. A window is eligible only when
+`runnable_cpu_slots > 5`, every non-worker admission-reason count is below 1,
+and the window is not storage-limited. Effective cores are the descendant
+aggregate CPU-time increase divided by elapsed wall time. The row passes the
+compute-utilization gate only when the fraction of eligible windows with
+`effective_cores > 6` is `> 0.80`. An executed 12-worker compute-bound row
+without eligible windows fails rather than becoming `not_run`.
+
+The validator writes one atomic
+`dual_frequency_task17_performance_acceptance_v1` document containing the
+input manifest SHA, every source-evidence SHA, per-row verdicts, aggregate
+matrix closure, utilization-window results, and the chosen-default decision.
+Running the validator twice over unchanged evidence must produce the same
+scientific and acceptance payload except for no timestamp field, because the
+acceptance document contains no wall-clock generation timestamp.
+
+#### Repository-owned isolated fault acceptance contract
+
+`run_task17_fault_acceptance.py` owns the Step 10 corruption, fail-once,
+selective-resume, and deletion-rebuild sequence. It refuses to run unless the
+caller-selected acceptance root:
+
+1. lies outside the accepted parent run and canonical publication roots;
+2. contains a marker created by the tool for the same plan SHA;
+3. contains only harness-created copied runs, copied cache entries,
+   quarantined originals, command logs, and evidence; and
+4. names a distinct rebuilt main-run ID before any parent artifact is made
+   unavailable inside the isolated copy.
+
+The accepted parent run, canonical publication, and shared production cache
+are read-only inputs. The harness never corrupts, renames, deletes, or
+overwrites them. It copies only the declared artifact closure into the isolated
+root, verifies every copy before fault injection, and moves each replaced or
+withheld isolated file into a per-case quarantine directory. No original is
+permanently deleted.
+
+The fault plan uses schema `dual_frequency_task17_fault_plan_v1`. It declares
+the accepted-parent manifest SHA, isolated cache root, copied artifact closure,
+payload, shard and axis corruption cases, one deterministic fail-once task,
+the descendants expected to be dependency-skipped before recovery, the
+required-parent artifact to withhold, the rebuilt main-run ID, the extension
+commands, and the one-shot comparison roots. Commands are argument arrays,
+not shell strings. Their working directory and Conda environment are explicit,
+stdout and stderr are retained, and a command cannot escape the marked
+acceptance root through any output or run ID.
+
+The terminal
+`dual_frequency_task17_fault_acceptance_v1` report must prove:
+
+- each corruption is rejected before scientific materialization or extension
+  startup;
+- the fail-once task fails exactly once, its descendants are skipped for that
+  failed attempt, resume completes the task, and those descendants then run;
+- scientific artifacts completed before the injected failure retain their
+  SHA and byte size;
+- withholding a required artifact from the isolated parent copy causes plain
+  extension startup to fail closed;
+- rebuild mode creates the declared distinct main lineage before sensitivity,
+  while the accepted parent and canonical publication remain byte-identical;
+- copied-cache replay works with expensive authorization disabled; and
+- rebuilt and one-shot extension outputs match under the frozen numerical
+  tolerances.
+
+The harness is resumable by case. A completed case is reused only after its
+input copy hashes, command arguments, expected failure class, output closure,
+and quarantine inventory revalidate. Partial or failed cases are retained and
+never trigger cleanup of the acceptance root.
+
 - [ ] **Step 11: Update current status and commit**
 
 Only after all acceptance gates pass, mark the performance refactor complete in
