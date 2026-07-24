@@ -5495,6 +5495,15 @@ validated run root and refuses source/scratch values or an output path inside
 that run. The benchmark harness must use the initializer rather than authoring
 the index JSON directly.
 
+The one-second probe must not reread and rehash the full fragment population
+on every sample. Its process-local reader validates the static index once,
+discovers atomically visible fragment paths, and reads each newly observed
+immutable fragment once. Intermediate samples reuse the accumulated totals.
+On `runner_exit`, it performs one complete independent rescan and validation
+and requires the terminal totals and fragment closure to match the incremental
+state. This preserves fail-closed terminal evidence without turning the probe
+itself into a benchmark-scale random-I/O workload.
+
 After the run and selected execution segment are terminal, the repository
 ledger builder repeats the same aggregation over the event report's exact
 fragment closure and writes
