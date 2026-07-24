@@ -2632,6 +2632,28 @@ the v8 child must restore all completed roots, 240 physical blocks, and complete
 endpoint results, rerun only its ten failed add-on endpoint tasks, and publish a
 complete manifest only after all 800 tasks are terminal without failure.
 
+The later independent OSS add-on gate invalidated the historical 3500-fiber
+execution bound for one realized geometry. A single solver and no competing
+producer reached 69068636160 bytes task-tree RSS and triggered the strict
+64-GiB guard, while swap remained below its epoch baseline. The runner and
+external child stopped; the reparented persistent worker was terminated
+explicitly, and no add-on decision or standard row cache published.
+
+The current execution contract therefore uses at most 2800 fibers per internal
+OSS chunk. The 7193-fiber add-on `Omega_max` row remains three chunks, so the
+repair reduces memory without adding a fourth FEM/OSS execution. Chunk
+identities remain deterministic implementation details and the concatenated
+logical row retains its existing scientific identity. Formal continuation
+requires focused regression and a new guarded segment whose first real
+maximum-size add-on chunk satisfies task-tree RSS `< 64 GiB`, swap growth
+`< 1` byte, and no guard stop event.
+
+The implementation and exact 7193-fiber layout fixture are complete. The
+focused toolchain, gate, cache, and executor suite passed 124 tests, and the
+complete package-scoped dual-frequency regression passed 610 tests. This
+closes the repository code gate only; the first real add-on maximum-size chunk
+must still pass the new segment's one-second resource guard.
+
 Post-publication cleanup now has an executable fail-closed boundary. The main
 canonical publisher alone may remove descriptor-listed formal or pPAM scratch
 and run-owned `runtime_work` after complete run, artifact-index, model-manifest,

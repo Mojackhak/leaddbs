@@ -994,3 +994,34 @@ and 62,497,554,432 bytes across the complete task tree. The task tree remained
 intact, and no second solver entered. This evidence supersedes the earlier
 solver-RSS `< 48 GiB` wording while preserving the 48-GiB admission charge,
 single-solver token, and 64-GiB task-tree hard ceiling.
+
+## Decision 34: Reduce OSS Execution Chunks After Add-On Resource Failure
+
+The terminal reference gate accepted 34 decisions and 68 row caches, but the
+first add-on `Omega_max` execution showed that the prior 3500-fiber bound was
+not portable across the realized geometries. The external one-second guard
+observed one solver ramp from 44519882752 bytes to 69068636160 bytes in about
+31 seconds and emitted `rss_limit_sigterm`. This crossed the strict 64-GiB
+task-tree ceiling without swap growth or a second solver. No add-on decision or
+standard row cache published.
+
+The accepted repair reduces the internal maximum to 2800 fibers. The add-on
+7193-fiber `Omega_max` axis remains three execution chunks, now 2800, 2800,
+and 1593 fibers. Chunking remains an unpublished execution detail; the exact
+ordered full-axis product, scientific row identity, decision identity, and
+resume contract do not change. Existing completed reference decisions remain
+valid and the interrupted add-on task resumes from its first missing logical
+row.
+
+The stopped runner left one reparented persistent worker, which was explicitly
+terminated after all descendants disappeared. Resume requires focused
+chunk-order, full-axis concatenation, cache/resume, and termination regression,
+then a new execution segment with a new one-second guard. The first real
+maximum-size add-on chunk must complete with task-tree RSS `< 64 GiB`, swap
+growth `< 1` byte, and no stop event before continued production is accepted.
+
+Implementation sets the bound to 2800 and adds the exact add-on layout
+fixture. The focused OSS, gate, cache, and executor suite passed 124 tests; the
+complete package-scoped dual-frequency suite passed 610 tests. Production
+acceptance still depends on the real guarded add-on chunk rather than these
+synthetic results.

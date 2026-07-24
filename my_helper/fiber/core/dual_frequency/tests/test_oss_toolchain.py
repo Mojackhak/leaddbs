@@ -999,7 +999,11 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
         row = replace(
             self._prepared_row_for_converter(control_mode="voltage"),
             scientific_identity=_digest(9876),
-            feature_ids=np.arange(1, 7003, dtype=np.int64),
+            feature_ids=np.arange(
+                1,
+                (2 * OSS_MAX_FIBERS_PER_EXECUTION) + 3,
+                dtype=np.int64,
+            ),
         )
         executor = SubprocessOSSRowExecutor(
             work_root=self.root / "chunked-executor",
@@ -1053,6 +1057,26 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
                     )
                 ),
             )
+
+    def test_addon_omega_axis_uses_three_measured_chunks(self) -> None:
+        self.assertEqual(OSS_MAX_FIBERS_PER_EXECUTION, 2800)
+        row = replace(
+            self._prepared_row_for_converter(control_mode="voltage"),
+            scientific_identity=_digest(7193),
+            feature_ids=np.arange(1, 7194, dtype=np.int64),
+        )
+
+        chunks = SubprocessOSSRowExecutor._execution_chunks(row)
+
+        self.assertEqual(
+            [chunk.feature_ids.size for chunk in chunks],
+            [2800, 2800, 1593],
+        )
+        np.testing.assert_array_equal(
+            np.concatenate([chunk.feature_ids for chunk in chunks]),
+            row.feature_ids,
+        )
+        self.assertEqual(len({chunk.scientific_identity for chunk in chunks}), 3)
 
     @unittest.skipUnless(os.name == "posix", "process groups require POSIX")
     def test_termination_kills_a_sigterm_resistant_descendant(self) -> None:

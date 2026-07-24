@@ -7756,6 +7756,52 @@ samples, retained its 62493573120-byte peak below 64 GiB, and recorded no
 positive swap growth above the active baseline. Independent OSS remains
 nonterminal until the add-on gate and all downstream tasks complete.
 
+The first add-on `Omega_max` execution after reference closure disproved the
+3500-fiber chunk bound for the add-on geometry. The one-second external guard
+recorded a continuous single-solver RSS ramp from 44519882752 bytes to
+69068636160 bytes between 2026-07-24T00:56:53Z and
+2026-07-24T00:57:24Z. The final sample emitted `rss_limit_sigterm` because the
+task tree no longer satisfied the strict 64-GiB ceiling. Swap remained below
+the active epoch baseline, no second solver was present, no add-on decision or
+row cache was published, and the retained workspace identifies the failing
+execution chunk as a 3500-fiber add-on `Omega_max` chunk for `sub-SNr015`.
+
+The guard terminated the runner and its active external child. Persistent
+worker PID 15357 became reparented after runner exit and was then terminated
+explicitly; a process-tree audit found no remaining runner, worker, solver, or
+guard. All checkpoint, cache, failed workspace, and diagnostic logs remain
+intact. Automatic restart is prohibited.
+
+Before the next resume, reduce the internal execution bound from 3500 to 2800
+fibers. This keeps the 7193-fiber add-on `Omega_max` row in three ordered
+chunks while reducing the largest chunk by 20 percent. The observed
+approximately linear memory ramp projects a peak near 55 GiB, leaving a
+meaningful margin below 64 GiB. This is an execution-only partition: chunk
+identities remain derived from the complete logical row identity and ordered
+fiber IDs, chunks remain unpublished, concatenation restores the exact full
+axis, and the standard row-cache and decision identities remain unchanged.
+Existing complete reference decisions therefore remain reusable.
+
+The code gate requires a boundary test for 2800-fiber chunks, a real
+7193-fiber three-chunk layout test, focused OSS and cache/resume regression,
+and a clean process-tree termination test. The next formal resume must use a
+new execution segment and a new one-second guard from runner birth. Acceptance
+requires the first real add-on maximum-size chunk to complete with task-tree
+RSS `< 64 GiB`, swap growth `< 1` byte, and no stop event before the remaining
+add-on gate may continue.
+
+The 2800-fiber implementation and regression gate completed on 2026-07-24.
+The chunk constant is now 2800, the generic concatenation fixture derives its
+input size from that constant, and a dedicated 7193-fiber fixture requires the
+exact 2800, 2800, and 1593 layout plus complete ordered-axis reconstruction
+and unique chunk identities. The focused toolchain, axis-equivalence, cache,
+and executor suite passed 124 tests. The correctly package-scoped complete
+dual-frequency discovery then passed 610 tests in 72.843 seconds. An earlier
+discovery invocation reported two import-loader errors because it omitted the
+package top-level; neither loaded a test body, and the corrected full run
+contains both modules and passes. Formal resume remains gated on the new
+segment and real add-on resource measurement.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
