@@ -5401,6 +5401,11 @@ last is a `sample` with at least one live process; the last row is the sole
 event labels, an early exit marker, a live-process sample after exit, or a
 counter reset fails the matrix row. Scheduler-window interpolation is
 therefore performed only over an ordered, continuous probe envelope.
+Each executed matrix row names a safe single-component `segment_*` identity.
+The segment file and the segment-declared scheduler-window relative path must
+both resolve inside that row's run root; absolute scheduler paths and
+path-traversal segment identities are rejected before any source SHA is
+accepted.
 
 ##### Counter provenance and aggregation
 
