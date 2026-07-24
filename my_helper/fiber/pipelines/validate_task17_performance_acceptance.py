@@ -417,6 +417,9 @@ def _validate_executed_row(
     *,
     max_rss_bytes: int,
 ) -> dict[str, object]:
+    io_classification = row["io_classification"]
+    if io_classification not in {"compute_bound", "storage_limited"}:
+        raise PerformanceAcceptanceError("I/O classification differs")
     run_root = Path(str(row["run_root"])).expanduser().resolve()
     manifest = _read_json(run_root / "run_manifest.json", "run manifest")
     if manifest.get("final_status") != "completed":
@@ -459,6 +462,9 @@ def _validate_executed_row(
             "resolved configuration worker ceiling differs"
         )
     probe_path = Path(str(row["probe_csv"])).expanduser().resolve()
+    expected_probe_sha = _sha(row["probe_sha256"], "performance probe SHA")
+    if _sha256_file(probe_path) != expected_probe_sha:
+        raise PerformanceAcceptanceError("performance probe SHA differs")
     probe_rows, probe_summary = _read_probe(probe_path)
     if probe_summary["peak_rss_bytes"] >= max_rss_bytes:
         raise PerformanceAcceptanceError("benchmark RSS reached its ceiling")
@@ -501,7 +507,7 @@ def _validate_executed_row(
         raise PerformanceAcceptanceError("probe and terminal byte counters differ")
     if (
         workers == 12
-        and row["io_classification"] == "compute_bound"
+        and io_classification == "compute_bound"
         and (
             scheduler["eligible_window_count"] < 1
             or float(scheduler["eligible_above_six_fraction"]) <= 0.80
@@ -513,6 +519,7 @@ def _validate_executed_row(
         "run_manifest_sha256": _sha256_file(run_root / "run_manifest.json"),
         "segment_sha256": _sha256_file(segment_path),
         "configuration_sha256": row["configuration_sha256"],
+        "probe_sha256": expected_probe_sha,
         "numerical_identity_sha256": _sha(
             row["numerical_identity_sha256"],
             "numerical identity",
@@ -521,7 +528,7 @@ def _validate_executed_row(
         "scheduler": scheduler,
         "counters": counters,
         "counter_sidecar_sha256": expected_counter_sha,
-        "io_classification": row["io_classification"],
+        "io_classification": io_classification,
     }
 
 
@@ -538,6 +545,7 @@ _ROW_FIELDS = {
     "run_root",
     "segment_id",
     "probe_csv",
+    "probe_sha256",
     "configuration_sha256",
     "numerical_identity_sha256",
     "io_classification",
@@ -645,18 +653,27 @@ def validate(manifest_path: Path) -> dict[str, object]:
                 "evidence": evidence,
             }
         )
-    if chosen != 3:
-        result_index = {
-            (
-                item["key"]["benchmark_class"],
-                item["key"]["connectome_id"],
-                item["key"]["cache_state"],
-                item["key"]["solver_mode"],
-                item["key"]["workers"],
-            ): item["evidence"]
-            for item in results
+    result_index = {
+        (
+            item["key"]["benchmark_class"],
+            item["key"]["connectome_id"],
+            item["key"]["cache_state"],
+            item["key"]["solver_mode"],
+            item["key"]["workers"],
+        ): item["evidence"]
+        for item in results
+    }
+    default_decision: dict[str, object]
+    if chosen == 3:
+        default_decision = {
+            "chosen_workers": 3,
+            "baseline_workers": 3,
+            "basis": "prespecified_safe_default",
+            "compute_bound_comparisons": [],
         }
+    else:
         compared = 0
+        comparisons: list[dict[str, object]] = []
         for key, chosen_evidence in result_index.items():
             if key[4] != chosen or chosen_evidence["status"] != "validated":
                 continue
@@ -666,26 +683,43 @@ def validate(manifest_path: Path) -> dict[str, object]:
                 baseline is None
                 or baseline["status"] != "validated"
                 or chosen_evidence.get("io_classification") != "compute_bound"
+                or baseline.get("io_classification") != "compute_bound"
             ):
                 continue
             compared += 1
-            if (
-                chosen_evidence["probe"]["wall_seconds"]
-                >= baseline["probe"]["wall_seconds"]
-            ):
+            chosen_wall = chosen_evidence["probe"]["wall_seconds"]
+            baseline_wall = baseline["probe"]["wall_seconds"]
+            if chosen_wall >= baseline_wall:
                 raise PerformanceAcceptanceError(
                     "chosen non-default worker count is not faster than workers 3"
                 )
+            comparisons.append(
+                {
+                    "benchmark_class": key[0],
+                    "connectome_id": key[1],
+                    "cache_state": key[2],
+                    "solver_mode": key[3],
+                    "chosen_wall_seconds": chosen_wall,
+                    "baseline_wall_seconds": baseline_wall,
+                }
+            )
         if compared < 1:
             raise PerformanceAcceptanceError(
                 "chosen non-default worker count lacks compute-bound comparisons"
             )
+        default_decision = {
+            "chosen_workers": chosen,
+            "baseline_workers": 3,
+            "basis": "all_matched_compute_bound_rows_faster_than_workers_3",
+            "compute_bound_comparisons": comparisons,
+        }
     return {
         "schema_version": "dual_frequency_task17_performance_acceptance_v1",
         "status": "validated",
         "input_manifest_sha256": _sha256_file(manifest_path),
         "configured_connectomes": list(connectomes),
         "chosen_default_workers": chosen,
+        "chosen_default_decision": default_decision,
         "row_count": len(results),
         "rows": results,
     }

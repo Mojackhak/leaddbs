@@ -5364,8 +5364,8 @@ explicit `not_run` row and cannot support a default or utilization claim.
 Duplicate, missing, silently skipped, or extra keys fail validation.
 
 Every executed row binds one immutable run root, one finished execution
-segment, one performance-probe CSV, one scheduler-window payload, one
-numerical-identity digest, the exact resolved configuration digest, and one
+segment, one performance-probe CSV plus its SHA-256, one scheduler-window
+payload, one numerical-identity digest, the exact resolved configuration digest, and one
 run-published counter sidecar plus its SHA. Counter values cannot be entered
 directly in the matrix manifest. The sidecar reports source and scratch bytes,
 cache verification counts, physical producer counts, pool generations, nested
@@ -5375,6 +5375,14 @@ wall and aggregate CPU time, effective cores, peak RSS, and swap delta from the
 probe; requires source and scratch bytes to agree between the probe and terminal
 counter sidecar; and rejects a row when any required counter is absent. Zero is
 data, but an omitted value is not.
+
+`io_classification` is exactly `compute_bound` or `storage_limited`. The
+prespecified safe default remains three workers without a performance
+promotion claim. Selecting any other default requires at least one matched
+candidate-versus-three comparison in which both rows are `compute_bound`, and
+the candidate must have shorter wall time in every such eligible comparison.
+The acceptance document records the matched row keys and both wall times rather
+than retaining only the selected integer.
 
 For the 12-worker rows, the validator aligns probe and scheduler samples into
 five-second windows. A window is eligible only when
@@ -5387,7 +5395,8 @@ without eligible windows fails rather than becoming `not_run`.
 
 The validator writes one atomic
 `dual_frequency_task17_performance_acceptance_v1` document containing the
-input manifest SHA, every source-evidence SHA, per-row verdicts, aggregate
+input manifest SHA, every source-evidence SHA including the exact probe CSV
+SHA, per-row verdicts, aggregate
 matrix closure, utilization-window results, and the chosen-default decision.
 Running the validator twice over unchanged evidence must produce the same
 scientific and acceptance payload except for no timestamp field, because the
@@ -5653,6 +5662,21 @@ This checkpoint closes the missing probe, scheduler-trace, and validator
 implementation. It does not close Step 10 because the configured benchmark
 matrix has not run. The isolated fault harness was the remaining implementation
 gap at that checkpoint and is closed by the subsequent checkpoint below.
+
+Probe-identity closure checkpoint on 2026-07-24:
+
+- every executed matrix row now declares `probe_sha256`;
+- the validator verifies that digest before parsing any probe measurement and
+  retains it in the per-row acceptance evidence; and
+- I/O classification is closed to the declared two-value vocabulary, while a
+  non-default worker promotion requires and records matched compute-bound
+  comparisons against three workers; and
+- the 35-test performance-byte, ledger, probe, counter, matrix, and artifact
+  audit suite passes, including probe-substitution, classification, and
+  non-default-selection rejection tests.
+
+This closes the remaining mutable-probe evidence gap. It does not substitute
+for running the configured 72-row production benchmark matrix.
 
 Isolated fault-harness implementation checkpoint on 2026-07-24:
 

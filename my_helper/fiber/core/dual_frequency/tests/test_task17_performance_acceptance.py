@@ -224,6 +224,7 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             "run_root": str(run["root"]),
             "segment_id": "segment_0001",
             "probe_csv": str(run["probe"]),
+            "probe_sha256": _sha(Path(str(run["probe"]))),
             "configuration_sha256": run["configuration_sha256"],
             "numerical_identity_sha256": self._digest(
                 f"{benchmark_class}:{connectome}:{solver_mode}"
@@ -247,6 +248,7 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                 "run_root": None,
                 "segment_id": None,
                 "probe_csv": None,
+                "probe_sha256": None,
                 "configuration_sha256": None,
                 "numerical_identity_sha256": None,
                 "io_classification": None,
@@ -278,10 +280,22 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             },
         )
 
+    def _refresh_probe_sha(self, workers: int) -> None:
+        probe = Path(str(self.runs[workers]["probe"]))
+        digest = _sha(probe)
+        for row in self.rows:
+            if row["status"] == "executed" and row["workers"] == workers:
+                row["probe_sha256"] = digest
+        self._write_manifest()
+
     def test_complete_matrix_passes_and_report_is_identical(self) -> None:
         report = validator.validate(self.manifest)
         self.assertEqual(report["status"], "validated")
         self.assertEqual(report["row_count"], 72)
+        self.assertEqual(
+            report["chosen_default_decision"]["basis"],
+            "prespecified_safe_default",
+        )
         output = self.root / "acceptance.json"
         validator._write_report(output, report)
         first = output.read_bytes()
@@ -307,6 +321,7 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             writer = csv.DictWriter(handle, fieldnames=rows[0])
             writer.writeheader()
             writer.writerows(rows)
+        self._refresh_probe_sha(12)
         with self.assertRaisesRegex(
             validator.PerformanceAcceptanceError,
             "utilization gate failed",
@@ -323,11 +338,70 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             writer = csv.DictWriter(handle, fieldnames=rows[0])
             writer.writeheader()
             writer.writerows(rows)
+        self._refresh_probe_sha(3)
         with self.assertRaisesRegex(
             validator.PerformanceAcceptanceError,
             "not monotonic",
         ):
             validator.validate(self.manifest)
+
+    def test_probe_sha_mismatch_is_rejected(self) -> None:
+        executed = next(row for row in self.rows if row["status"] == "executed")
+        executed["probe_sha256"] = self._digest("different-probe")
+        self._write_manifest()
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "performance probe SHA differs",
+        ):
+            validator.validate(self.manifest)
+
+    def test_unknown_io_classification_is_rejected(self) -> None:
+        executed = next(row for row in self.rows if row["status"] == "executed")
+        executed["io_classification"] = "unknown"
+        self._write_manifest()
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "I/O classification differs",
+        ):
+            validator.validate(self.manifest)
+
+    def test_nondefault_workers_require_shorter_compute_bound_rows(self) -> None:
+        _write_json(
+            self.manifest,
+            {
+                "schema_version": "dual_frequency_task17_performance_matrix_v1",
+                "configured_connectomes": ["ppmi", "mgh", "dtor"],
+                "chosen_default_workers": 6,
+                "max_rss_bytes": 64 * 1024**3,
+                "rows": self.rows,
+            },
+        )
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "not faster than workers 3",
+        ):
+            validator.validate(self.manifest)
+
+    def test_faster_nondefault_workers_record_comparisons(self) -> None:
+        probe = Path(str(self.runs[6]["probe"]))
+        with probe.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        rows[-1]["elapsed_monotonic_seconds"] = "9"
+        with probe.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=rows[0])
+            writer.writeheader()
+            writer.writerows(rows)
+        self._refresh_probe_sha(6)
+        document = json.loads(self.manifest.read_text(encoding="utf-8"))
+        document["chosen_default_workers"] = 6
+        _write_json(self.manifest, document)
+        report = validator.validate(self.manifest)
+        decision = report["chosen_default_decision"]
+        self.assertEqual(
+            decision["basis"],
+            "all_matched_compute_bound_rows_faster_than_workers_3",
+        )
+        self.assertGreater(len(decision["compute_bound_comparisons"]), 0)
 
     def test_early_runner_exit_is_rejected(self) -> None:
         probe = Path(str(self.runs[3]["probe"]))
@@ -340,6 +414,7 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             writer = csv.DictWriter(handle, fieldnames=rows[0])
             writer.writeheader()
             writer.writerows(rows)
+        self._refresh_probe_sha(3)
         with self.assertRaisesRegex(
             validator.PerformanceAcceptanceError,
             "boundary differs",
@@ -355,6 +430,7 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             writer = csv.DictWriter(handle, fieldnames=rows[0])
             writer.writeheader()
             writer.writerows(rows)
+        self._refresh_probe_sha(3)
         with self.assertRaisesRegex(
             validator.PerformanceAcceptanceError,
             "strictly increasing UTC",
