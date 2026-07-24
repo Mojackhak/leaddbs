@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -303,7 +304,12 @@ def _scheduler_windows(
     relative = segment.get("scheduler_windows_path")
     if not isinstance(relative, str) or not relative:
         raise PerformanceAcceptanceError("segment lacks scheduler-window path")
-    path = (run_root / relative).resolve()
+    relative_path = Path(relative)
+    if relative_path.is_absolute():
+        raise PerformanceAcceptanceError(
+            "scheduler-window path must be relative"
+        )
+    path = (run_root / relative_path).resolve()
     if run_root.resolve() not in path.parents:
         raise PerformanceAcceptanceError("scheduler-window path escapes run root")
     expected_sha = _sha(
@@ -415,7 +421,11 @@ def _validate_executed_row(
     manifest = _read_json(run_root / "run_manifest.json", "run manifest")
     if manifest.get("final_status") != "completed":
         raise PerformanceAcceptanceError("benchmark run is not completed")
-    segment_id = str(row["segment_id"])
+    segment_id = str(row["segment_id"]).strip()
+    if re.fullmatch(r"segment_[0-9]+", segment_id) is None:
+        raise PerformanceAcceptanceError(
+            "benchmark segment ID is invalid"
+        )
     segment_path = run_root / "execution_segments" / f"{segment_id}.json"
     segment = _read_json(segment_path, "execution segment")
     workers = int(row["workers"])

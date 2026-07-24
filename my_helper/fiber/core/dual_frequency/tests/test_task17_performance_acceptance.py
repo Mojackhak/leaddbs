@@ -361,6 +361,37 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
         ):
             validator.validate(self.manifest)
 
+    def test_path_traversal_segment_id_is_rejected(self) -> None:
+        executed = next(row for row in self.rows if row["status"] == "executed")
+        executed["segment_id"] = "../segment_0001"
+        self._write_manifest()
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "segment ID is invalid",
+        ):
+            validator.validate(self.manifest)
+
+    def test_absolute_scheduler_path_is_rejected(self) -> None:
+        root = Path(str(self.runs[3]["root"]))
+        scheduler = (
+            root
+            / "execution_segments"
+            / "scheduler_windows_segment_0001.json"
+        )
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "must be relative",
+        ):
+            validator._scheduler_windows(
+                root,
+                {
+                    "segment_id": "segment_0001",
+                    "scheduler_windows_path": str(scheduler.resolve()),
+                },
+                (),
+                3,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
