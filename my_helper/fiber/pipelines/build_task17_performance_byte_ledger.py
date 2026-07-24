@@ -99,8 +99,11 @@ def build(
             "performance execution segment is not finished"
         )
     raw_event_path = Path(str(segment.get("performance_events_path", "")))
-    if not raw_event_path.is_absolute():
-        raw_event_path = run_root / raw_event_path
+    if raw_event_path.is_absolute():
+        raise PerformanceByteLedgerError(
+            "segment performance-event path must be relative"
+        )
+    raw_event_path = run_root / raw_event_path
     event_path = _inside(
         raw_event_path,
         run_root,

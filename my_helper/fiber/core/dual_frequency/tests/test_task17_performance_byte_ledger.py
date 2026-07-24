@@ -152,6 +152,20 @@ class Task17PerformanceByteLedgerTest(unittest.TestCase):
                 output=self.root / "ledger.json",
             )
 
+    def test_terminal_builder_rejects_absolute_event_path(self) -> None:
+        segment = json.loads(self.segment.read_text(encoding="utf-8"))
+        segment["performance_events_path"] = str(self.event.resolve())
+        _write(self.segment, segment)
+        with self.assertRaisesRegex(
+            PerformanceByteLedgerError,
+            "must be relative",
+        ):
+            build_task17_performance_byte_ledger.build(
+                run_root=self.run,
+                segment_id=self.segment_id,
+                output=self.root / "ledger.json",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
