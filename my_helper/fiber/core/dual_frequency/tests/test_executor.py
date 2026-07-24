@@ -602,9 +602,29 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["peak_task_tree_rss_bytes"], 0)
         self.assertEqual(document["minimum_available_memory_bytes"], 0)
         self.assertEqual(document["peak_swap_delta_bytes"], 0)
+        self.assertLessEqual(
+            document["minimum_managed_memory_bytes"],
+            document["managed_memory_bytes"],
+        )
+        self.assertLessEqual(
+            document["managed_memory_bytes"],
+            document["maximum_managed_memory_bytes"],
+        )
+        self.assertLessEqual(
+            document["minimum_managed_memory_bytes"],
+            document["final_managed_memory_bytes"],
+        )
+        self.assertLessEqual(
+            document["final_managed_memory_bytes"],
+            document["maximum_managed_memory_bytes"],
+        )
         self.assertEqual(document["scheduler_window_count"], 1)
         self.assertEqual(scheduler["segment_id"], document["segment_id"])
         self.assertEqual(len(scheduler["rows"]), 1)
+        self.assertEqual(
+            scheduler["rows"][0]["managed_memory_bytes"],
+            document["final_managed_memory_bytes"],
+        )
         self.assertEqual(
             scheduler_sha,
             document["scheduler_windows_sha256"],
@@ -808,9 +828,11 @@ class ExecutorTest(unittest.TestCase):
             return_value=(128 * 1024**3, 128 * 1024**3),
         ):
             ledger = _ResourceLedger(workers=2)
+        initial_managed = ledger.managed
         ledger.acquire(solver_grant)
 
         ledger.reconcile_available(20 * 1024**3)
+        minimum_managed = ledger.managed
         self.assertFalse(ledger.can_acquire(small_grant, 1))
         self.assertIn("managed_memory", ledger.blocking_reasons(small_grant))
         self.assertIn("memory_reserve", ledger.blocking_reasons(small_grant))
@@ -818,6 +840,10 @@ class ExecutorTest(unittest.TestCase):
         ledger.reconcile_available(80 * 1024**3)
         self.assertEqual(ledger.available_memory, 128 * 1024**3)
         self.assertTrue(ledger.can_acquire(small_grant, 1))
+        peaks = ledger.peak_reservations()
+        self.assertEqual(peaks["minimum_managed_memory_bytes"], minimum_managed)
+        self.assertEqual(peaks["maximum_managed_memory_bytes"], initial_managed)
+        self.assertEqual(peaks["final_managed_memory_bytes"], ledger.managed)
 
     def test_live_resource_monitor_records_production_samples(self) -> None:
         with patch.object(
@@ -844,16 +870,12 @@ class ExecutorTest(unittest.TestCase):
         ):
             monitor = _LiveResourceMonitor(enabled=True)
             monitor.sample_if_due(ledger, force=True)
-        document = monitor.as_dict(ledger)
+        document = monitor.as_dict()
 
         self.assertEqual(document["resource_sample_count"], 1)
         self.assertEqual(document["peak_task_tree_rss_bytes"], 11 * 1024**3)
         self.assertEqual(document["minimum_available_memory_bytes"], 72 * 1024**3)
         self.assertEqual(document["peak_swap_delta_bytes"], 5)
-        self.assertEqual(
-            document["final_managed_memory_bytes"],
-            72 * 1024**3 - int(0.20 * 128 * 1024**3),
-        )
 
     def test_segment_records_worker_slot_admission_wait(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")

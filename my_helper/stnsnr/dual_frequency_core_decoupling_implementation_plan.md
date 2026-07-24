@@ -7137,6 +7137,12 @@ slot, one BLAS thread per worker, positive managed-memory and reserve settings,
 and every CPU, memory, connectome-I/O, solver, and running-task peak against the
 corresponding declared ceiling. Admission-count and admission-wait maps must
 have the exact repository-owned reason closure with finite nonnegative values.
+Because live available memory can change during one segment, the writer records
+the initial, minimum, maximum, and final managed-memory ceilings and includes
+the contemporaneous ceiling in every scheduler window. The validator requires
+the four segment values to form a valid closure below the formal RSS ceiling
+and checks each sampled reserved-memory value against its own window ceiling;
+it must not compare the whole segment only with its startup value.
 The segment-declared scheduler-window path must be relative and contained by
 the run root; its SHA, segment identity, row count, timestamp order, reservation
 ceilings, admission-reason closure, and storage-limited derivation must all
@@ -8395,6 +8401,20 @@ Strict resource-closure checkpoint on 2026-07-24:
 This closes the strict-validator implementation gap for the future combined
 segment. It does not reinterpret the active independent OSS segment, which
 continues to require its separate pre-instrumentation acceptance.
+
+Dynamic managed-memory closure was then completed on 2026-07-24. The resource
+ledger is the sole owner of the initial, minimum, maximum, and final admission
+ceilings; the live monitor owns only observed process-tree RSS, available
+memory, and swap evidence. Every persisted scheduler window now carries its
+contemporaneous managed-memory ceiling. Both the strict resource validator and
+the performance-matrix validator reject a window whose ceiling falls outside
+the segment closure or whose reserved memory exceeds that window ceiling.
+The focused executor, resource, and performance set passed 65 tests; the joint
+Task 17 byte, counter, probe, guard, pre-instrumentation, strict-resource, and
+performance set passed 71 tests; and the complete dual-frequency discovery
+passed 670 tests with warnings treated as errors. These tests establish the
+writer and validator schema boundary only. The future combined production
+segment must still supply the corresponding live evidence.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 

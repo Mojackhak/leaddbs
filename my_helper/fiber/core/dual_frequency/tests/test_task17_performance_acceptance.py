@@ -132,6 +132,7 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                             "running_task_count": 0,
                             "runnable_cpu_slots": workers,
                             "reserved_cpu_slots": workers,
+                            "managed_memory_bytes": 48 * 1024**3,
                             "reserved_memory_bytes": 0,
                             "reserved_connectome_io_slots": 0,
                             "reserved_external_solver_slots": 0,
@@ -146,6 +147,7 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                             "running_task_count": 0,
                             "runnable_cpu_slots": workers,
                             "reserved_cpu_slots": workers,
+                            "managed_memory_bytes": 48 * 1024**3,
                             "reserved_memory_bytes": 0,
                             "reserved_connectome_io_slots": 0,
                             "reserved_external_solver_slots": 0,
@@ -163,6 +165,10 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                     "status": "finished",
                     "pool_mode": "spawn_process",
                     "workers": workers,
+                    "managed_memory_bytes": 48 * 1024**3,
+                    "minimum_managed_memory_bytes": 48 * 1024**3,
+                    "maximum_managed_memory_bytes": 48 * 1024**3,
+                    "final_managed_memory_bytes": 48 * 1024**3,
                     "pool_generation_count": 1,
                     "scheduler_windows_path": str(scheduler.relative_to(root)),
                     "scheduler_windows_sha256": _sha(scheduler),
@@ -466,6 +472,7 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                 },
                 (),
                 3,
+                64 * 1024**3,
             )
 
 

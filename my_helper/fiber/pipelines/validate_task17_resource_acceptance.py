@@ -42,6 +42,7 @@ _SCHEDULER_ROW_FIELDS = frozenset(
         "running_task_count",
         "runnable_cpu_slots",
         "reserved_cpu_slots",
+        "managed_memory_bytes",
         "reserved_memory_bytes",
         "reserved_connectome_io_slots",
         "reserved_external_solver_slots",
@@ -241,7 +242,8 @@ def _validate_scheduler_windows(
     segment: Mapping[str, Any],
     *,
     workers: int,
-    managed_memory_bytes: int,
+    minimum_managed_memory_bytes: int,
+    maximum_managed_memory_bytes: int,
     connectome_io_slots: int,
     external_solver_slots: int,
 ) -> dict[str, Any]:
@@ -279,6 +281,8 @@ def _validate_scheduler_windows(
         raise ResourceAcceptanceError("scheduler-window closure differs")
     prior_finish: datetime | None = None
     peak_cpu = 0
+    minimum_window_managed: int | None = None
+    maximum_window_managed = 0
     peak_memory = 0
     peak_io = 0
     peak_solver = 0
@@ -325,6 +329,11 @@ def _validate_scheduler_windows(
             row["reserved_cpu_slots"],
             f"scheduler window {index} reserved CPU",
         )
+        managed = _integer(
+            row["managed_memory_bytes"],
+            f"scheduler window {index} managed memory",
+            minimum=1,
+        )
         memory = _integer(
             row["reserved_memory_bytes"],
             f"scheduler window {index} reserved memory",
@@ -341,7 +350,9 @@ def _validate_scheduler_windows(
             running > workers
             or runnable > workers
             or cpu > workers
-            or memory > managed_memory_bytes
+            or managed < minimum_managed_memory_bytes
+            or managed > maximum_managed_memory_bytes
+            or memory > managed
             or connectome_io > connectome_io_slots
             or solver > external_solver_slots
         ):
@@ -365,6 +376,12 @@ def _validate_scheduler_windows(
                 "scheduler-window storage classification differs"
             )
         peak_cpu = max(peak_cpu, cpu)
+        minimum_window_managed = (
+            managed
+            if minimum_window_managed is None
+            else min(minimum_window_managed, managed)
+        )
+        maximum_window_managed = max(maximum_window_managed, managed)
         peak_memory = max(peak_memory, memory)
         peak_io = max(peak_io, connectome_io)
         peak_solver = max(peak_solver, solver)
@@ -374,6 +391,8 @@ def _validate_scheduler_windows(
         "sha256": expected_sha,
         "window_count": len(rows),
         "peak_reserved_cpu_slots": peak_cpu,
+        "minimum_managed_memory_bytes": minimum_window_managed,
+        "maximum_managed_memory_bytes": maximum_window_managed,
         "peak_reserved_memory_bytes": peak_memory,
         "peak_reserved_connectome_io_slots": peak_io,
         "peak_reserved_external_solver_slots": peak_solver,
@@ -404,13 +423,34 @@ def _validate_segment(
         )
     if _integer(segment.get("workers"), "segment workers", minimum=1) != workers:
         raise ResourceAcceptanceError("segment worker ceiling differs")
-    managed_memory = _integer(
+    initial_managed_memory = _integer(
         segment.get("managed_memory_bytes"),
-        "managed-memory ceiling",
+        "initial managed-memory ceiling",
         minimum=1,
     )
-    if managed_memory > max_rss_bytes:
-        raise ResourceAcceptanceError("managed-memory ceiling exceeds RSS ceiling")
+    minimum_managed_memory = _integer(
+        segment.get("minimum_managed_memory_bytes"),
+        "minimum managed-memory ceiling",
+        minimum=1,
+    )
+    maximum_managed_memory = _integer(
+        segment.get("maximum_managed_memory_bytes"),
+        "maximum managed-memory ceiling",
+        minimum=1,
+    )
+    final_managed_memory = _integer(
+        segment.get("final_managed_memory_bytes"),
+        "final managed-memory ceiling",
+        minimum=1,
+    )
+    if (
+        minimum_managed_memory > initial_managed_memory
+        or initial_managed_memory > maximum_managed_memory
+        or minimum_managed_memory > final_managed_memory
+        or final_managed_memory > maximum_managed_memory
+        or maximum_managed_memory > max_rss_bytes
+    ):
+        raise ResourceAcceptanceError("managed-memory closure differs")
     memory_reserve = _integer(
         segment.get("required_memory_reserve_bytes"),
         "required memory reserve",
@@ -471,7 +511,7 @@ def _validate_segment(
         segment.get("peak_reserved_memory_bytes"),
         "segment reserved memory peak",
     )
-    if memory_peak > managed_memory:
+    if memory_peak > maximum_managed_memory:
         raise ResourceAcceptanceError(
             "segment reserved memory peak exceeds its ceiling"
         )
@@ -537,7 +577,8 @@ def _validate_segment(
         run_root,
         segment,
         workers=workers,
-        managed_memory_bytes=managed_memory,
+        minimum_managed_memory_bytes=minimum_managed_memory,
+        maximum_managed_memory_bytes=maximum_managed_memory,
         connectome_io_slots=connectome_io_slots,
         external_solver_slots=external_solver_slots,
     )
@@ -561,7 +602,10 @@ def _validate_segment(
             "segment_id": segment_id,
             "segment_sha256": _sha256_file(path),
             "workers": workers,
-            "managed_memory_bytes": managed_memory,
+            "managed_memory_bytes": initial_managed_memory,
+            "minimum_managed_memory_bytes": minimum_managed_memory,
+            "maximum_managed_memory_bytes": maximum_managed_memory,
+            "final_managed_memory_bytes": final_managed_memory,
             "required_memory_reserve_bytes": memory_reserve,
             "connectome_io_slots": connectome_io_slots,
             "external_solver_slots": external_solver_slots,

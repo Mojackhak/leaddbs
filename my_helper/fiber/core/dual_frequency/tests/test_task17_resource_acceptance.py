@@ -131,6 +131,7 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
                         "running_task_count": 1,
                         "runnable_cpu_slots": 2,
                         "reserved_cpu_slots": 1,
+                        "managed_memory_bytes": 48 * 1024**3,
                         "reserved_memory_bytes": 1024,
                         "reserved_connectome_io_slots": 1,
                         "reserved_external_solver_slots": 1,
@@ -149,6 +150,9 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
                 "pool_mode": "spawn_process",
                 "workers": 14,
                 "managed_memory_bytes": 48 * 1024**3,
+                "minimum_managed_memory_bytes": 48 * 1024**3,
+                "maximum_managed_memory_bytes": 48 * 1024**3,
+                "final_managed_memory_bytes": 48 * 1024**3,
                 "required_memory_reserve_bytes": 16 * 1024**3,
                 "connectome_io_slots": 2,
                 "blas_threads_per_worker": 1,
@@ -278,6 +282,20 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
         with self.assertRaisesRegex(
             validator.ResourceAcceptanceError,
             "scheduler-window peak exceeds",
+        ):
+            self._validate()
+
+    def test_scheduler_managed_memory_outside_segment_closure_fails(self) -> None:
+        segment = json.loads(self.segment_path.read_text(encoding="utf-8"))
+        scheduler = self.root / segment["scheduler_windows_path"]
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["managed_memory_bytes"] = 49 * 1024**3
+        _write_json(scheduler, document)
+        segment["scheduler_windows_sha256"] = _sha(scheduler)
+        _write_json(self.segment_path, segment)
+        with self.assertRaisesRegex(
+            validator.ResourceAcceptanceError,
+            "reservation exceeds its ceiling",
         ):
             self._validate()
 

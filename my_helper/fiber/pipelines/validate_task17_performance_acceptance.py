@@ -300,6 +300,7 @@ def _scheduler_windows(
     segment: Mapping[str, object],
     probe: Sequence[Mapping[str, object]],
     workers: int,
+    max_rss_bytes: int,
 ) -> dict[str, object]:
     relative = segment.get("scheduler_windows_path")
     if not isinstance(relative, str) or not relative:
@@ -328,6 +329,31 @@ def _scheduler_windows(
         or not rows
     ):
         raise PerformanceAcceptanceError("scheduler-window closure differs")
+    initial_managed = _integer(
+        segment.get("managed_memory_bytes"),
+        "initial managed-memory ceiling",
+    )
+    minimum_managed = _integer(
+        segment.get("minimum_managed_memory_bytes"),
+        "minimum managed-memory ceiling",
+    )
+    maximum_managed = _integer(
+        segment.get("maximum_managed_memory_bytes"),
+        "maximum managed-memory ceiling",
+    )
+    final_managed = _integer(
+        segment.get("final_managed_memory_bytes"),
+        "final managed-memory ceiling",
+    )
+    if (
+        minimum_managed < 1
+        or minimum_managed > initial_managed
+        or initial_managed > maximum_managed
+        or minimum_managed > final_managed
+        or final_managed > maximum_managed
+        or maximum_managed > max_rss_bytes
+    ):
+        raise PerformanceAcceptanceError("managed-memory closure differs")
     eligible = 0
     above_six = 0
     windows: list[dict[str, object]] = []
@@ -349,6 +375,22 @@ def _scheduler_windows(
             _integer(reasons.get(reason), f"scheduler reason {reason}") > 0
             for reason in _NON_WORKER_ADMISSION_REASONS
         )
+        managed = _integer(
+            raw.get("managed_memory_bytes"),
+            "scheduler managed memory",
+        )
+        reserved_memory = _integer(
+            raw.get("reserved_memory_bytes"),
+            "scheduler reserved memory",
+        )
+        if (
+            managed < minimum_managed
+            or managed > maximum_managed
+            or reserved_memory > managed
+        ):
+            raise PerformanceAcceptanceError(
+                "scheduler managed-memory reservation differs"
+            )
         is_eligible = (
             workers == 12
             and _integer(raw.get("runnable_cpu_slots"), "runnable CPU slots") > 5
@@ -365,6 +407,8 @@ def _scheduler_windows(
                 "index": index,
                 "effective_cores": effective,
                 "eligible": is_eligible,
+                "managed_memory_bytes": managed,
+                "reserved_memory_bytes": reserved_memory,
             }
         )
     return {
@@ -470,7 +514,13 @@ def _validate_executed_row(
         raise PerformanceAcceptanceError("benchmark RSS reached its ceiling")
     if probe_summary["swap_delta_bytes"] > 0:
         raise PerformanceAcceptanceError("benchmark swap increased")
-    scheduler = _scheduler_windows(run_root, segment, probe_rows, workers)
+    scheduler = _scheduler_windows(
+        run_root,
+        segment,
+        probe_rows,
+        workers,
+        max_rss_bytes,
+    )
     counter_path = Path(str(row["counter_path"])).expanduser().resolve()
     if counter_path != run_root and run_root not in counter_path.parents:
         raise PerformanceAcceptanceError("counter sidecar escapes benchmark run")

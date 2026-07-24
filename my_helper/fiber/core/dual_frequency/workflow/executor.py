@@ -365,6 +365,8 @@ class _ResourceLedger:
             64 * 1024**3,
             max(0, self.available_memory - self.reserve),
         )
+        self.minimum_managed = self.managed
+        self.maximum_managed = self.managed
 
     @staticmethod
     def _memory_state() -> tuple[int, int]:
@@ -462,6 +464,8 @@ class _ResourceLedger:
             64 * 1024**3,
             max(0, self.available_memory - self.reserve),
         )
+        self.minimum_managed = min(self.minimum_managed, self.managed)
+        self.maximum_managed = max(self.maximum_managed, self.managed)
 
     def settings(self) -> dict[str, int]:
         """Return the effective non-scientific admission settings."""
@@ -479,6 +483,9 @@ class _ResourceLedger:
         """Return peak parent-ledger reservations for segment provenance."""
 
         return {
+            "minimum_managed_memory_bytes": self.minimum_managed,
+            "maximum_managed_memory_bytes": self.maximum_managed,
+            "final_managed_memory_bytes": self.managed,
             "peak_reserved_cpu_slots": self.peak_cpu_used,
             "peak_reserved_memory_bytes": self.peak_memory_used,
             "peak_reserved_connectome_io_slots": self.peak_io_used,
@@ -565,7 +572,7 @@ class _LiveResourceMonitor:
         )
         self._next_sample_at = now + 1.0
 
-    def as_dict(self, ledger: _ResourceLedger) -> dict[str, int]:
+    def as_dict(self) -> dict[str, int]:
         return {
             "resource_sample_count": self.sample_count,
             "peak_task_tree_rss_bytes": self.peak_task_tree_rss_bytes,
@@ -575,7 +582,6 @@ class _LiveResourceMonitor:
                 else self.minimum_available_memory_bytes
             ),
             "peak_swap_delta_bytes": self.peak_swap_delta_bytes,
-            "final_managed_memory_bytes": ledger.managed,
         }
 
 
@@ -1088,6 +1094,7 @@ class _ExecutionMetrics:
                         int(ready_task_count) + int(running_task_count),
                     ),
                     "reserved_cpu_slots": ledger.cpu_used,
+                    "managed_memory_bytes": ledger.managed,
                     "reserved_memory_bytes": ledger.memory_used,
                     "reserved_connectome_io_slots": ledger.io_used,
                     "reserved_external_solver_slots": ledger.solver_used,
@@ -1681,7 +1688,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     ledger=ledger,
                     now=time.monotonic(),
                 ),
-                **resource_monitor.as_dict(ledger),
+                **resource_monitor.as_dict(),
                 **scheduler_evidence,
                 **performance_evidence,
             },
