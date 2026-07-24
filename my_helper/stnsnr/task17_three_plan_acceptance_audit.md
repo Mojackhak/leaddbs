@@ -71,6 +71,28 @@ broader ledger label.
 | Step 11, current status and final commit | `Final three-plan requirement audit` |
 | Final performance checklist, physical preparation through exact boundaries | The parity, jitter, OSS, cache, performance, resume, resource, and boundary-policy rows collectively retain every checklist clause |
 
+## Repository Entrypoint Preflight
+
+The following repository-owned entrypoints parse successfully in Conda
+`leaddbs` with caller `PYTHONPATH` removed:
+
+- `run_dual_frequency_models.py`;
+- `validate_task17_connectome_parity_fixture.py`;
+- `build_task17_preinstrumentation_windows.py`;
+- `validate_task17_preinstrumentation_resources.py`;
+- `validate_task17_resource_acceptance.py`;
+- `validate_task17_extension_publication.py`;
+- `repair_task17_display_smoothing_publication.py`; and
+- `my_helper.fiber.core.viz.formal_postprocess`.
+
+The generic runner exposes the required `run`, `sensitivity --resume`, and
+`sensitivity --rebuild --rebuild-run-id` operations. However, no dedicated
+repository entrypoint currently aggregates and validates the complete
+workers-1/3/6/12 cold/warm performance matrix, and no dedicated production
+fault harness owns the isolated corruption plus deletion-rebuild sequence.
+Those two gaps remain part of their `PENDING` ledger rows. The existence of
+generic runner flags or lower-level telemetry cannot close them.
+
 ## Final Closure Rule
 
 The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
