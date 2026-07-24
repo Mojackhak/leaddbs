@@ -1,5 +1,9 @@
 # Task 17 Postprocess Visualization Implementation Plan
 
+The cross-plan production evidence ledger is
+`my_helper/stnsnr/task17_three_plan_acceptance_audit.md`. It records terminal
+acceptance evidence without replacing this visualization contract.
+
 ## Status
 
 Rendering primitives were implemented on 2026-07-18. The public-only adapter

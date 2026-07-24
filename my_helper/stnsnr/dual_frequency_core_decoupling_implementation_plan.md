@@ -24,6 +24,8 @@ validated `study_base.json` without legacy or migration imports.
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
 **Task 17 decision record:**
 `my_helper/stnsnr/task17_design_decisions.md`.
+**Three-plan acceptance evidence ledger:**
+`my_helper/stnsnr/task17_three_plan_acceptance_audit.md`.
 The generic core implementation below is complete, but the shared-exposure,
 one-pass connectome, process-scheduler, direct-copy SHA cache, sensitivity
 extension, and missing-parent rebuild work remains collectively

@@ -17,6 +17,8 @@
 > `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`
 > **Task 17 decision record.**
 > `my_helper/stnsnr/task17_design_decisions.md`
+> **Three-plan acceptance evidence ledger.**
+> `my_helper/stnsnr/task17_three_plan_acceptance_audit.md`
 > **Scientific model specifications.** `my_helper/stnsnr/model_summaries/`
 > **Current branch.** `stnvop`
 > **Target schema.** `dual_frequency_v1`
