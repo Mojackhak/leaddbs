@@ -5464,13 +5464,17 @@ invocation must byte-match the first.
 The benchmark byte ledger has one repository-owned live index and one
 terminal document. The live
 `dual_frequency_performance_byte_ledger_index_v1` document binds exactly one
-run root. On every probe sample, the probe reopens the task-status closure,
-selects only completed task attempts, validates each immutable
-`performance_counter_fragment.json`, and sums its `source_bytes` and
-`scratch_bytes` deltas. Callers do not enter either byte total. A missing,
-duplicate, malformed, task-mismatched, or nonterminal fragment fails the
-sample instead of contributing zero. The live index is static during the run;
-the probe CSV records the monotonically increasing derived totals.
+run root. On every probe sample, the probe discovers only atomically published
+`work/task_*/attempt-*/performance_counter_fragment.json` files. The presence
+of such a fragment is the terminal-attempt boundary; incomplete attempts have
+no visible fragment. The probe validates the task/attempt path, fragment
+schema, task and process identities, and scalar closure, then sums its
+`source_bytes` and `scratch_bytes` deltas. This deliberately includes bytes
+spent by a terminal failed or retried attempt. Callers do not enter either
+byte total. A duplicate, malformed, path-mismatched, or counter-incomplete
+fragment fails the sample instead of contributing zero. The live index is
+static during the run; the probe CSV records the monotonically increasing
+derived totals.
 
 After the run and selected execution segment are terminal, the repository
 ledger builder repeats the same aggregation over the event report's exact
