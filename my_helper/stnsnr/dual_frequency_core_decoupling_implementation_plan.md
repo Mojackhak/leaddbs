@@ -5461,6 +5461,18 @@ derives all 27 counters, and writes one deterministic
 `performance_counters_<segment_id>.json` document. The second identical
 invocation must byte-match the first.
 
+`run_task17_artifact_static_audit.py` produces the required
+`dual_frequency_artifact_static_audit_v1` source. It binds the terminal event
+report and artifact index, restricts task inspection to the event report's
+fragment task closure, and checks every retained artifact against the indexed
+publication. It reports retained null artifacts only when one artifact has
+both a permutation axis and a voxel/fiber/feature axis. Its AST audit scans the
+scientific `runtime`, `backends`, and `cache` packages for process- or
+thread-pool construction; the single parent scheduler in `workflow/executor.py`
+and the publication-only file-copy pool are outside that nested-scientific
+scope. The audit records every scanned source SHA and every detected call site,
+so a source change requires a new audit rather than reusing a zero count.
+
 Counters that require configured parity or artifact-index audits remain
 unavailable until those source documents are present. The sidecar publisher
 must fail; it cannot synthesize zero, infer success from missing events, or
