@@ -5439,6 +5439,28 @@ per required identity; warm rows require no new producer. Full verification is
 keyed by process and cache identity and must occur once; structural manifest
 reads do not count as full payload verification.
 
+Two non-exported support events define those denominators without accepting a
+caller-entered integer. `physical_cache_use` is emitted after every successful
+shared voxel, fiber, or physical-jitter cache resolution and defines the
+physical scientific-identity closure. `cache_resolve` is emitted after every
+successful cache entry resolution and, together with the fragment process
+identity, defines the process/cache verification closure. The sidecar derives
+producer minima and maxima over the first closure and full-verification minima,
+maxima, and repeats over the second closure. A support event without its
+required producer or verification evidence contributes zero; a producer or
+verification identity outside the support closure fails publication.
+
+The sidecar publisher consumes one
+`dual_frequency_performance_counter_inputs_v1` document. It binds the run and
+segment IDs plus the SHA-256 of the terminal segment, raw event report,
+benchmark byte ledger, configured-data candidate-parity report, and
+artifact/static audit. It also declares the benchmark class and cold or warm
+cache state, but it contains no counter values. The publisher verifies every
+bound source, rejects incomplete worker fragments and nonterminal segments,
+derives all 27 counters, and writes one deterministic
+`performance_counters_<segment_id>.json` document. The second identical
+invocation must byte-match the first.
+
 Counters that require configured parity or artifact-index audits remain
 unavailable until those source documents are present. The sidecar publisher
 must fail; it cannot synthesize zero, infer success from missing events, or
