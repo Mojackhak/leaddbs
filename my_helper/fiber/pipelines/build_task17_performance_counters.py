@@ -292,6 +292,13 @@ def _fragment_events(
         report.get("parent_events"),
         label="parent events",
     )
+    if (
+        parent_scalars["source_bytes"] > 0
+        or parent_scalars["scratch_bytes"] > 0
+    ):
+        raise PerformanceCounterBuildError(
+            "parent process emitted byte events outside the live fragment ledger"
+        )
     _add_events(
         scalar_totals,
         keyed_totals,
