@@ -8486,6 +8486,37 @@ complete dual-frequency discovery passes 680 tests with warnings treated as
 errors.
 The configured 72-row production matrix remains pending.
 
+OSS identity-compatibility checkpoint on 2026-07-24:
+
+The intended execution-only chunk contract is not yet met by the cache-key
+implementation. The terminal reference closure has 34 decisions and 68 rows
+under one historical `definition-sha256-*` fingerprint, the running add-on
+rows use a later fingerprint, and the current checkout computes a third value.
+This occurs because the complete `dual_frequency` production source tree is
+hashed into `OSSScientificSettings.backend_version`, which enters each row key
+both directly and through the settings parameter hash. The scientific arrays
+remain valid, ordered-axis concatenation remains exact, and the accepted
+reference closure remains authoritative; the incompatibility is lookup
+identity, not numerical meaning.
+
+Decision 39 in `task17_design_decisions.md` freezes the repair. OSS cache
+identity must use a stable internal scientific contract version and explicit
+scientific inputs. The complete implementation fingerprint remains a
+before-and-after execution attestation for authorized misses but cannot
+invalidate, hide, or force recomputation of an unchanged completed row. A
+cache-first legacy resolver may atomically promote a fully verified
+scientifically unique old payload and pass decision under the stable identity.
+It must reject missing, corrupt, mismatched, ambiguous, or conflicting
+candidates before any external toolchain starts.
+
+No producer source is changed while the active independent solver is running.
+After the independent gate becomes terminal, the compatibility implementation,
+focused tests, and complete regression are required before OSS-v2 publication
+or the cache-only combined child. The combined command remains forbidden from
+carrying `--allow-expensive-producers`; its successful replay is the production
+proof that both terminal reference and add-on rows remain usable after
+execution-only code changes.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
@@ -8498,7 +8529,7 @@ unchecked until both columns are complete.
 | 2 | Direct-copy SHA cache, process-local verification reuse, persisted indexed views for reference and all raw add-on matrices, bounded consumers, copied-root checkpoint replay, and corruption tests pass. | Measure configured-data parity and production-scale logical-versus-physical write reduction from the post-refactor replay. |
 | 3 | Shared bilateral sampling plans, scale-neutral physical rows, endpoint row/column views, and direct-voxel parity fixtures pass. | Record configured full-matrix parity and production physical-row counters. |
 | 4 | Point-balanced HDF5 traversal, exact inclusive minimum-grid `Omega_max`, shared geometry, bounded fallback, and real-HDF5 path fixtures pass. | Record configured connectome parity and production chunk/resource counters. |
-| 5 | Jitter v8 is complete; physical blocks are cache-first; the OSS decision gate, O(1) rows, exact subset mapping, and lazy toolchain boundary pass local tests. | Finish both production OSS groups, prove every decision passes, rerun the 392 dependency-derived downstream tasks, and accept independent OSS reporting and publication. |
+| 5 | Jitter v8 is complete; physical blocks are cache-first; the OSS decision gate, O(1) rows, exact subset mapping, and lazy toolchain boundary pass local tests. The current whole-tree implementation fingerprint incorrectly changes row lookup identity after execution-only edits; Decision 39 freezes the stable semantic identity and legacy-promotion repair. | Finish both production OSS groups, prove every decision passes, implement and test cache-only promotion of their terminal reference and add-on rows, rerun the 392 dependency-derived downstream tasks, and accept independent OSS reporting and publication. |
 | 6 | Portable sensitivity bases, exact resume, extension-v2 replay, missing-parent checks, and self-contained publication fixtures pass. | Publish canonical independent OSS and combined extension-v2 trees from terminal children. |
 | 7 | Persistent spawn scheduling, pure-data commands, parent-owned state mutation, resource ledger, timeout/retry boundaries, one solver token, and 64-GiB guard fixtures pass. | Retain terminal live RSS, CPU, swap, worker, resume, and generation evidence across independent OSS and combined execution. |
 | 9 | Formal and bootstrap schedules, scratch, durable blocks, ordered aggregation, pPAM blocks, jitter blocks, fixed historical RNG, and selective resume pass local regression. | Accept the production downstream pPAM block closure and combined cache-only replay. |
@@ -8565,6 +8596,11 @@ audit.
 - [ ] Target cache verifies each used entry once per process and performs no
   within-process payload checksum reread; bounded semantic/axis/toolchain digests remain
   permitted under the authority contract.
+- [ ] OSS row and decision cache identities use the stable scientific contract
+  rather than the complete repository implementation fingerprint; verified
+  legacy rows and pass decisions promote cache-first without an expensive
+  producer, while implementation drift is retained only as execution
+  attestation.
 - [ ] CPU-heavy work uses spawned processes, large disjoint work units, and a
   persistent event-driven ready queue; `execution.workers` is the one public
   global CPU ceiling and nested pools cannot bypass it.

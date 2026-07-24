@@ -1153,3 +1153,95 @@ This is positive intermediate evidence, not terminal acceptance. The add-on
 gate is still running, its authoritative `row_decision_ids` closure is not yet
 committed, and the 392 dependency-derived downstream tasks have not yet been
 released. Raw cache-directory counts must not substitute for that closure.
+
+## Decision 39: Separate OSS Scientific Identity From Execution Attestation
+
+A read-only compatibility audit on 2026-07-24 found that Decisions 34, 36, 37,
+and 38 state the intended contract but the current implementation does not
+preserve it. The terminal reference closure contains 34 decisions and 68 rows,
+all under implementation fingerprint
+`definition-sha256-5cd672ef7e82fe9f273c40a6fe93eb1c58ace921a54a87ea574087cc507ce055`.
+Rows durably published by the running add-on gate use
+`definition-sha256-960551ea005f8f30f78fec1fa9c9ec9a479e98f36d9e4f6388810bf34362e8d2`,
+while the current checkout resolves
+`definition-sha256-2505d33c0e658849ac9ecd604a30a83db7f0dc4e962400f1a63a45c560532539`.
+The reference group also contains 35 completed decision cache entries outside
+its authoritative terminal closure, split across two intermediate
+implementation fingerprints. They are not accepted group evidence, but they
+demonstrate that execution-only source changes have already caused redundant
+row identities.
+
+The cause is exact and bounded. `oss_backend_version()` hashes every production
+Python file below `my_helper/fiber/core/dual_frequency` plus the locked external
+definitions. `StudyRuntimeInputProvider` places that value in
+`OSSScientificSettings.backend_version`; the row key stores it directly and
+also includes it indirectly through `OSSScientificSettings.parameter_hash`.
+Changing the execution chunk maximum, scheduler, resource validator,
+publication code, or another non-scientific module therefore changes the row
+and decision identities even when every explicit OSS setting and scientific
+payload is unchanged. The three-gate task resume contract preserves a completed
+reference gate, but a fresh cache-only gate or combined child derives different
+keys and can incorrectly report a miss.
+
+The corrected contract has two identities:
+
+1. The OSS scientific cache identity uses the stable internal semantic version
+   `ossdbsv2-ppam-scientific-v1`, exact ordered fiber axis, geometry,
+   stimulation, component frequency, transform, formal-connectome content, and
+   all explicit `OSSScientificSettings` values. Worker count, execution chunk
+   size, scheduler, memory limits, resource monitors, publication code, run ID,
+   repository SHA, and complete implementation fingerprint are excluded.
+2. The complete current producer implementation remains a
+   `definition-sha256-*` execution attestation. An authorized cache miss
+   computes it immediately before and after external row production and rejects
+   any in-flight change. It is retained as audit provenance and never controls
+   lookup, resume, direct-copy portability, or use of a previously completed
+   scientific payload.
+
+Changing a scientific definition requires an explicit new semantic version.
+Changing only execution policy retains the existing version. This is the
+enforceable boundary requested by the resume contract: code identity alone
+does not make an unchanged result unusable, while a declared scientific
+contract change cannot reuse the old key.
+
+Legacy promotion is cache-first and never invokes OSS. On an exact stable-key
+miss, the resolver may inspect completed legacy `oss_rows` entries only when:
+
+- kind, backend name, geometry, stimulation, component frequency, transform,
+  formal-connectome hash, and ordered-axis hash equal the current request;
+- the legacy `oss_ppam_v1` hash equals the current explicit settings
+  recomputed with that legacy `definition-sha256-*` value;
+- full manifest and payload SHA verification succeeds and the stored fiber IDs
+  exactly equal the requested ordered axis; and
+- every compatible legacy candidate has identical fiber-ID and probability
+  payload SHA values.
+
+Zero candidates is a normal miss. Conflicting candidates fail closed. One
+scientifically unique payload is atomically republished under the stable key
+with compatibility provenance; the legacy entry remains immutable. A legacy
+axis-equivalence decision is promoted only when its group, paired legacy rows,
+status, tolerance, zero state mismatch, zero activation-count mismatch, and
+maximum probability difference `< 1e-7` all validate against the corresponding
+current requests. The stable final and Omega rows publish before the stable
+decision, and the group manifest remains the final commit.
+
+The code gate requires tests proving that:
+
+- changing 750 to another execution-only chunk value does not change the stable
+  row or decision identity;
+- changing any scientific input or explicit OSS setting does change identity;
+- copied legacy reference and add-on caches promote with expensive producers
+  unavailable and reproduce byte-identical scientific arrays;
+- one missing legacy row fails before toolchain construction or solver launch;
+- corrupt, axis-mismatched, parameter-mismatched, ambiguous, and conflicting
+  legacy candidates fail closed;
+- a legacy pass decision promotes only after both paired rows validate; and
+- producer implementation drift during an authorized miss fails before cache
+  publication.
+
+The active independent gate must finish under the implementation identity it
+already resolved. No production source file may be changed while its external
+solver is active. After terminal independent acceptance, the compatibility
+repair and tests precede canonical OSS-v2 publication and the no-authorization
+combined extension. Existing reference rows are retained and must not be
+recomputed merely to obtain the stable identity.
