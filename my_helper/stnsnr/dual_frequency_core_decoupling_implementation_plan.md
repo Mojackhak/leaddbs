@@ -5393,6 +5393,15 @@ Running the validator twice over unchanged evidence must produce the same
 scientific and acceptance payload except for no timestamp field, because the
 acceptance document contains no wall-clock generation timestamp.
 
+Every probe row must have a timezone-aware strictly increasing UTC timestamp
+and strictly increasing monotonic elapsed time. Aggregate CPU time,
+`source_bytes`, and `scratch_bytes` must never decrease. Every row before the
+last is a `sample` with at least one live process; the last row is the sole
+`runner_exit` row with zero live processes and zero task-tree RSS. Unknown
+event labels, an early exit marker, a live-process sample after exit, or a
+counter reset fails the matrix row. Scheduler-window interpolation is
+therefore performed only over an ordered, continuous probe envelope.
+
 ##### Counter provenance and aggregation
 
 The terminal counter sidecar is not a bag of caller-supplied integers. Every
