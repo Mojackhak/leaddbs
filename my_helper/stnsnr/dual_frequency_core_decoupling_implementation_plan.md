@@ -5473,6 +5473,22 @@ and the publication-only file-copy pool are outside that nested-scientific
 scope. The audit records every scanned source SHA and every detected call site,
 so a source change requires a new audit rather than reusing a zero count.
 
+`run_task17_candidate_parity.py` consumes a
+`dual_frequency_candidate_parity_plan_v1` document whose configured rows bind
+the model family, selected tau and Coverage, parent exposure and feature-ID
+artifacts, and reduced/optimized exposure and feature-ID artifacts by SHA-256,
+dtype, shape, and axis. Direct-voxel rows bind the same full parent and
+optimized axis; normative-fiber rows bind the complete connectome exposure as
+the parent and `Omega_max` as the optimized axis. For the full sample and every
+held-out subject, the tool computes a scalar brute-force candidate mask from
+the parent, computes the production vectorized mask on the optimized axis, and
+reports both optimized-mask mismatches and parent candidates missing from the
+optimized axis. The deterministic
+`dual_frequency_candidate_parity_v1` report binds the plan SHA and every
+artifact SHA. The counter sidecar rejects nonzero full or fold mask mismatches
+and uses the summed missing-parent count as
+`candidate_false_negative_count`.
+
 Counters that require configured parity or artifact-index audits remain
 unavailable until those source documents are present. The sidecar publisher
 must fail; it cannot synthesize zero, infer success from missing events, or
