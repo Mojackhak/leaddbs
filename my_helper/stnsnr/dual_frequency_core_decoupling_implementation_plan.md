@@ -5460,7 +5460,35 @@ Performance instrumentation implementation checkpoint on 2026-07-24:
 
 This checkpoint closes the missing probe, scheduler-trace, and validator
 implementation. It does not close Step 10 because the configured benchmark
-matrix has not run and the isolated fault harness is still unimplemented.
+matrix has not run. The isolated fault harness was the remaining implementation
+gap at that checkpoint and is closed by the subsequent checkpoint below.
+
+Isolated fault-harness implementation checkpoint on 2026-07-24:
+
+- `run_task17_fault_acceptance.py` provides separate `init`, `run`, and
+  validation-only operations over a plan-SHA-bound acceptance root;
+- the marker requires complete SHA enumeration of the accepted-parent and
+  canonical-publication file trees, while production cache inputs are copied
+  only through an explicit verified closure;
+- subprocess arguments can address only the isolated root or the declared
+  working directory; no test command receives the accepted parent,
+  publication, or shared production cache as a writable path;
+- payload, shard, and axis cases move the isolated original into quarantine,
+  publish deterministic corruption, require pre-consumption rejection, and
+  restore the original through rename;
+- fail-once recovery proves failed and dependency-skipped states before
+  resume, completed states after resume, and unchanged prior scientific
+  artifacts;
+- missing-parent extension startup must fail before rebuild, rebuild must
+  create a distinct completed main lineage, copied-cache replay must omit the
+  expensive-producer authorization argument, and rebuilt outputs must match
+  declared one-shot outputs exactly or under declared NPY tolerances; and
+- completed cases are reused only after their input marker and complete
+  attempt/log/quarantine inventory revalidate.
+
+The five fault-harness tests, 49 combined executor/performance/fault tests, and
+complete 618-test discovery pass. This closes the missing harness
+implementation, not the production-scale fault acceptance sequence.
 
 - [ ] **Step 11: Update current status and commit**
 
