@@ -16,6 +16,7 @@ from urllib.parse import unquote, urlparse
 import yaml
 
 from ..contracts import ArtifactRef
+from ..instrumentation import increment_performance_event
 
 
 class RunStoreError(RuntimeError):
@@ -397,6 +398,57 @@ class RunStore:
             "scheduler_window_count": len(normalized),
         }
 
+    def write_execution_segment_performance_events(
+        self,
+        segment_id: str,
+        payload: Mapping[str, object],
+    ) -> dict[str, object]:
+        """Publish one parent-owned worker event report beside a segment."""
+
+        segment_id = _token(segment_id, "execution segment ID")
+        if not segment_id.startswith("segment_"):
+            raise RunStoreError("execution segment ID is invalid")
+        document = dict(payload)
+        if (
+            document.get("schema_version")
+            != "dual_frequency_performance_event_report_v1"
+        ):
+            raise RunStoreError("performance event report schema differs")
+        document["segment_id"] = segment_id
+        path = (
+            self.root
+            / "execution_segments"
+            / f"performance_events_{segment_id}.json"
+        )
+        with self._lock:
+            if path.exists():
+                existing = json.loads(path.read_text(encoding="utf-8"))
+                if existing != document:
+                    raise RunStoreError(
+                        "performance event report differs from existing publication"
+                    )
+            else:
+                _atomic_write_text(
+                    path,
+                    json.dumps(
+                        document,
+                        indent=2,
+                        sort_keys=True,
+                        allow_nan=False,
+                    )
+                    + "\n",
+                )
+        return {
+            "performance_events_path": str(path.relative_to(self.root)),
+            "performance_events_sha256": _sha256_file(path),
+            "performance_fragment_count": int(
+                document.get("fragment_count", 0)
+            ),
+            "performance_missing_fragment_count": int(
+                document.get("missing_fragment_count", 0)
+            ),
+        }
+
     def record_artifacts(self, artifacts: tuple[ArtifactRef, ...]) -> None:
         if not artifacts:
             return
@@ -427,6 +479,7 @@ class RunStore:
                     indexed[artifact.identifier] = entry
             document["artifacts"] = [indexed[key] for key in sorted(indexed)]
             _atomic_write_text(path, json.dumps(document, indent=2, sort_keys=True) + "\n")
+            increment_performance_event("artifact_index_snapshot")
 
     def _validate_artifact_location(self, artifact: ArtifactRef) -> None:
         parsed = urlparse(artifact.uri)

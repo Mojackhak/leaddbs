@@ -11,6 +11,10 @@ from ..cache import ArtifactStore, ContentAddressedCache
 from ..catalog import EndpointRecord
 from ..config import ResolvedWorkflow
 from ..contracts import StudyBaseRecord
+from ..instrumentation import (
+    performance_snapshot,
+    write_performance_fragment,
+)
 from .planner import TaskSpec
 
 
@@ -96,19 +100,28 @@ def execute_worker_command(command: WorkerCommand):
         raise RuntimeError("spawn worker runtime is not initialized")
     from .executor import TaskExecutionRequest, _validate_service_result
 
-    service = _REGISTRY.resolve(command.task.service_id)
-    request = TaskExecutionRequest(
-        task=command.task,
-        dependencies=command.dependencies,
-        run_id=command.run_id,
-        output_dir=command.output_dir,
-        provider=_PROVIDER,
-        artifact_store=_ARTIFACT_STORE,
-        scientific_cache=_SCIENTIFIC_CACHE,
-        allow_expensive_producers=command.allow_expensive_producers,
-        workers=1,
-    )
-    return _validate_service_result(command.task, service(request))
+    before = performance_snapshot()
+    try:
+        service = _REGISTRY.resolve(command.task.service_id)
+        request = TaskExecutionRequest(
+            task=command.task,
+            dependencies=command.dependencies,
+            run_id=command.run_id,
+            output_dir=command.output_dir,
+            provider=_PROVIDER,
+            artifact_store=_ARTIFACT_STORE,
+            scientific_cache=_SCIENTIFIC_CACHE,
+            allow_expensive_producers=command.allow_expensive_producers,
+            workers=1,
+        )
+        return _validate_service_result(command.task, service(request))
+    finally:
+        write_performance_fragment(
+            command.output_dir,
+            task_id=command.task.task_id,
+            before=before,
+            after=performance_snapshot(),
+        )
 
 
 __all__ = [

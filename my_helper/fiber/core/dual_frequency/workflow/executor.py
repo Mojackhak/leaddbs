@@ -21,6 +21,12 @@ from typing import Any, Mapping
 
 from ..contracts import ArtifactRef, AxisRef
 from ..contracts.identity import canonical_hash
+from ..instrumentation import (
+    PerformanceInstrumentationError,
+    aggregate_performance_fragments,
+    performance_delta,
+    performance_snapshot,
+)
 from .planner import ExecutionPlan, TaskSpec
 from .registry import RegistryError, ServiceRegistry
 from .run_store import RunStore
@@ -1256,6 +1262,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     resource_monitor = _LiveResourceMonitor(process_mode)
     resource_monitor.sample_if_due(ledger, force=True)
     initial_swap = _swap_used_bytes()
+    parent_performance_before = performance_snapshot()
     segment_id = context.run_store.begin_execution_segment(
         {
             "started_at": _utc_now(),
@@ -1292,6 +1299,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     transient_retry_count = 0
     quarantined_attempt_count = 0
     attempts: dict[str, int] = {}
+    scheduled_attempts: list[dict[str, str]] = []
     running: dict[object, _RunningInvocation] = {}
 
     def recover_generation(reason: str) -> None:
@@ -1503,6 +1511,12 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 )
                 attempts[task.task_id] = attempts.get(task.task_id, 0) + 1
                 if process_mode:
+                    scheduled_attempts.append(
+                        {
+                            "task_id": task.task_id,
+                            "output_dir": str(output_dir),
+                        }
+                    )
                     command = WorkerCommand(
                         task=task,
                         dependencies=dependencies,
@@ -1616,6 +1630,42 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 "scheduler_window_count": 0,
             }
         )
+        if process_mode:
+            try:
+                performance_payload = aggregate_performance_fragments(
+                    scheduled_attempts
+                )
+                performance_payload["parent_events"] = performance_delta(
+                    parent_performance_before,
+                    performance_snapshot(),
+                )
+            except PerformanceInstrumentationError as exc:
+                performance_payload = {
+                    "schema_version": (
+                        "dual_frequency_performance_event_report_v1"
+                    ),
+                    "aggregation_status": "failed",
+                    "aggregation_error": f"{type(exc).__name__}: {exc}",
+                    "scheduled_attempt_count": len(scheduled_attempts),
+                    "fragment_count": 0,
+                    "missing_fragment_count": len(scheduled_attempts),
+                    "fragments": [],
+                    "missing_fragments": list(scheduled_attempts),
+                    "events": None,
+                }
+            performance_evidence = (
+                context.run_store.write_execution_segment_performance_events(
+                    segment_id,
+                    performance_payload,
+                )
+            )
+        else:
+            performance_evidence = {
+                "performance_events_path": None,
+                "performance_events_sha256": None,
+                "performance_fragment_count": 0,
+                "performance_missing_fragment_count": 0,
+            }
         context.run_store.finish_execution_segment(
             segment_id,
             {
@@ -1633,6 +1683,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 ),
                 **resource_monitor.as_dict(ledger),
                 **scheduler_evidence,
+                **performance_evidence,
             },
         )
 

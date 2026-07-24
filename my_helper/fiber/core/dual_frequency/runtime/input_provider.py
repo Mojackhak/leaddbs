@@ -69,6 +69,7 @@ from ..contracts import (
 from ..contracts.identity import canonical_hash
 from ..contracts.records import ACCEPTED_SOURCE_STATUSES, FinalModelRecord
 from ..contracts.study_base import ProgramRecord, SubjectRecord
+from ..instrumentation import increment_performance_event
 from .activation_provider import (
     CanonicalStimulationSource,
     OSSActivationRuntimeRequest,
@@ -632,6 +633,7 @@ class StudyRuntimeInputProvider:
     def _release_temporary_matrix(value: _TemporaryMatrix) -> None:
         try:
             value.array.flush()
+            increment_performance_event("memmap_flush")
             mapping = getattr(value.array, "_mmap", None)
             if mapping is not None:
                 mapping.close()
@@ -1218,12 +1220,17 @@ class StudyRuntimeInputProvider:
             kind="transformed_efields",
         )
         if self._scientific_cache is None:
-            return self._produce_canonical_left_path(
+            resolved = self._produce_canonical_left_path(
                 source,
                 transform,
                 source_hash,
                 transform_hash,
             )
+            increment_performance_event(
+                "left_transform_resolve",
+                key=f"{key.kind}:{key.digest}",
+            )
+            return resolved
         entry = self._scientific_cache.resolve(key)
         if entry is None:
             with self._scientific_cache.producer_lease(key) as producer:
@@ -1246,6 +1253,10 @@ class StudyRuntimeInputProvider:
                         )
         cached = entry.file_path("field.nii.gz")
         self._validate_nifti_once(cached)
+        increment_performance_event(
+            "left_transform_resolve",
+            key=f"{key.kind}:{key.digest}",
+        )
         return cached
 
     def _produce_canonical_left_path(
@@ -1354,12 +1365,15 @@ class StudyRuntimeInputProvider:
         resolved = Path(path).resolve()
         digest = self._path_hash(resolved)
         signature = self._file_signature(resolved)
+        identity = f"{resolved}:{digest}"
         with self._lock:
             cached = self._samplers.get(resolved)
             if cached is not None and cached[0] == _FileDigest(signature, digest):
                 self._samplers.move_to_end(resolved)
                 return cached[1]
+            rebuilding = cached is not None
         sampler = _NiftiSampler(resolved)
+        increment_performance_event("nifti_open", key=identity)
         if self._file_signature(resolved) != signature:
             raise RuntimeInputProviderError(
                 f"E-field changed while it was being loaded: {resolved}"
@@ -1368,6 +1382,10 @@ class StudyRuntimeInputProvider:
             raise RuntimeInputProviderError(
                 f"E-field content changed while it was being loaded: {resolved}"
             )
+        increment_performance_event(
+            "sampler_rebuild" if rebuilding else "sampler_build",
+            key=identity,
+        )
         with self._lock:
             previous = self._samplers.pop(resolved, None)
             if previous is not None:
@@ -1382,6 +1400,10 @@ class StudyRuntimeInputProvider:
                     last=False
                 )
                 self._sampler_bytes -= evicted.nbytes
+                increment_performance_event(
+                    "sampler_eviction",
+                    key=f"{_evicted_path}:{_evicted_digest.sha256}",
+                )
         return sampler
 
     def _sample_group_resolution(
@@ -1818,6 +1840,11 @@ class StudyRuntimeInputProvider:
                                 )
                             },
                         )
+                        if not entry.reused:
+                            increment_performance_event(
+                                "physical_producer",
+                                key=f"{key.kind}:{key.digest}",
+                            )
                     finally:
                         self._release_temporary_matrix(temporary)
             physical = self._open_shared_exposure(
@@ -1985,6 +2012,7 @@ class StudyRuntimeInputProvider:
                 stop = min(start + self._fiber_chunk_size, source.array.shape[1])
                 output.array[:, start:stop] = source.array[positions, start:stop]
             output.array.flush()
+            increment_performance_event("memmap_flush")
             output = _TemporaryMatrix(
                 output.array,
                 output.path,
@@ -2207,7 +2235,9 @@ class StudyRuntimeInputProvider:
                     "connectome geometry ranges do not cover the complete source"
                 )
             points.flush()
+            increment_performance_event("memmap_flush")
             offsets.flush()
+            increment_performance_event("memmap_flush")
             ranges = connectome.point_balanced_ranges(point_byte_budget)
             raw_chunk = connectome.raw_point_chunk_size
             partial_boundaries = (
@@ -2386,6 +2416,7 @@ class StudyRuntimeInputProvider:
                         feature_space.coordinates,
                     )
                 matrix.flush()
+                increment_performance_event("memmap_flush")
                 completed = True
                 return temporary
 
@@ -2496,6 +2527,7 @@ class StudyRuntimeInputProvider:
                     "connectome changed while fiber exposure was being prepared"
                 )
             matrix.flush()
+            increment_performance_event("memmap_flush")
             completed = True
             return temporary
         finally:
@@ -2794,6 +2826,7 @@ class StudyRuntimeInputProvider:
                 stop = min(start + self._fiber_chunk_size, indices.size)
                 output.array[:, start:stop] = source.array[:, indices[start:stop]]
             output.array.flush()
+            increment_performance_event("memmap_flush")
             output = _TemporaryMatrix(
                 output.array,
                 output.path,
@@ -3002,6 +3035,7 @@ class StudyRuntimeInputProvider:
                                         matrix_view.read_column_block(start, stop)
                                     )
                                 output.flush()
+                                increment_performance_event("memmap_flush")
                             finally:
                                 mapping = getattr(output, "_mmap", None)
                                 if mapping is not None:
@@ -3152,7 +3186,9 @@ class StudyRuntimeInputProvider:
                 )
                 overlap.array[:, start:stop] = block.overlap_mask
             prepared.array.flush()
+            increment_performance_event("memmap_flush")
             overlap.array.flush()
+            increment_performance_event("memmap_flush")
             completed = True
             return prepared, overlap
         finally:
@@ -3200,7 +3236,9 @@ class StudyRuntimeInputProvider:
                 prepared.array[:, start:stop] = block.exposure
                 overlap.array[:, start:stop] = block.reference_active
             prepared.array.flush()
+            increment_performance_event("memmap_flush")
             overlap.array.flush()
+            increment_performance_event("memmap_flush")
             completed = True
             return prepared, overlap
         finally:
@@ -4033,6 +4071,7 @@ class StudyRuntimeInputProvider:
                     temporaries.append(overlap_temporary)
                     overlap_temporary.array[:] = False
                     overlap_temporary.array.flush()
+                    increment_performance_event("memmap_flush")
                     prepared = raw_primary
                     overlap_mask = overlap_temporary
                 else:
@@ -4538,6 +4577,7 @@ class StudyRuntimeInputProvider:
                         indices[start:stop],
                     ]
             selected_temporary.array.flush()
+            increment_performance_event("memmap_flush")
             selected_exposure = publisher.array(
                 "selected_exposure.npy",
                 selected_temporary.array,

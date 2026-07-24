@@ -18,6 +18,7 @@ from urllib.parse import unquote, urlsplit
 import numpy as np
 
 from ..contracts.records import ArtifactRef, AxisRef, IndexedArrayView
+from ..instrumentation import increment_performance_event
 from .identity import CacheIdentityError, ScientificCacheKey, sha256_file, sha256_stream
 
 
@@ -650,7 +651,15 @@ class ContentAddressedCache:
             raise CacheCorruption(f"cache manifest identity is unreadable: {manifest_path}") from exc
         if key.kind != normalized_kind or key.digest != digest:
             raise CacheIdentityMismatch("copied cache directory identity does not match manifest")
-        return self._load_entry(destination, expected_key=key, reused=True)
+        verified_key = (key.kind, key.digest)
+        required_full_verification = verified_key not in self._verified_entries
+        entry = self._load_entry(destination, expected_key=key, reused=True)
+        if required_full_verification:
+            increment_performance_event(
+                "direct_copy_verification",
+                key=f"{key.kind}:{key.digest}",
+            )
+        return entry
 
     @contextmanager
     def producer_lease(
@@ -975,6 +984,9 @@ class ContentAddressedCache:
             output_stream.flush()
             os.fsync(output_stream.fileno())
         shutil.copystat(source, target, follow_symlinks=False)
+        increment_performance_event("payload_read_bytes", amount=size_bytes)
+        increment_performance_event("payload_write_bytes", amount=size_bytes)
+        increment_performance_event("payload_hash_bytes", amount=size_bytes)
         return digest.hexdigest(), size_bytes
 
     @staticmethod
@@ -1071,13 +1083,26 @@ class ContentAddressedCache:
             if file_path.stat().st_size != record.size_bytes:
                 raise CacheCorruption(f"cache file failed verification: {record.relative_path}")
             self._validate_file_structure(file_path, record)
-            if (
-                verify_payloads
-                and not trust_publisher_payloads
-                and sha256_file(file_path) != record.sha256
-            ):
-                raise CacheCorruption(f"cache file failed verification: {record.relative_path}")
+            if verify_payloads and not trust_publisher_payloads:
+                actual_sha256 = sha256_file(file_path)
+                increment_performance_event(
+                    "payload_read_bytes",
+                    amount=record.size_bytes,
+                )
+                increment_performance_event(
+                    "payload_hash_bytes",
+                    amount=record.size_bytes,
+                )
+                if actual_sha256 != record.sha256:
+                    raise CacheCorruption(
+                        f"cache file failed verification: {record.relative_path}"
+                    )
         self._validate_shards(files)
+        if verify_payloads and not trust_publisher_payloads:
+            increment_performance_event(
+                "cache_full_verification",
+                key=f"{expected_key.kind}:{expected_key.digest}",
+            )
         self._verified_entries.add(verified_key)
         return CacheEntry(path, actual_key, files, items, reused)
 

@@ -50,6 +50,7 @@ from ..contracts import (
 )
 from ..contracts.identity import canonical_hash
 from ..contracts.records import ACCEPTED_SOURCE_STATUSES
+from ..instrumentation import increment_performance_event
 from ..workflow.executor import ServiceResult, TaskExecutionRequest
 from .input_provider import StudyRuntimeInputProvider
 
@@ -859,6 +860,11 @@ def prepare_jitter_exposure_block(request: TaskExecutionRequest) -> ServiceResul
                     return tuple(sorted(records, key=lambda record: record.relative_path))
 
                 entry = cache.publish_generated(key, generated)
+                if not entry.reused:
+                    increment_performance_event(
+                        "physical_producer",
+                        key=f"{key.kind}:{key.digest}",
+                    )
             else:
                 entry = cache.resolve(key)
                 if entry is None:
