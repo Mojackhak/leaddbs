@@ -103,6 +103,8 @@ def _byte_counters(path: Path) -> tuple[int, int]:
         raise PerformanceProbeError(f"cannot read byte-counter document: {path}") from exc
     if not isinstance(payload, Mapping):
         raise PerformanceProbeError("byte-counter document must contain an object")
+    if isinstance(payload.get("counters"), Mapping):
+        payload = payload["counters"]
     values: list[int] = []
     for field in ("source_bytes", "scratch_bytes"):
         value = payload.get(field)

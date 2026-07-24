@@ -181,6 +181,23 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
     ) -> dict[str, object]:
         benchmark_class, connectome, cache_state, solver_mode, workers = key
         run = self.runs[workers]
+        counter = (
+            Path(str(run["root"]))
+            / "execution_segments"
+            / (
+                "performance_counters_"
+                + self._digest(str(key))[:16]
+                + ".json"
+            )
+        )
+        _write_json(
+            counter,
+            {
+                "schema_version": "dual_frequency_performance_counters_v1",
+                "segment_id": "segment_0001",
+                "counters": self._counters(cache_state),
+            },
+        )
         return {
             "benchmark_class": benchmark_class,
             "connectome_id": connectome,
@@ -199,7 +216,8 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                 f"{benchmark_class}:{connectome}:{solver_mode}"
             ),
             "io_classification": "compute_bound",
-            "counters": self._counters(cache_state),
+            "counter_path": str(counter),
+            "counter_sha256": _sha(counter),
         }
 
     def _not_run_row(
@@ -219,7 +237,8 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                 "configuration_sha256": None,
                 "numerical_identity_sha256": None,
                 "io_classification": None,
-                "counters": None,
+                "counter_path": None,
+                "counter_sha256": None,
             }
         )
         return row

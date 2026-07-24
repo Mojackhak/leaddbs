@@ -411,8 +411,22 @@ def _validate_executed_row(
     if probe_summary["swap_delta_bytes"] > 0:
         raise PerformanceAcceptanceError("benchmark swap increased")
     scheduler = _scheduler_windows(run_root, segment, probe_rows, workers)
+    counter_path = Path(str(row["counter_path"])).expanduser().resolve()
+    if counter_path != run_root and run_root not in counter_path.parents:
+        raise PerformanceAcceptanceError("counter sidecar escapes benchmark run")
+    expected_counter_sha = _sha(row["counter_sha256"], "counter sidecar SHA")
+    if _sha256_file(counter_path) != expected_counter_sha:
+        raise PerformanceAcceptanceError("counter sidecar SHA differs")
+    counter_document = _read_json(counter_path, "performance counter sidecar")
+    if (
+        counter_document.get("schema_version")
+        != "dual_frequency_performance_counters_v1"
+        or counter_document.get("segment_id") != segment_id
+        or set(counter_document) != {"schema_version", "segment_id", "counters"}
+    ):
+        raise PerformanceAcceptanceError("performance counter sidecar differs")
     counters = _validate_counters(
-        row["counters"],
+        counter_document["counters"],
         cache_state=str(row["cache_state"]),
     )
     if (
@@ -441,6 +455,7 @@ def _validate_executed_row(
         "probe": probe_summary,
         "scheduler": scheduler,
         "counters": counters,
+        "counter_sidecar_sha256": expected_counter_sha,
         "io_classification": row["io_classification"],
     }
 
@@ -461,7 +476,8 @@ _ROW_FIELDS = {
     "configuration_sha256",
     "numerical_identity_sha256",
     "io_classification",
-    "counters",
+    "counter_path",
+    "counter_sha256",
 }
 
 
