@@ -101,6 +101,17 @@ def _payload_hash(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _file_sha256(path: Path, block_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while block := handle.read(block_size):
+                digest.update(block)
+    except OSError as exc:
+        raise ValueError(f"cannot hash postprocess evidence: {path}") from exc
+    return digest.hexdigest()
+
+
 def _resolve_path(base: Path, value: object) -> Path:
     path = Path(str(value)).expanduser()
     return (base / path).resolve() if not path.is_absolute() else path.resolve()
@@ -293,6 +304,79 @@ def _validate_final_and_summary(
         raise ValueError(f"final branch mismatch: {scale_id}/{spec.model_family}")
 
 
+def _validated_display_smoothing_metadata(
+    artifact: PublishedArtifact,
+    *,
+    raw_artifact: PublishedArtifact,
+    fwhm_mm: float,
+) -> PublishedArtifact:
+    relative = f"{artifact.relative_path}.metadata.json"
+    path = Path(f"{artifact.path}.metadata.json").resolve()
+    if artifact.publication_root not in path.parents or not path.is_file():
+        raise ValueError(
+            f"display smoothing metadata is missing: {artifact.relative_path}"
+        )
+    metadata = _read_json(path)
+    if set(metadata) != {
+        "schema_version",
+        "artifact_kind",
+        "published_relative_path",
+        "payload_sha256",
+        "size_bytes",
+        "provenance",
+    }:
+        raise ValueError(
+            f"display smoothing metadata fields differ: {artifact.relative_path}"
+        )
+    provenance = metadata.get("provenance")
+    if not isinstance(provenance, Mapping) or set(provenance) != {
+        "source_record_id",
+        "input_relative_path",
+        "fwhm_mm",
+        "algorithm",
+        "support_policy",
+        "input_finite_voxels",
+        "output_finite_voxels",
+    }:
+        raise ValueError(
+            f"display smoothing provenance fields differ: {artifact.relative_path}"
+        )
+    input_count = provenance["input_finite_voxels"]
+    output_count = provenance["output_finite_voxels"]
+    if (
+        metadata["schema_version"]
+        != "dual_frequency_derived_artifact_metadata_v1"
+        or metadata["artifact_kind"] != "benefit_map_smooth"
+        or metadata["published_relative_path"] != artifact.relative_path
+        or metadata["payload_sha256"] != artifact.sha256
+        or type(metadata["size_bytes"]) is not int
+        or metadata["size_bytes"] != artifact.size_bytes
+        or not str(provenance["source_record_id"]).strip()
+        or provenance["input_relative_path"] != raw_artifact.relative_path
+        or type(provenance["fwhm_mm"]) not in {int, float}
+        or float(provenance["fwhm_mm"]) != fwhm_mm
+        or provenance["algorithm"]
+        != "masked_normalized_gaussian_original_roi_v2"
+        or provenance["support_policy"] != "original_finite_benefit_roi"
+        or type(input_count) is not int
+        or type(output_count) is not int
+        or input_count < 1
+        or output_count != input_count
+    ):
+        raise ValueError(
+            f"display smoothing v2 contract differs: {artifact.relative_path}"
+        )
+    return PublishedArtifact(
+        publication=artifact.publication,
+        publication_root=artifact.publication_root,
+        relative_path=relative,
+        path=path,
+        sha256=_file_sha256(path),
+        size_bytes=path.stat().st_size,
+        artifact_kind="benefit_map_smooth_metadata",
+    )
+
+
 def _voxel_spatial_sources(
     catalog: PublicationCatalog,
     *,
@@ -307,18 +391,35 @@ def _voxel_spatial_sources(
     if len(raw_matches) != 1:
         raise ValueError(f"voxel final model requires one benefit map: {scale_id}/{role}")
     base = f"{scale_id}/{role}"
+    raw = catalog.resolve_relative("direct_voxel_main", raw_matches[0])
+    smooth_1 = catalog.resolve_relative(
+        "direct_voxel_main",
+        f"{base}/report/display/benefit_map_smooth_fwhm1mm.nii.gz",
+    )
+    smooth_2 = catalog.resolve_relative(
+        "direct_voxel_main",
+        f"{base}/report/display/benefit_map_smooth_fwhm2mm.nii.gz",
+    )
     return {
         "report_summary": catalog.resolve_relative(
             "direct_voxel_main", f"{base}/report/summary.json"
         ),
-        "benefit_map": catalog.resolve_relative("direct_voxel_main", raw_matches[0]),
-        "benefit_map_smooth_fwhm1mm": catalog.resolve_relative(
-            "direct_voxel_main",
-            f"{base}/report/display/benefit_map_smooth_fwhm1mm.nii.gz",
+        "benefit_map": raw,
+        "benefit_map_smooth_fwhm1mm": smooth_1,
+        "benefit_map_smooth_fwhm1mm_metadata": (
+            _validated_display_smoothing_metadata(
+                smooth_1,
+                raw_artifact=raw,
+                fwhm_mm=1.0,
+            )
         ),
-        "benefit_map_smooth_fwhm2mm": catalog.resolve_relative(
-            "direct_voxel_main",
-            f"{base}/report/display/benefit_map_smooth_fwhm2mm.nii.gz",
+        "benefit_map_smooth_fwhm2mm": smooth_2,
+        "benefit_map_smooth_fwhm2mm_metadata": (
+            _validated_display_smoothing_metadata(
+                smooth_2,
+                raw_artifact=raw,
+                fwhm_mm=2.0,
+            )
         ),
     }
 

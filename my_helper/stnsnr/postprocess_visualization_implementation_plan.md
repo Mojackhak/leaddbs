@@ -118,6 +118,17 @@ checks every staged byte and metadata record, proves exact finite-support
 preservation, and permits index changes only to the target SHA-256 and byte
 count fields.
 
+Formal postprocess preflight must fail until every selected one-millimeter and
+two-millimeter direct-voxel display derivative has its canonical metadata
+sidecar under the publication root. The sidecar must bind the indexed payload
+path, SHA-256, byte count, selected raw benefit-map path, requested FWHM,
+`masked_normalized_gaussian_original_roi_v2`, and
+`original_finite_benefit_roi`; its input and output finite-voxel counts must be
+positive and identical. The sidecar is deterministic provenance paired with
+the already indexed NIfTI, not a run-store fallback. This gate prevents
+`--validate-only` or the formal renderer from accepting the current mixed v1/v2
+publication before the repair transaction commits.
+
 Its `promote` mode is permitted only after the independent OSS process exits.
 It requires an explicit same-volume destination below
 `/Volumes/VAL/.Trashes/501`, copies each staged replacement to a temporary
@@ -1471,3 +1482,21 @@ input validation, visualization defaults, scene contracts, and fit-plot
 contracts still accept the updated publication boundary. It does not replace
 the pending canonical all-endpoint postprocess run after OSS and combined
 publication complete.
+
+Display-smoothing preflight closure on 2026-07-24:
+
+- each formal direct-voxel endpoint now binds the one-millimeter and
+  two-millimeter v2 metadata sidecars into `resolved_request.json` with their
+  SHA-256 and byte counts;
+- preflight rejects a missing sidecar, a payload/path/size/FWHM mismatch, a
+  non-v2 algorithm, a changed support policy, or unequal finite-support counts;
+- the visualization suite passes 38 tests, including explicit rejection of a
+  v1 sidecar; and
+- a read-only invocation of the durable formal request now stops at the first
+  remaining v1 derivative,
+  `adl/reference/report/display/benefit_map_smooth_fwhm1mm.nii.gz`, before
+  creating the formal output root.
+
+This is the required pre-promotion behavior. The same request must become valid
+only after the staged 112-derivative repair is promoted and the canonical
+publication is revalidated.

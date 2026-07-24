@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 from scipy.io import loadmat
 
+from my_helper.fiber.core.viz import formal_postprocess
 from my_helper.fiber.core.viz.artifacts import restore_voxel_vector_to_nifti
 from my_helper.fiber.core.viz.layout import build_figure_layout
 from my_helper.fiber.core.viz.model_fit import plot_in_sample_loocv_fit
@@ -407,9 +408,31 @@ def _voxel_section_publication(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         ):
             target = display_root / name
             nib.save(nib.load(heat_path), target)
-            artifacts[f"pdq39_score/{role}/report/display/{name}"] = (
+            relative = f"pdq39_score/{role}/report/display/{name}"
+            artifacts[relative] = (
                 target,
                 name.removesuffix(".nii.gz"),
+            )
+            fwhm = 1.0 if "fwhm1mm" in name else 2.0
+            metadata = {
+                "schema_version": "dual_frequency_derived_artifact_metadata_v1",
+                "artifact_kind": "benefit_map_smooth",
+                "published_relative_path": relative,
+                "payload_sha256": _sha256(target),
+                "size_bytes": target.stat().st_size,
+                "provenance": {
+                    "source_record_id": f"source_{role}",
+                    "input_relative_path": raw_relative,
+                    "fwhm_mm": fwhm,
+                    "algorithm": "masked_normalized_gaussian_original_roi_v2",
+                    "support_policy": "original_finite_benefit_roi",
+                    "input_finite_voxels": 27,
+                    "output_finite_voxels": 27,
+                },
+            }
+            Path(f"{target}.metadata.json").write_text(
+                json.dumps(metadata),
+                encoding="utf-8",
             )
     _write_publication(root, artifacts)
     return root, anatomy_path, mask_path, mask_path
@@ -992,6 +1015,52 @@ def test_voxel_components_do_not_write_formal_root_metadata(tmp_path: Path) -> N
         style=style,
     )
     assert all(item.get("resume_status") == "reused" for item in second)
+
+
+def test_formal_voxel_preflight_requires_v2_smoothing_metadata(
+    tmp_path: Path,
+) -> None:
+    publication, _, _, _ = _voxel_section_publication(tmp_path)
+    catalog = PublicationCatalog.from_config(
+        {
+            "direct_voxel_main": {
+                "root": str(publication),
+                "manifest": "model_manifest.json",
+            }
+        },
+        config_base=tmp_path,
+    )
+    final_model_path = (
+        publication / "pdq39_score" / "reference" / "final_model.json"
+    )
+    final_model = json.loads(final_model_path.read_text(encoding="utf-8"))
+    sources = formal_postprocess._voxel_spatial_sources(
+        catalog,
+        scale_id="pdq39_score",
+        role="reference",
+        final_model=final_model,
+    )
+    assert (
+        sources["benefit_map_smooth_fwhm1mm_metadata"].artifact_kind
+        == "benefit_map_smooth_metadata"
+    )
+
+    derivative = (
+        publication
+        / "pdq39_score/reference/report/display"
+        / "benefit_map_smooth_fwhm1mm.nii.gz"
+    )
+    metadata_path = Path(f"{derivative}.metadata.json")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["provenance"]["algorithm"] = "masked_normalized_gaussian_v1"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="display smoothing v2 contract differs"):
+        formal_postprocess._voxel_spatial_sources(
+            catalog,
+            scale_id="pdq39_score",
+            role="reference",
+            final_model=final_model,
+        )
 
 
 def test_legacy_matlab_visualization_functions_are_merged() -> None:
