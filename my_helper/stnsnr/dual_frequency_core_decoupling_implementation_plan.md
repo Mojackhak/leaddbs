@@ -7720,6 +7720,42 @@ contained more than 86300 samples, retained its 62493573120-byte peak below
 remained mounted and writable. This remains nonterminal evidence because the
 reference gate has not committed its authoritative closure.
 
+At the scheduled 2026-07-23 17:45 PDT boundary, the reference gate became
+terminal. Task `task_e4439d7c662faaf447fa` completed at
+2026-07-24T00:42:07Z and committed the authoritative reference closure:
+34 unique decision identities, 68 unique row-cache identities, gate status
+`accepted_omega_max`, and artifact SHA-256
+`f64d647a93305a648c713da8e1400a9b8c2eaa0a1cc07002a5ad2676ca2c50eb`.
+The cumulative cache contained 69 reference-group decisions at the inspection
+instant, but only the terminal 34-item `row_decision_ids` list is the accepted
+reference inventory.
+
+An independent full-closure replay resolved all 34 decision entries and all 68
+row entries through the production cache validator. Every decision belongs to
+the committed reference group and has status `pass`; every row passed
+manifest identity, file SHA-256 and byte count, array dtype and shape, ordered
+unique positive ID, and finite probability-range validation. All 34 final axes
+were exact canonical-ID subsets of their paired `Omega_max` axes. The maximum
+probability difference across the closure was 0, and aggregate strict
+`p(A) > 0.5` state and activation-count mismatch counts were both 0. No
+closure error was found.
+
+The executor then restored the historical add-on gate
+`task_7894935452035f4bf4b8` from failed to running without changing its task
+identity. The ledger consequently became 197 completed, one running, zero
+failed, and 392 dependency-derived skips. This is direct production evidence
+that resume preserves a failed record until it can be retried, then reopens
+only that failed task after the single solver token is released. The add-on
+gate was actively producing its first unresolved row at the inspection
+boundary; its authoritative closure remains pending.
+
+VAL remained mounted and writable. The task-tree snapshot contained four
+processes, approximately 7.9 percent aggregate CPU during an OSS bootstrap
+phase, and 31934611456 bytes RSS. The external guard contained more than 93100
+samples, retained its 62493573120-byte peak below 64 GiB, and recorded no
+positive swap growth above the active baseline. Independent OSS remains
+nonterminal until the add-on gate and all downstream tasks complete.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
