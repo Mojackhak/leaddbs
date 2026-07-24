@@ -225,8 +225,10 @@ def _reason_waits(value: object, label: str) -> dict[str, float]:
 
 
 def _utc_timestamp(value: object, label: str) -> datetime:
+    if not isinstance(value, str):
+        raise ResourceAcceptanceError(f"{label} is not a string")
     try:
-        timestamp = datetime.fromisoformat(str(value))
+        timestamp = datetime.fromisoformat(value)
     except ValueError as exc:
         raise ResourceAcceptanceError(f"{label} is invalid") from exc
     if (
@@ -295,6 +297,10 @@ def _validate_scheduler_windows(
             raise ResourceAcceptanceError(
                 f"scheduler window {index} fields differ"
             )
+        if type(row["elapsed_seconds"]) not in (int, float):
+            raise ResourceAcceptanceError(
+                f"scheduler window {index} elapsed type differs"
+            )
         start = _utc_timestamp(
             row["start_utc"],
             f"scheduler window {index} start",
@@ -323,6 +329,7 @@ def _validate_scheduler_windows(
                 "runnable_cpu_slots",
             )
         }
+        ready = scheduler_counts["ready_task_count"]
         running = scheduler_counts["running_task_count"]
         runnable = scheduler_counts["runnable_cpu_slots"]
         cpu = _integer(
@@ -349,6 +356,7 @@ def _validate_scheduler_windows(
         if (
             running > workers
             or runnable > workers
+            or runnable != min(workers, ready + running)
             or cpu > workers
             or managed < minimum_managed_memory_bytes
             or managed > maximum_managed_memory_bytes

@@ -7156,6 +7156,11 @@ the contemporaneous ceiling in every scheduler window. The validator requires
 the four segment values to form a valid closure below the formal RSS ceiling
 and checks each sampled reserved-memory value against its own window ceiling;
 it must not compare the whole segment only with its startup value.
+The strict resource validator uses the writer's same exact timestamp, elapsed,
+runnable-slot, admission-reason, and storage-limited derivations as performance
+acceptance. A non-string UTC field, Boolean elapsed value, or runnable slot
+count different from the bounded ready-plus-running count fails before peak
+resource evidence is accepted.
 The segment-declared scheduler-window path must be relative and contained by
 the run root; its SHA, segment identity, row count, timestamp order, reservation
 ceilings, admission-reason closure, and storage-limited derivation must all
@@ -8439,8 +8444,10 @@ calculates effective cores. Five new negative fixtures reject an added field,
 a UTC gap, a solver reservation above its ceiling, a false runnable value, and
 a false storage classification; a sixth rejects a Boolean elapsed value. The
 seventh rejects a segment schema mismatch. The performance module passes 19
-tests, the joint executor and Task 17 evidence set passes 116 tests, and
-complete dual-frequency discovery passes 677 tests with warnings treated as
+tests. The strict resource validator now rejects a Boolean elapsed value, a
+non-string UTC value, and a false runnable derivation through three additional
+fixtures. The joint executor and Task 17 evidence set passes 119 tests, and
+complete dual-frequency discovery passes 680 tests with warnings treated as
 errors.
 The configured 72-row production matrix remains pending.
 

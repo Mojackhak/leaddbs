@@ -129,7 +129,7 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
                         "elapsed_seconds": 5,
                         "ready_task_count": 2,
                         "running_task_count": 1,
-                        "runnable_cpu_slots": 2,
+                        "runnable_cpu_slots": 3,
                         "reserved_cpu_slots": 1,
                         "managed_memory_bytes": 48 * 1024**3,
                         "reserved_memory_bytes": 1024,
@@ -290,6 +290,48 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
         scheduler = self.root / segment["scheduler_windows_path"]
         document = json.loads(scheduler.read_text(encoding="utf-8"))
         document["rows"][0]["managed_memory_bytes"] = 49 * 1024**3
+        _write_json(scheduler, document)
+        segment["scheduler_windows_sha256"] = _sha(scheduler)
+        _write_json(self.segment_path, segment)
+        with self.assertRaisesRegex(
+            validator.ResourceAcceptanceError,
+            "reservation exceeds its ceiling",
+        ):
+            self._validate()
+
+    def test_scheduler_boolean_elapsed_fails(self) -> None:
+        segment = json.loads(self.segment_path.read_text(encoding="utf-8"))
+        scheduler = self.root / segment["scheduler_windows_path"]
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["elapsed_seconds"] = True
+        _write_json(scheduler, document)
+        segment["scheduler_windows_sha256"] = _sha(scheduler)
+        _write_json(self.segment_path, segment)
+        with self.assertRaisesRegex(
+            validator.ResourceAcceptanceError,
+            "elapsed type differs",
+        ):
+            self._validate()
+
+    def test_scheduler_nonstring_utc_fails(self) -> None:
+        segment = json.loads(self.segment_path.read_text(encoding="utf-8"))
+        scheduler = self.root / segment["scheduler_windows_path"]
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["start_utc"] = 20260724
+        _write_json(scheduler, document)
+        segment["scheduler_windows_sha256"] = _sha(scheduler)
+        _write_json(self.segment_path, segment)
+        with self.assertRaisesRegex(
+            validator.ResourceAcceptanceError,
+            "not a string",
+        ):
+            self._validate()
+
+    def test_scheduler_runnable_derivation_fails(self) -> None:
+        segment = json.loads(self.segment_path.read_text(encoding="utf-8"))
+        scheduler = self.root / segment["scheduler_windows_path"]
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["runnable_cpu_slots"] = 1
         _write_json(scheduler, document)
         segment["scheduler_windows_sha256"] = _sha(scheduler)
         _write_json(self.segment_path, segment)
