@@ -130,6 +130,31 @@ def _nonnegative(value: object, field: str) -> int:
     return value
 
 
+def _run_fragment_relative(raw_path: object, run_root: Path) -> str:
+    path = Path(str(raw_path)).expanduser()
+    if not path.is_absolute():
+        path = run_root / path
+    path = path.resolve()
+    try:
+        relative = path.relative_to(run_root)
+    except ValueError as exc:
+        raise PerformanceCounterBuildError(
+            "performance fragment lies outside the run root"
+        ) from exc
+    parts = relative.parts
+    if (
+        len(parts) != 4
+        or parts[0] != "work"
+        or not parts[1].startswith("task_")
+        or not parts[2].startswith("attempt-")
+        or parts[3] != "performance_counter_fragment.json"
+    ):
+        raise PerformanceCounterBuildError(
+            "performance fragment path differs from the attempt contract"
+        )
+    return relative.as_posix()
+
+
 def _normalize_events(
     raw: object,
     *,
@@ -187,6 +212,8 @@ def _add_events(
 
 def _fragment_events(
     report: Mapping[str, object],
+    *,
+    run_root: Path,
 ) -> tuple[
     dict[str, int],
     dict[str, dict[str, int]],
@@ -220,7 +247,8 @@ def _fragment_events(
             raise PerformanceCounterBuildError(
                 f"performance fragment reference differs: {index}"
             )
-        path = Path(str(item["path"])).expanduser().resolve()
+        relative = _run_fragment_relative(item["path"], run_root)
+        path = run_root / relative
         expected_sha = _digest(item["sha256"], "performance fragment SHA")
         if not path.is_file() or _sha256_file(path) != expected_sha:
             raise PerformanceCounterBuildError(
@@ -240,6 +268,7 @@ def _fragment_events(
             != "dual_frequency_performance_counter_fragment_v1"
             or document.get("process_identity") != process
             or document.get("task_id") != task_id
+            or Path(relative).parts[1] != task_id
         ):
             raise PerformanceCounterBuildError(
                 "performance fragment identity differs"
@@ -411,6 +440,14 @@ def build(input_path: Path) -> Path:
         "fragments",
     }:
         raise PerformanceCounterBuildError("performance byte ledger fields differ")
+    if (
+        ledger.get("segment_path") != str(segment_path.relative_to(run_root))
+        or ledger.get("event_report_path")
+        != str(event_path.relative_to(run_root))
+    ):
+        raise PerformanceCounterBuildError(
+            "performance byte ledger source paths differ"
+        )
     ledger_fragments = ledger.get("fragments")
     event_fragments = event_report.get("fragments")
     if (
@@ -426,24 +463,75 @@ def build(input_path: Path) -> Path:
         raise PerformanceCounterBuildError(
             "performance byte ledger binding differs"
         )
-    ledger_fragment_closure = {
-        (
-            str(item.get("task_id", "")),
-            str(item.get("process_identity", "")),
-            str(item.get("sha256", "")),
+    ledger_fragment_closure: set[tuple[str, str, str, str]] = set()
+    for index, item in enumerate(ledger_fragments):
+        if not isinstance(item, Mapping) or set(item) != {
+            "task_id",
+            "process_identity",
+            "path",
+            "sha256",
+            "source_bytes",
+            "scratch_bytes",
+        }:
+            raise PerformanceCounterBuildError(
+                f"performance byte ledger fragment differs: {index}"
+            )
+        relative = _run_fragment_relative(item["path"], run_root)
+        path = run_root / relative
+        expected_sha = _digest(
+            item["sha256"],
+            "performance byte ledger fragment SHA",
         )
-        for item in ledger_fragments
-        if isinstance(item, Mapping)
-    }
-    event_fragment_closure = {
-        (
-            str(item.get("task_id", "")),
-            str(item.get("process_identity", "")),
-            str(item.get("sha256", "")),
+        if not path.is_file() or _sha256_file(path) != expected_sha:
+            raise PerformanceCounterBuildError(
+                "performance byte ledger fragment SHA differs"
+            )
+        document = _read_json(path, "performance byte ledger fragment")
+        events = document.get("events")
+        scalars, _keyed = _normalize_events(
+            events,
+            label=f"byte ledger fragment {index} events",
         )
-        for item in event_fragments
-        if isinstance(item, Mapping)
-    }
+        task_id = str(item["task_id"]).strip()
+        process = str(item["process_identity"]).strip()
+        if (
+            not task_id
+            or not process
+            or document.get("schema_version")
+            != "dual_frequency_performance_counter_fragment_v1"
+            or document.get("task_id") != task_id
+            or document.get("process_identity") != process
+            or Path(relative).parts[1] != task_id
+            or _nonnegative(item["source_bytes"], "ledger fragment source bytes")
+            != scalars["source_bytes"]
+            or _nonnegative(item["scratch_bytes"], "ledger fragment scratch bytes")
+            != scalars["scratch_bytes"]
+        ):
+            raise PerformanceCounterBuildError(
+                "performance byte ledger fragment identity or bytes differ"
+            )
+        ledger_fragment_closure.add(
+            (task_id, process, relative, expected_sha)
+        )
+    event_fragment_closure: set[tuple[str, str, str, str]] = set()
+    for index, item in enumerate(event_fragments):
+        if not isinstance(item, Mapping) or set(item) != {
+            "task_id",
+            "process_identity",
+            "path",
+            "sha256",
+        }:
+            raise PerformanceCounterBuildError(
+                f"performance event fragment differs: {index}"
+            )
+        event_fragment_closure.add(
+            (
+                str(item["task_id"]).strip(),
+                str(item["process_identity"]).strip(),
+                _run_fragment_relative(item["path"], run_root),
+                _digest(item["sha256"], "performance event fragment SHA"),
+            )
+        )
     if (
         len(ledger_fragment_closure) != len(ledger_fragments)
         or len(event_fragment_closure) != len(event_fragments)
@@ -497,7 +585,10 @@ def build(input_path: Path) -> Path:
     if not isinstance(nested_sites, list) or not isinstance(retained_ids, list):
         raise PerformanceCounterBuildError("artifact/static audit closure differs")
 
-    scalars, keyed, process_cache = _fragment_events(event_report)
+    scalars, keyed, process_cache = _fragment_events(
+        event_report,
+        run_root=run_root,
+    )
     source_bytes = _nonnegative(ledger.get("source_bytes"), "source bytes")
     scratch_bytes = _nonnegative(ledger.get("scratch_bytes"), "scratch bytes")
     if (

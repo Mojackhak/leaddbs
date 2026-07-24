@@ -252,6 +252,12 @@ class Task17PerformanceCounterBuilderTest(unittest.TestCase):
         _write(segment_path, segment)
         inputs["segment_sha256"] = _sha(segment_path)
         inputs["event_report_sha256"] = _sha(event_path)
+        ledger_path = Path(inputs["byte_ledger_path"])
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        ledger["segment_sha256"] = inputs["segment_sha256"]
+        ledger["event_report_sha256"] = inputs["event_report_sha256"]
+        _write(ledger_path, ledger)
+        inputs["byte_ledger_sha256"] = _sha(ledger_path)
         _write(self.inputs, inputs)
         with self.assertRaises(builder.PerformanceCounterBuildError):
             builder.build(self.inputs)
@@ -268,6 +274,37 @@ class Task17PerformanceCounterBuilderTest(unittest.TestCase):
         with self.assertRaisesRegex(
             builder.PerformanceCounterBuildError,
             "binding differs",
+        ):
+            builder.build(self.inputs)
+
+    def test_rejects_external_same_byte_fragment_path(self) -> None:
+        inputs = json.loads(self.inputs.read_text(encoding="utf-8"))
+        event_path = Path(inputs["event_report_path"])
+        event = json.loads(event_path.read_text(encoding="utf-8"))
+        original = Path(event["fragments"][0]["path"])
+        outside = self.root / "outside-fragment" / original.name
+        outside.parent.mkdir()
+        outside.write_bytes(original.read_bytes())
+        event["fragments"][0]["path"] = str(outside)
+        _write(event_path, event)
+        segment_path = (
+            self.run / "execution_segments" / f"{self.segment_id}.json"
+        )
+        segment = json.loads(segment_path.read_text(encoding="utf-8"))
+        segment["performance_events_sha256"] = _sha(event_path)
+        _write(segment_path, segment)
+        inputs["segment_sha256"] = _sha(segment_path)
+        inputs["event_report_sha256"] = _sha(event_path)
+        ledger_path = Path(inputs["byte_ledger_path"])
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        ledger["segment_sha256"] = inputs["segment_sha256"]
+        ledger["event_report_sha256"] = inputs["event_report_sha256"]
+        _write(ledger_path, ledger)
+        inputs["byte_ledger_sha256"] = _sha(ledger_path)
+        _write(self.inputs, inputs)
+        with self.assertRaisesRegex(
+            builder.PerformanceCounterBuildError,
+            "outside the run root",
         ):
             builder.build(self.inputs)
 
