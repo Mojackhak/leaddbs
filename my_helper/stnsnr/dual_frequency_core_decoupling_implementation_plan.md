@@ -5393,6 +5393,57 @@ Running the validator twice over unchanged evidence must produce the same
 scientific and acceptance payload except for no timestamp field, because the
 acceptance document contains no wall-clock generation timestamp.
 
+##### Counter provenance and aggregation
+
+The terminal counter sidecar is not a bag of caller-supplied integers. Every
+field carries one source class and is aggregated only from the following
+repository-owned evidence:
+
+| Counter | Authoritative event or evidence |
+|---|---|
+| `candidate_false_negative_count` | configured-data brute-force parity report |
+| `physical_producer_count_min`, `physical_producer_count_max` | new physical cache publication events keyed by scientific cache identity |
+| `hot_loop_metadata_work_count` | path/hash/lock instrumentation events emitted while a provider range-loop guard is active |
+| `cache_full_verification_count_min`, `cache_full_verification_count_max` | actual payload-SHA verification events keyed by process identity and cache identity |
+| `cache_repeat_verification_count_max` | full payload-SHA verification after the first verified event for the same process/cache identity |
+| `endpoint_payload_copy_count` | prepared-exposure publication event whose source and destination differ only by endpoint naming |
+| `nested_executor_creation_count` | executor-construction audit outside the single parent scheduler |
+| `retained_null_n_by_f_output_count` | artifact-index audit for a retained null payload with both permutation and feature axes |
+| `left_transform_resolve_count` | canonical-left resolution event, separated from a real transform producer event |
+| `nifti_open_count`, `sampler_build_count`, `sampler_rebuild_count`, `sampler_eviction_count` | process-local sampler lifecycle events keyed by unchanged path signature |
+| `connectome_row4_audit_pass_count` | configured connectome row-4 parity audit |
+| `direct_copy_verification_count` | portable identity-only cache resolution followed by full payload verification |
+| `filtered_connectome_build_count` | new filtered-connectome publication event keyed by source connectome and final feature axis |
+| `memmap_flush_count` | explicit managed-memmap flush event |
+| `artifact_index_snapshot_count` | parent-owned artifact-index atomic publication event |
+| `payload_read_bytes`, `payload_write_bytes`, `payload_hash_bytes` | byte counts at cache/artifact read, write, and SHA loops; one operation can contribute to more than one category |
+| `source_bytes`, `scratch_bytes` | benchmark-scoped source-read and scratch-write byte ledger |
+| `cancellation_count`, `timeout_count`, `retry_count` | terminal execution-segment scheduler counters |
+
+Worker events are process-local in memory. At each task boundary the worker
+writes one immutable delta fragment below that task attempt. The parent alone
+validates and aggregates fragments after workers stop, joins the configured
+parity and artifact audits, derives the terminal scheduler counters, and
+atomically publishes
+`dual_frequency_performance_counters_v1` beside the execution segment.
+Fragments include process creation identity, task ID, event keys, and counts;
+an unknown counter, negative delta, duplicate fragment identity, missing task
+fragment, or source-evidence SHA mismatch fails sidecar publication.
+
+Minima and maxima are calculated over the exact identity closure declared by
+the benchmark class, not over identities that happened to emit an event.
+Consequently a missing producer or verification contributes zero and fails the
+required gate instead of disappearing from the denominator. Cold and warm
+rows use the same identity closure. Cold rows require one physical producer
+per required identity; warm rows require no new producer. Full verification is
+keyed by process and cache identity and must occur once; structural manifest
+reads do not count as full payload verification.
+
+Counters that require configured parity or artifact-index audits remain
+unavailable until those source documents are present. The sidecar publisher
+must fail; it cannot synthesize zero, infer success from missing events, or
+accept a matrix-entered fallback.
+
 #### Repository-owned isolated fault acceptance contract
 
 `run_task17_fault_acceptance.py` owns the Step 10 corruption, fail-once,
