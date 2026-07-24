@@ -68,6 +68,100 @@ class WorkflowServiceOrchestrationTest(unittest.TestCase):
         registry = WorkflowService._default_registry()
         self.assertTrue(registry.service_ids)
 
+    def test_v1_sensitivity_plan_accepts_omitted_scheduler_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "sensitivity_plan.json"
+            persisted = {
+                "schema_version": "dual_frequency_sensitivity_plan_v1",
+                "analyses": ["oss"],
+                "plan": {
+                    "tasks": [
+                        {
+                            "key": {"stage": "oss_activation"},
+                            "dependencies": ["task_parent"],
+                        }
+                    ]
+                },
+            }
+            path.write_text(
+                json.dumps(persisted, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            original_bytes = path.read_bytes()
+            current = json.loads(json.dumps(persisted))
+            current["plan"]["tasks"][0].update(
+                {
+                    "timeout_seconds": None,
+                    "transient_safe": False,
+                    "max_transient_retries": 0,
+                }
+            )
+
+            WorkflowService._write_immutable_sensitivity_plan(path, current)
+
+            self.assertEqual(path.read_bytes(), original_bytes)
+
+    def test_v1_sensitivity_plan_rejects_nondefault_scheduler_values(self) -> None:
+        persisted = {
+            "schema_version": "dual_frequency_sensitivity_plan_v1",
+            "analyses": ["oss"],
+            "plan": {"tasks": [{"key": {"stage": "oss_activation"}}]},
+        }
+        nondefault_values = (
+            ("timeout_seconds", 60),
+            ("transient_safe", True),
+            ("max_transient_retries", 1),
+        )
+        for field, value in nondefault_values:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    path = Path(temporary_directory) / "sensitivity_plan.json"
+                    path.write_text(
+                        json.dumps(persisted, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    current = json.loads(json.dumps(persisted))
+                    current["plan"]["tasks"][0][field] = value
+
+                    with self.assertRaisesRegex(
+                        ApplicationError,
+                        "immutable extension document changed",
+                    ):
+                        WorkflowService._write_immutable_sensitivity_plan(
+                            path,
+                            current,
+                        )
+
+    def test_v1_sensitivity_plan_rejects_scientific_task_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "sensitivity_plan.json"
+            persisted = {
+                "schema_version": "dual_frequency_sensitivity_plan_v1",
+                "analyses": ["oss"],
+                "plan": {
+                    "tasks": [
+                        {
+                            "key": {
+                                "stage": "oss_activation",
+                                "tau": "400",
+                            }
+                        }
+                    ]
+                },
+            }
+            path.write_text(
+                json.dumps(persisted, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            current = json.loads(json.dumps(persisted))
+            current["plan"]["tasks"][0]["key"]["tau"] = "600"
+
+            with self.assertRaisesRegex(
+                ApplicationError,
+                "immutable extension document changed",
+            ):
+                WorkflowService._write_immutable_sensitivity_plan(path, current)
+
     def test_reporting_publication_rolls_back_all_replaced_documents(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()

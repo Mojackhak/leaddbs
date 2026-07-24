@@ -2654,6 +2654,17 @@ complete package-scoped dual-frequency regression passed 610 tests. This
 closes the repository code gate only; the first real add-on maximum-size chunk
 must still pass the new segment's one-second resource guard.
 
+The original independent OSS lineage predates three scheduler-only task fields
+in `sensitivity_plan.json`. Resume may compare an omitted
+`timeout_seconds`, `transient_safe`, or `max_transient_retries` field as the
+exact default `null`, `false`, or `0`, respectively. This compatibility rule is
+limited to those defaults, never rewrites the old immutable plan, and does not
+relax task keys, dependencies, scientific parameters, cache identities, or
+other plan structure. Any non-default or remaining difference rejects resume.
+Focused compatibility coverage, the real 590-task immutable-plan check, and
+the complete 613-test package regression pass without rewriting the persisted
+plan.
+
 Post-publication cleanup now has an executable fail-closed boundary. The main
 canonical publisher alone may remove descriptor-listed formal or pPAM scratch
 and run-owned `runtime_work` after complete run, artifact-index, model-manifest,

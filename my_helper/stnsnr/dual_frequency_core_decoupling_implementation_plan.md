@@ -6944,6 +6944,17 @@ and production-shaped mismatch coverage before combined execution begins.
 They now do: the strict and pre-instrumentation focused suites pass 12 tests,
 including an identity-mismatch rejection for each validator.
 
+An older immutable `sensitivity_plan.json` may omit the later scheduler-only
+task fields `timeout_seconds`, `transient_safe`, and
+`max_transient_retries`. Resume comparison interprets those omissions only as
+the exact defaults `null`, `false`, and `0`. This is a narrow v1 compatibility
+normalization: the persisted file is not rewritten, and any non-default
+scheduler value or any remaining structural or scientific difference still
+rejects resume. The production OSS plan comparison covers all 590 tasks and is
+identical after removing only those omitted defaults. The compatibility tests
+and complete 613-test package regression pass, and the production plan file is
+byte-identical before and after the compatibility check.
+
 The later combined lineage starts under the instrumented code and must use the
 strict validator with its own terminal segment and guard CSV, the same limits,
 and a distinct acceptance report. A running or pre-instrumentation segment

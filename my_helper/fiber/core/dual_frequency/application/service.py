@@ -518,7 +518,7 @@ class WorkflowService:
         self._write_immutable_json(store.root / "base_run_reference.json", base_reference)
         persisted_extension_plan = _plain(extension_plan)
         persisted_extension_plan.pop("configuration_hash", None)
-        self._write_immutable_json(
+        self._write_immutable_sensitivity_plan(
             store.root / "sensitivity_plan.json",
             {
                 "schema_version": "dual_frequency_sensitivity_plan_v1",
@@ -1020,6 +1020,58 @@ class WorkflowService:
             os.replace(temporary, path)
         finally:
             temporary.unlink(missing_ok=True)
+
+    @classmethod
+    def _write_immutable_sensitivity_plan(
+        cls,
+        path: Path,
+        payload: Mapping[str, Any],
+    ) -> None:
+        text = json.dumps(dict(payload), indent=2, sort_keys=True, allow_nan=False) + "\n"
+        if not path.exists():
+            cls._write_immutable_json(path, payload)
+            return
+        if not path.is_file():
+            raise ApplicationError(f"immutable extension document changed: {path}")
+        existing_text = path.read_text(encoding="utf-8")
+        if existing_text == text:
+            return
+        try:
+            existing = json.loads(existing_text)
+        except json.JSONDecodeError as exc:
+            raise ApplicationError(
+                f"immutable extension document changed: {path}"
+            ) from exc
+        if cls._normalize_v1_sensitivity_scheduler_defaults(existing) != (
+            cls._normalize_v1_sensitivity_scheduler_defaults(dict(payload))
+        ):
+            raise ApplicationError(f"immutable extension document changed: {path}")
+
+    @staticmethod
+    def _normalize_v1_sensitivity_scheduler_defaults(
+        document: object,
+    ) -> object:
+        normalized = json.loads(json.dumps(document, allow_nan=False))
+        if (
+            not isinstance(normalized, dict)
+            or normalized.get("schema_version")
+            != "dual_frequency_sensitivity_plan_v1"
+        ):
+            return normalized
+        plan = normalized.get("plan")
+        tasks = plan.get("tasks") if isinstance(plan, dict) else None
+        if not isinstance(tasks, list):
+            return normalized
+        defaults = {
+            "timeout_seconds": None,
+            "transient_safe": False,
+            "max_transient_retries": 0,
+        }
+        for task in tasks:
+            if isinstance(task, dict):
+                for field, default in defaults.items():
+                    task.setdefault(field, default)
+        return normalized
 
     @staticmethod
     def _replace_json(path: Path, payload: Mapping[str, Any]) -> None:

@@ -1025,3 +1025,30 @@ fixture. The focused OSS, gate, cache, and executor suite passed 124 tests; the
 complete package-scoped dual-frequency suite passed 610 tests. Production
 acceptance still depends on the real guarded add-on chunk rather than these
 synthetic results.
+
+## Decision 35: Preserve V1 Sensitivity Plans Across Default Scheduler Fields
+
+The first post-repair OSS resume regenerated the same 590-task scientific plan
+but could not pass the byte-exact immutable-plan check. Every regenerated task
+contained three scheduler fields introduced after the original lineage was
+created: `timeout_seconds: null`, `transient_safe: false`, and
+`max_transient_retries: 0`. The persisted v1 plan omitted those fields. A
+complete structural comparison found no task, dependency, key, analysis,
+scientific parameter, or other value difference; removing only these default
+fields made the documents identical.
+
+Resume compatibility for `sensitivity_plan.json` therefore treats an omitted
+v1 scheduler field as its exact canonical default. This exception applies only
+to the three fields above and only when the regenerated value is exactly the
+default. A non-null timeout, enabled transient policy, positive retry count,
+unknown missing field, scientific difference, task-order difference, or schema
+difference still fails closed. The existing immutable file is compared but
+never rewritten.
+
+This compatibility rule does not change task identity, completed outcomes,
+cache identity, or scientific results. Tests must prove default-field
+compatibility, rejection of every non-default scheduler value, rejection of a
+scientific task change, and byte preservation of the old plan before formal
+resume. The implementation passed all four focused compatibility checks, the
+real 590-task plan comparison while preserving the old file bytes, and the
+complete 613-test package regression.
