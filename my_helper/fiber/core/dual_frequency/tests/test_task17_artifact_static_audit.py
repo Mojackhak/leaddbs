@@ -171,6 +171,42 @@ class Task17ArtifactStaticAuditTest(unittest.TestCase):
                 source_root=self.source,
             )
 
+    def test_rejects_event_report_outside_run_root(self) -> None:
+        outside = self.root / "outside-events.json"
+        outside.write_bytes(self.event.read_bytes())
+        segment = json.loads(self.segment.read_text(encoding="utf-8"))
+        segment["performance_events_path"] = str(outside)
+        segment["performance_events_sha256"] = _sha(outside)
+        _write(self.segment, segment)
+        with self.assertRaisesRegex(
+            auditor.ArtifactStaticAuditError,
+            "outside the run root",
+        ):
+            auditor.audit(
+                run_root=self.run,
+                segment_id="segment_0001",
+                source_root=self.source,
+            )
+
+    def test_rejects_failed_task_in_fragment_closure(self) -> None:
+        _write(
+            self.run / "tasks" / "task_one.json",
+            {
+                "task_id": "task_one",
+                "status": "failed",
+                "result": None,
+            },
+        )
+        with self.assertRaisesRegex(
+            auditor.ArtifactStaticAuditError,
+            "not completed",
+        ):
+            auditor.audit(
+                run_root=self.run,
+                segment_id="segment_0001",
+                source_root=self.source,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

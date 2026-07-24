@@ -149,6 +149,13 @@ def _atomic_publish(path: Path, payload: Mapping[str, object]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _inside_run(path: Path, run_root: Path, label: str) -> Path:
+    resolved = path.expanduser().resolve()
+    if resolved != run_root and run_root not in resolved.parents:
+        raise ArtifactStaticAuditError(f"{label} lies outside the run root")
+    return resolved
+
+
 def audit(
     *,
     run_root: Path,
@@ -168,12 +175,19 @@ def audit(
     run_id = str(manifest.get("run_id", "")).strip()
     if not run_id:
         raise ArtifactStaticAuditError("run manifest lacks a run ID")
-    segment_path = run_root / "execution_segments" / f"{segment_id}.json"
+    segment_path = _inside_run(
+        run_root / "execution_segments" / f"{segment_id}.json",
+        run_root,
+        "execution segment",
+    )
     segment = _read_json(segment_path, "execution segment")
     if segment.get("status") != "finished":
         raise ArtifactStaticAuditError("execution segment is not finished")
-    event_path = run_root / str(segment.get("performance_events_path", ""))
-    event_path = event_path.resolve()
+    event_path = _inside_run(
+        run_root / str(segment.get("performance_events_path", "")),
+        run_root,
+        "performance event report",
+    )
     event_sha = str(segment.get("performance_events_sha256", ""))
     if (
         not event_path.is_file()
@@ -198,7 +212,11 @@ def audit(
     if not task_ids or any(not task_id for task_id in task_ids):
         raise ArtifactStaticAuditError("performance task closure is invalid")
 
-    artifact_index_path = run_root / "artifact_index.json"
+    artifact_index_path = _inside_run(
+        run_root / "artifact_index.json",
+        run_root,
+        "artifact index",
+    )
     artifact_index = _read_json(artifact_index_path, "artifact index")
     indexed_rows = artifact_index.get("artifacts")
     if not isinstance(indexed_rows, list):
@@ -218,17 +236,20 @@ def audit(
     retained: set[str] = set()
     inspected_artifact_ids: set[str] = set()
     for task_id in task_ids:
-        state = _read_json(
+        task_state_path = _inside_run(
             run_root / "tasks" / f"{task_id}.json",
+            run_root,
+            f"task state {task_id}",
+        )
+        state = _read_json(
+            task_state_path,
             f"task state {task_id}",
         )
         result = state.get("result")
-        if state.get("status") not in {"completed", "failed"}:
+        if state.get("status") != "completed":
             raise ArtifactStaticAuditError(
-                "audited task state is not terminal"
+                "audited task state is not completed"
             )
-        if state.get("status") == "failed":
-            continue
         if not isinstance(result, Mapping):
             raise ArtifactStaticAuditError("completed task lacks a result")
         artifacts = result.get("artifacts")
