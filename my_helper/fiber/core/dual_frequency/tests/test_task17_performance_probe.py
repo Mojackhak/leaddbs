@@ -17,6 +17,55 @@ from my_helper.fiber.pipelines.run_task17_performance_probe import (
 )
 
 
+def _byte_index(root: Path, source_bytes: int, scratch_bytes: int) -> Path:
+    run = root / "run"
+    fragment = (
+        run
+        / "work"
+        / "task_one"
+        / "attempt-one"
+        / "performance_counter_fragment.json"
+    )
+    fragment.parent.mkdir(parents=True)
+    scalars = {
+        event: 0 for event in sorted(_EVENTS - _KEYED_EVENTS)
+    }
+    scalars["source_bytes"] = source_bytes
+    scalars["scratch_bytes"] = scratch_bytes
+    fragment.write_text(
+        json.dumps(
+            {
+                "schema_version": (
+                    "dual_frequency_performance_counter_fragment_v1"
+                ),
+                "process_identity": "process-one",
+                "task_id": "task_one",
+                "events": {
+                    "process_identity": "process-one",
+                    "scalars": scalars,
+                    "keyed": {
+                        event: {} for event in sorted(_KEYED_EVENTS)
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    index = root / "byte-index.json"
+    index.write_text(
+        json.dumps(
+            {
+                "schema_version": (
+                    "dual_frequency_performance_byte_ledger_index_v1"
+                ),
+                "run_root": str(run),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return index
+
+
 class Task17PerformanceProbeTest(unittest.TestCase):
     def test_live_index_derives_atomic_fragment_totals(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -71,11 +120,7 @@ class Task17PerformanceProbeTest(unittest.TestCase):
     def test_retired_process_cpu_remains_in_aggregate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            counter = root / "counters.json"
-            counter.write_text(
-                json.dumps({"source_bytes": 10, "scratch_bytes": 20}),
-                encoding="utf-8",
-            )
+            counter = _byte_index(root, 10, 20)
             snapshots = [
                 (
                     ProcessSample(100, 1.0, 100, 1.0),
@@ -114,11 +159,7 @@ class Task17PerformanceProbeTest(unittest.TestCase):
     def test_output_inside_guarded_root_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            counter = root / "counters.json"
-            counter.write_text(
-                json.dumps({"source_bytes": 0, "scratch_bytes": 0}),
-                encoding="utf-8",
-            )
+            counter = _byte_index(root, 0, 0)
             with self.assertRaisesRegex(
                 PerformanceProbeError,
                 "outside guarded",
@@ -135,11 +176,7 @@ class Task17PerformanceProbeTest(unittest.TestCase):
     def test_decreasing_cpu_counter_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            counter = root / "counters.json"
-            counter.write_text(
-                json.dumps({"source_bytes": 0, "scratch_bytes": 0}),
-                encoding="utf-8",
-            )
+            counter = _byte_index(root, 0, 0)
             snapshots = [
                 (ProcessSample(100, 1.0, 100, 2.0),),
                 (ProcessSample(100, 1.0, 100, 1.0),),
@@ -157,6 +194,19 @@ class Task17PerformanceProbeTest(unittest.TestCase):
                     swap_reader=lambda: 0,
                     sleeper=lambda _seconds: None,
                 )
+
+    def test_raw_caller_entered_byte_totals_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "raw-counters.json"
+            path.write_text(
+                json.dumps({"source_bytes": 1, "scratch_bytes": 2}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PerformanceProbeError,
+                "index fields differ",
+            ):
+                _byte_counters(path)
 
 
 if __name__ == "__main__":

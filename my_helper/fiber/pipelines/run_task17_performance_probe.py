@@ -7,7 +7,6 @@ import argparse
 import csv
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 import math
 import os
 from pathlib import Path
@@ -15,7 +14,7 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 
 if __package__:
     from .task17_performance_byte_ledger import (
@@ -110,31 +109,10 @@ def _process_tree(root_pid: int) -> tuple[ProcessSample, ...]:
 
 def _byte_counters(path: Path) -> tuple[int, int]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PerformanceProbeError(f"cannot read byte-counter document: {path}") from exc
-    if not isinstance(payload, Mapping):
-        raise PerformanceProbeError("byte-counter document must contain an object")
-    if (
-        payload.get("schema_version")
-        == "dual_frequency_performance_byte_ledger_index_v1"
-    ):
-        try:
-            aggregate = aggregate_live_index(path)
-        except PerformanceByteLedgerError as exc:
-            raise PerformanceProbeError(str(exc)) from exc
-        return int(aggregate["source_bytes"]), int(aggregate["scratch_bytes"])
-    if isinstance(payload.get("counters"), Mapping):
-        payload = payload["counters"]
-    values: list[int] = []
-    for field in ("source_bytes", "scratch_bytes"):
-        value = payload.get(field)
-        if type(value) is not int or value < 0:
-            raise PerformanceProbeError(
-                f"byte-counter field must be a nonnegative integer: {field}"
-            )
-        values.append(value)
-    return values[0], values[1]
+        aggregate = aggregate_live_index(path)
+    except PerformanceByteLedgerError as exc:
+        raise PerformanceProbeError(str(exc)) from exc
+    return int(aggregate["source_bytes"]), int(aggregate["scratch_bytes"])
 
 
 def _validate_output_path(output: Path, guarded_roots: Sequence[Path]) -> Path:
