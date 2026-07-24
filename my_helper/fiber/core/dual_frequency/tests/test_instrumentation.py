@@ -15,6 +15,7 @@ from dual_frequency.instrumentation import (
     performance_snapshot,
     write_performance_fragment,
 )
+from dual_frequency.runtime.input_provider import StudyRuntimeInputProvider
 
 
 class PerformanceInstrumentationTests(unittest.TestCase):
@@ -89,6 +90,19 @@ class PerformanceInstrumentationTests(unittest.TestCase):
         self.assertEqual(report["aggregation_status"], "incomplete")
         self.assertEqual(report["missing_fragment_count"], 1)
         self.assertEqual(report["events"]["scalars"]["payload_hash_bytes"], 0)
+
+    def test_hot_loop_guard_records_metadata_work(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.bin"
+            path.write_bytes(b"payload")
+            before = performance_snapshot()
+            with StudyRuntimeInputProvider._hot_loop_guard():
+                StudyRuntimeInputProvider._file_signature(path)
+            delta = performance_delta(before, performance_snapshot())
+        self.assertEqual(
+            sum(delta["keyed"]["hot_loop_metadata_work"].values()),
+            1,
+        )
 
 
 if __name__ == "__main__":

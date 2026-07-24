@@ -11,6 +11,7 @@ import numpy as np
 from scipy.io import savemat
 
 from dual_frequency.backends.activation.canonical_mapping import CanonicalMappingError
+from dual_frequency.instrumentation import performance_delta, performance_snapshot
 from dual_frequency.runtime.connectome_subset import (
     ConnectomeSubsetError,
     aggregate_activation_probabilities,
@@ -72,17 +73,27 @@ class ConnectomeSubsetTest(unittest.TestCase):
         target = self.root / "subset.mat"
         _write_hdf5_connectome(source)
 
+        before = performance_snapshot()
         result = write_filtered_connectome(
             source,
             target,
             np.asarray([3, 1], dtype=np.int64),
         )
+        events = performance_delta(before, performance_snapshot())
 
         self.assertEqual(result.path, target.resolve())
         np.testing.assert_array_equal(result.feature_ids, [3, 1])
         np.testing.assert_array_equal(result.local_fiber_ids, [1, 2])
         np.testing.assert_array_equal(result.point_counts, [3, 2])
         self.assertEqual(result.parent_fiber_count, 3)
+        self.assertEqual(
+            sum(events["keyed"]["connectome_row4_audit_pass"].values()),
+            1,
+        )
+        self.assertEqual(
+            sum(events["keyed"]["filtered_connectome_build"].values()),
+            1,
+        )
 
         with h5py.File(target, "r") as handle:
             fibers = handle["fibers"][:]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Iterable
 
@@ -12,6 +13,8 @@ from scipy.io import loadmat
 
 from ..backends.activation.canonical_mapping import activation_universe
 from ..backends.activation.ppam import validate_ten_sample_probabilities
+from ..contracts.identity import canonical_hash
+from ..instrumentation import increment_performance_event
 
 
 class ConnectomeSubsetError(RuntimeError):
@@ -171,6 +174,43 @@ def _copy_selected_hdf5(
         return selected_lengths, parent_count
 
 
+def _audit_filtered_row4(path: Path, lengths: np.ndarray) -> None:
+    """Stream-validate the local fiber IDs written into connectome row four."""
+
+    point_counts = np.asarray(lengths, dtype=np.int64)
+    offsets = np.empty(point_counts.size + 1, dtype=np.int64)
+    offsets[0] = 0
+    np.cumsum(point_counts, dtype=np.int64, out=offsets[1:])
+    try:
+        with h5py.File(path, "r") as handle:
+            fibers = handle["fibers"]
+            if fibers.ndim != 2 or fibers.shape != (4, int(offsets[-1])):
+                raise ConnectomeSubsetError(
+                    "filtered connectome fibers have an invalid shape"
+                )
+            for start in range(0, int(offsets[-1]), 1_000_000):
+                stop = min(start + 1_000_000, int(offsets[-1]))
+                positions = np.arange(start, stop, dtype=np.int64)
+                expected = np.searchsorted(
+                    offsets[1:],
+                    positions,
+                    side="right",
+                ) + 1
+                actual = np.asarray(fibers[3, start:stop], dtype=np.float64)
+                if (
+                    actual.shape != expected.shape
+                    or not np.all(np.isfinite(actual))
+                    or not np.array_equal(actual, expected)
+                ):
+                    raise ConnectomeSubsetError(
+                        "filtered connectome row four differs from local fiber IDs"
+                    )
+    except (KeyError, OSError) as exc:
+        raise ConnectomeSubsetError(
+            f"filtered connectome row-four audit failed: {path}"
+        ) from exc
+
+
 def write_filtered_connectome(
     source_path: str | Path,
     target_path: str | Path,
@@ -219,6 +259,30 @@ def write_filtered_connectome(
             filtered.create_dataset("idx", data=lengths.reshape(1, -1).astype(np.float64))
             filtered.create_dataset("origNum", data=np.asarray([[ids.size]], dtype=np.float64))
 
+    _audit_filtered_row4(target, lengths)
+    source_status = source.stat()
+    identity = canonical_hash(
+        {
+            "source_path": str(source),
+            "source_signature": [
+                int(source_status.st_dev),
+                int(source_status.st_ino),
+                int(source_status.st_size),
+                int(source_status.st_mtime_ns),
+            ],
+            "feature_ids_sha256": hashlib.sha256(
+                np.ascontiguousarray(ids, dtype=np.int64).tobytes()
+            ).hexdigest(),
+        }
+    )
+    increment_performance_event(
+        "connectome_row4_audit_pass",
+        key=identity,
+    )
+    increment_performance_event(
+        "filtered_connectome_build",
+        key=identity,
+    )
     return FilteredConnectome(
         path=target,
         feature_ids=ids,

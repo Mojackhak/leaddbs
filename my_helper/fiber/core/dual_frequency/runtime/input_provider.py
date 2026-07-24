@@ -85,6 +85,10 @@ _ACTIVE_SHARED_EXPOSURES: ContextVar[list[dict[str, str]] | None] = ContextVar(
     "dual_frequency_active_shared_exposures",
     default=None,
 )
+_ACTIVE_HOT_LOOP: ContextVar[bool] = ContextVar(
+    "dual_frequency_active_hot_loop",
+    default=False,
+)
 
 
 class RuntimeInputProviderError(RuntimeError):
@@ -562,6 +566,11 @@ class StudyRuntimeInputProvider:
 
     @staticmethod
     def _file_signature(path: Path) -> tuple[int, int, int]:
+        if _ACTIVE_HOT_LOOP.get():
+            increment_performance_event(
+                "hot_loop_metadata_work",
+                key=f"file_signature:{Path(path).resolve()}",
+            )
         try:
             stat = Path(path).stat()
         except OSError as exc:
@@ -589,6 +598,11 @@ class StudyRuntimeInputProvider:
         record: bool = True,
     ) -> str:
         resolved = Path(path).expanduser().resolve()
+        if _ACTIVE_HOT_LOOP.get():
+            increment_performance_event(
+                "hot_loop_metadata_work",
+                key=f"path_hash:{resolved}",
+            )
         signature_before = self._file_signature(resolved)
         with self._lock:
             cached = self._hashes.get(resolved)
@@ -606,6 +620,17 @@ class StudyRuntimeInputProvider:
         if record and captured is not None:
             captured[str(resolved)] = cached.sha256
         return cached.sha256
+
+    @staticmethod
+    @contextmanager
+    def _hot_loop_guard() -> Iterator[None]:
+        """Mark a geometry range loop whose body must remain metadata-free."""
+
+        token = _ACTIVE_HOT_LOOP.set(True)
+        try:
+            yield
+        finally:
+            _ACTIVE_HOT_LOOP.reset(token)
 
     def _temporary_matrix(
         self,
@@ -2501,23 +2526,24 @@ class StudyRuntimeInputProvider:
                     for chunk in connectome.iter_chunks(self._fiber_chunk_size)
                 )
             expected_start = 0
-            for start, stop, points, point_offsets in chunks:
-                if start != expected_start or stop <= start:
-                    raise RuntimeInputProviderError(
-                        "connectome chunks must preserve contiguous canonical fiber IDs"
-                    )
-                for subject_index, plan in enumerate(sampling_plans):
-                    fiber_values, _reason = self._sample_fiber_plan(
-                        plan,
-                        points,
-                        point_offsets,
-                    )
-                    if fiber_values.shape != (stop - start,):
+            with self._hot_loop_guard():
+                for start, stop, points, point_offsets in chunks:
+                    if start != expected_start or stop <= start:
                         raise RuntimeInputProviderError(
-                            "connectome chunk fiber IDs and point offsets disagree"
+                            "connectome chunks must preserve contiguous canonical fiber IDs"
                         )
-                    matrix[subject_index, start:stop] = fiber_values
-                expected_start = stop
+                    for subject_index, plan in enumerate(sampling_plans):
+                        fiber_values, _reason = self._sample_fiber_plan(
+                            plan,
+                            points,
+                            point_offsets,
+                        )
+                        if fiber_values.shape != (stop - start,):
+                            raise RuntimeInputProviderError(
+                                "connectome chunk fiber IDs and point offsets disagree"
+                            )
+                        matrix[subject_index, start:stop] = fiber_values
+                    expected_start = stop
             if expected_start != feature_space.axis.count:
                 raise RuntimeInputProviderError(
                     "connectome chunks do not cover the complete canonical fiber axis"
@@ -2949,6 +2975,14 @@ class StudyRuntimeInputProvider:
         dtype = matrix_view.dtype if matrix_view is not None else array.dtype
         if self._scientific_cache is None:
             if matrix_view is not None:
+                if matrix_view.parent_artifact is not None:
+                    increment_performance_event(
+                        "endpoint_payload_copy",
+                        key=(
+                            f"{matrix_view.parent_artifact.identifier}:"
+                            f"{filename}"
+                        ),
+                    )
                 if (
                     matrix_view.row_positions is None
                     and matrix_view.column_positions is None
