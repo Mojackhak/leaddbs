@@ -12,6 +12,7 @@ from dual_frequency.instrumentation import _EVENTS, _KEYED_EVENTS
 from my_helper.fiber.pipelines import build_task17_performance_byte_ledger
 from my_helper.fiber.pipelines import init_task17_performance_byte_ledger_index
 from my_helper.fiber.pipelines.task17_performance_byte_ledger import (
+    LivePerformanceByteLedger,
     PerformanceByteLedgerError,
     aggregate_live_index,
 )
@@ -152,6 +153,24 @@ class Task17PerformanceByteLedgerTest(unittest.TestCase):
                 run_root=self.run,
                 output=self.run / "byte-index.json",
             )
+
+    def test_incremental_reader_revalidates_all_fragments_at_exit(self) -> None:
+        index = self.root / "index.json"
+        init_task17_performance_byte_ledger_index.initialize(
+            run_root=self.run,
+            output=index,
+        )
+        reader = LivePerformanceByteLedger(index)
+        self.assertEqual(reader.read(), (13, 29))
+        fragment = json.loads(self.fragment.read_text(encoding="utf-8"))
+        fragment["events"]["scalars"]["source_bytes"] = 14
+        _write(self.fragment, fragment)
+        self.assertEqual(reader.read(), (13, 29))
+        with self.assertRaisesRegex(
+            PerformanceByteLedgerError,
+            "rescan differs",
+        ):
+            reader.read(final=True)
 
     def test_terminal_builder_rejects_fragment_sha_change(self) -> None:
         self.fragment.write_text("{}\n", encoding="utf-8")

@@ -12,6 +12,80 @@ class PerformanceByteLedgerError(RuntimeError):
     """Raised when byte-counter provenance is incomplete or contradictory."""
 
 
+class LivePerformanceByteLedger:
+    """Incrementally read new fragments and fully revalidate at runner exit."""
+
+    def __init__(self, index_path: Path) -> None:
+        self.index_path = index_path.expanduser().resolve()
+        index = read_json(
+            self.index_path,
+            "performance byte-ledger index",
+        )
+        if set(index) != {"schema_version", "run_root"} or (
+            index.get("schema_version")
+            != "dual_frequency_performance_byte_ledger_index_v1"
+        ):
+            raise PerformanceByteLedgerError(
+                "performance byte-ledger index fields differ"
+            )
+        self.run_root = Path(str(index["run_root"])).expanduser().resolve()
+        if not self.run_root.is_dir():
+            raise PerformanceByteLedgerError(
+                "performance byte-ledger run root is missing"
+            )
+        self._fragments: dict[str, dict[str, object]] = {}
+        self._source_bytes = 0
+        self._scratch_bytes = 0
+
+    def read(self, *, final: bool = False) -> tuple[int, int]:
+        """Return accumulated totals, with one full final closure validation."""
+
+        visible = {
+            path.resolve()
+            for path in (self.run_root / "work").glob(
+                "task_*/attempt-*/performance_counter_fragment.json"
+            )
+        }
+        known_paths = {
+            (self.run_root / relative).resolve()
+            for relative in self._fragments
+        }
+        if not known_paths.issubset(visible):
+            raise PerformanceByteLedgerError(
+                "an observed performance fragment disappeared"
+            )
+        for path in sorted(visible - known_paths):
+            fragment = fragment_byte_counters(
+                path,
+                run_root=self.run_root,
+            )
+            relative = str(fragment["path"])
+            if relative in self._fragments:
+                raise PerformanceByteLedgerError(
+                    "performance fragment path is duplicated"
+                )
+            self._fragments[relative] = fragment
+            self._source_bytes += int(fragment["source_bytes"])
+            self._scratch_bytes += int(fragment["scratch_bytes"])
+        if final:
+            complete = aggregate_live_index(self.index_path)
+            complete_fragments = {
+                str(item["path"]): item
+                for item in complete["fragments"]
+                if isinstance(item, Mapping)
+            }
+            if (
+                len(complete_fragments) != len(complete["fragments"])
+                or complete_fragments != self._fragments
+                or int(complete["source_bytes"]) != self._source_bytes
+                or int(complete["scratch_bytes"]) != self._scratch_bytes
+            ):
+                raise PerformanceByteLedgerError(
+                    "terminal byte-ledger rescan differs from incremental state"
+                )
+        return self._source_bytes, self._scratch_bytes
+
+
 def sha256_file(path: Path) -> str:
     """Return the SHA-256 digest of one regular file."""
 
@@ -253,6 +327,7 @@ def aggregate_terminal_report(
 
 
 __all__ = [
+    "LivePerformanceByteLedger",
     "PerformanceByteLedgerError",
     "aggregate_live_index",
     "aggregate_terminal_report",

@@ -18,12 +18,14 @@ from collections.abc import Callable, Sequence
 
 if __package__:
     from .task17_performance_byte_ledger import (
+        LivePerformanceByteLedger,
         PerformanceByteLedgerError,
         aggregate_live_index,
     )
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from task17_performance_byte_ledger import (
+        LivePerformanceByteLedger,
         PerformanceByteLedgerError,
         aggregate_live_index,
     )
@@ -153,7 +155,7 @@ def run_probe(
     interval_seconds: float = 1.0,
     process_reader: Callable[[int], tuple[ProcessSample, ...]] = _process_tree,
     swap_reader: Callable[[], int] = _swap_used_bytes,
-    byte_counter_reader: Callable[[Path], tuple[int, int]] = _byte_counters,
+    byte_counter_reader: Callable[[Path], tuple[int, int]] | None = None,
     monotonic_reader: Callable[[], float] = time.monotonic,
     timestamp_reader: Callable[[], str] = _utc_now,
     sleeper: Callable[[float], None] = time.sleep,
@@ -165,6 +167,11 @@ def run_probe(
     if not math.isfinite(interval_seconds) or interval_seconds <= 0:
         raise PerformanceProbeError("sample interval must be positive and finite")
     destination = _validate_output_path(output, guarded_roots)
+    live_byte_reader = (
+        LivePerformanceByteLedger(byte_counter_path)
+        if byte_counter_reader is None
+        else None
+    )
     started = monotonic_reader()
     previous: dict[tuple[int, float], float] = {}
     retired_cpu_seconds = 0.0
@@ -191,7 +198,14 @@ def run_probe(
                     raise PerformanceProbeError(
                         "process cumulative CPU time decreased"
                     )
-            source_bytes, scratch_bytes = byte_counter_reader(byte_counter_path)
+            if live_byte_reader is not None:
+                source_bytes, scratch_bytes = live_byte_reader.read(
+                    final=not rows,
+                )
+            else:
+                source_bytes, scratch_bytes = byte_counter_reader(
+                    byte_counter_path
+                )
             swap = swap_reader()
             if swap < 0:
                 raise PerformanceProbeError("reported swap usage is negative")
