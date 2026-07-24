@@ -1061,7 +1061,7 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
     def test_observed_addon_row_is_split_below_the_resource_failure_size(
         self,
     ) -> None:
-        self.assertEqual(OSS_MAX_FIBERS_PER_EXECUTION, 1800)
+        self.assertEqual(OSS_MAX_FIBERS_PER_EXECUTION, 1500)
         row = replace(
             self._prepared_row_for_converter(control_mode="voltage"),
             scientific_identity=_digest(2004),
@@ -1072,7 +1072,7 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
 
         self.assertEqual(
             [chunk.feature_ids.size for chunk in chunks],
-            [1800, 204],
+            [1500, 504],
         )
         np.testing.assert_array_equal(
             np.concatenate([chunk.feature_ids for chunk in chunks]),
@@ -1080,7 +1080,7 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
         )
         self.assertEqual(len({chunk.scientific_identity for chunk in chunks}), 2)
 
-    def test_addon_omega_axis_uses_four_resource_bounded_chunks(self) -> None:
+    def test_addon_omega_axis_uses_five_resource_bounded_chunks(self) -> None:
         row = replace(
             self._prepared_row_for_converter(control_mode="voltage"),
             scientific_identity=_digest(7193),
@@ -1091,13 +1091,13 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
 
         self.assertEqual(
             [chunk.feature_ids.size for chunk in chunks],
-            [1800, 1800, 1800, 1793],
+            [1500, 1500, 1500, 1500, 1193],
         )
         np.testing.assert_array_equal(
             np.concatenate([chunk.feature_ids for chunk in chunks]),
             row.feature_ids,
         )
-        self.assertEqual(len({chunk.scientific_identity for chunk in chunks}), 4)
+        self.assertEqual(len({chunk.scientific_identity for chunk in chunks}), 5)
 
     @unittest.skipUnless(os.name == "posix", "process groups require POSIX")
     def test_termination_kills_a_sigterm_resistant_descendant(self) -> None:

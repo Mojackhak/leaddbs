@@ -7833,6 +7833,28 @@ swap growth `< 1` byte, and no guard stop event. The code gate is now closed:
 complete 614-test package regression. Only the real guarded resource gate
 remains open.
 
+Segment 0012 disproved the 1800-fiber production bound. A real
+`sub-SNr020` right-side 30-Hz chunk contained 1800 fibers and retained 1334
+axons inside the computational domain. During high-frequency field copying,
+the complete task tree reached 69279547392 bytes and triggered
+`rss_limit_sigterm`; swap growth remained `< 1` byte. No standard add-on row
+or equivalence decision published, the task ledger was unchanged, and all
+processes terminated.
+
+The superseding execution bound is 1500 fibers. It partitions a 2004-fiber row
+as 1500 and 504 and partitions a 7193-fiber axis as four 1500-fiber chunks
+plus 1193. This execution-only change retains the complete row and all
+scientific/cache identities. Before segment 0013, focused fixtures must assert
+both exact layouts and ordered concatenation, and the complete package
+regression must pass. Production acceptance still requires a real
+1500-fiber chunk under task-tree RSS `< 64 GiB`, swap growth `< 1` byte, and
+an uninterrupted guard.
+
+The 1500-fiber implementation and exact-layout fixtures pass 125 focused OSS,
+equivalence, cache, and executor tests and the complete 614-test package
+regression. Segment 0013 is therefore permitted to test the remaining
+production resource gate.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside

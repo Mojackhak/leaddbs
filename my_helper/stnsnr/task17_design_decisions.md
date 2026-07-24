@@ -1081,3 +1081,31 @@ guarded segment must complete a real 1800-fiber chunk with task-tree RSS
 not close this production resource gate. The 1800-fiber implementation passed
 125 focused OSS, equivalence, cache, and executor tests and the complete
 614-test package regression.
+
+## Decision 37: Reduce The Add-On Bound To 1500 Fibers
+
+Segment 0012 executed a real 1800-fiber chunk for `sub-SNr020`, right side,
+30 Hz. OSS retained 1334 axons inside the computational domain. During the
+high-frequency field-copy sequence, the token-free guard measured
+69279547392 bytes and emitted `rss_limit_sigterm`. This exceeded the strict
+64-GiB task-tree limit while swap growth remained `< 1` byte. The task ledger
+remained at 197 completed, one incomplete add-on gate, and 392
+dependency-derived skips. No standard row or equivalence decision published,
+and no runner, worker, solver, or guard process remained.
+
+The 1800-fiber bound is superseded by 1500 fibers. The observed 2004-fiber row
+becomes 1500 and 504 fibers. A 7193-fiber axis becomes 1500, 1500, 1500, 1500,
+and 1193 fibers. This reduces the measured maximum execution by one sixth while
+limiting the known largest axis to five solver chunks. Chunking remains an
+unpublished execution partition and does not change the complete ordered row,
+scientific identity, cache identity, decision identity, or accepted reference
+evidence.
+
+The next formal resume requires updated exact-layout and ordered-concatenation
+tests plus the complete regression. A new one-second guard must then prove a
+real 1500-fiber chunk completes with task-tree RSS `< 64 GiB`, swap growth
+`< 1` byte, and no stop event.
+
+The 1500-fiber implementation and exact-layout fixtures pass 125 focused OSS,
+equivalence, cache, and executor tests and the complete 614-test package
+regression. Only the guarded production resource gate remains open.

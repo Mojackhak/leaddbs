@@ -2661,6 +2661,22 @@ resource gate. The new fixtures and implementation now pass 125 focused tests
 and the complete 614-test package regression. The production resource gate
 still requires the next real guarded chunk.
 
+Segment 0012 then ran an exact 1800-fiber `sub-SNr020` add-on chunk with 1334
+axons retained inside the computational domain. Its task tree reached
+69279547392 bytes during high-frequency field copying and crossed 64 GiB,
+although swap growth remained `< 1` byte. The guard stopped the segment before
+any standard row or decision publication.
+
+The current bound is therefore 1500 fibers. The 2004-fiber row becomes 1500
+and 504 fibers; the 7193-fiber axis becomes 1500, 1500, 1500, 1500, and 1193.
+This remains an execution-only partition with exact ordered concatenation and
+unchanged scientific/cache identities. Focused and complete regression must
+pass before a new guarded segment tests the real 1500-fiber boundary.
+
+The 1500-fiber implementation and exact-layout fixtures pass 125 focused OSS,
+equivalence, cache, and executor tests and the complete 614-test package
+regression. The remaining acceptance condition is the real guarded segment.
+
 The original independent OSS lineage predates three scheduler-only task fields
 in `sensitivity_plan.json`. Resume may compare an omitted
 `timeout_seconds`, `transient_safe`, or `max_transient_retries` field as the
