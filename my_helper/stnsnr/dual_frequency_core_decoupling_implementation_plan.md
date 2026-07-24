@@ -8537,7 +8537,7 @@ promotion provenance, parameter and ordered-axis mismatch, missing and corrupt
 rows, conflicting row payloads, conflicting decision evidence, cache-only
 failure before toolchain invocation, and in-flight implementation drift.
 Eighty-four focused OSS tests pass, the production dependency-boundary set
-passes, and complete `dual_frequency` discovery passes 701 tests with four
+passes, and complete `dual_frequency` discovery passes 702 tests with four
 expected skips and warnings treated as errors. Because the worktree does not
 contain Git-ignored repository data, the complete run used read-only paths to
 the main checkout's exact template segmentation and frozen acceptance
@@ -8557,9 +8557,10 @@ miss or invalid cache fails before OSS. Rejected historical groups retain their
 existing completed scientific decision because the frozen promotion contract
 allows only validated pass decisions. This behavior is driven by the completed
 result's referenced cache closure and does not inspect repository SHA.
-The executor and OSS focused set passes 126 tests, including stable restore,
-historical gate replay, descendant replay, and forced no-expensive task
-authorization.
+The executor and OSS focused set passes 127 tests, including stable restore,
+historical gate replay, descendant replay, forced no-expensive task
+authorization, and an end-to-end executor resume fixture that promotes a real
+historical row-and-decision cache closure without invoking the toolchain.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 

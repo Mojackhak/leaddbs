@@ -33,6 +33,7 @@ from dual_frequency.contracts import (
     FinalModelRecord,
     FinalSelectionRecord,
     SourceRecord,
+    TaskKey,
 )
 from dual_frequency.runtime.activation_provider import (
     CanonicalStimulationSource,
@@ -45,6 +46,14 @@ from dual_frequency.runtime.oss_axis_equivalence import (
 )
 from dual_frequency.runtime.oss_toolchain import OSSRowExecutionEvidence
 from dual_frequency.workflow import ServiceResult
+from dual_frequency.workflow import ExecutionPlan, TaskSpec
+from dual_frequency.workflow.executor import (
+    ExecutionContext,
+    execute_plan,
+    plan_hash,
+)
+from dual_frequency.workflow.registry import RegisteredService, ServiceRegistry
+from dual_frequency.workflow.run_store import RunIdentity, RunStore
 
 
 def _artifact(label: str, axis: AxisRef | None = None) -> ArtifactRef:
@@ -497,6 +506,153 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
                 self.assertTrue(
                     (manifest_path.parent / "compatibility_source.json").is_file()
                 )
+
+    def test_executor_resume_promotes_historical_gate_cache_only(self) -> None:
+        legacy_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'5' * 64}"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, selection, descriptor = self._fixture(root)
+            endpoint_id = selection.endpoint.identifier
+            legacy_toolchain = _Toolchain()
+            legacy = establish_oss_axis_equivalence(
+                descriptor=descriptor,
+                endpoint_inputs={endpoint_id: object()},
+                prepared_exposures={endpoint_id: object()},
+                final_selections={endpoint_id: selection},
+                provider=_Provider(
+                    final_ids,
+                    subject_axis,
+                    backend_version=legacy_version,
+                ),
+                cache=cache,
+                publisher=RunScopedArtifactPublisher(
+                    root / "legacy-output",
+                    "oss-axis-gate-legacy",
+                    "1",
+                ),
+                toolchain=legacy_toolchain,
+                workers=14,
+                allow_expensive_producers=True,
+            )
+            task = TaskSpec(
+                key=TaskKey(
+                    endpoint_id,
+                    "oss_axis_equivalence_resume",
+                    parameter_identity="6" * 64,
+                ),
+                endpoint_id=endpoint_id,
+                model_family="reference_fiber",
+                connectome_role="formal-connectome",
+                stage="oss_axis_equivalence_resume",
+                round_id="round_oss_axis_equivalence",
+                phase="sensitivity",
+                service_id="migrate_oss_axis_gate",
+                dependencies=(),
+                gates=(),
+                output_record_type="OSSAxisEquivalenceGroupRecord",
+                expensive_producer=True,
+                cache_first_expensive=True,
+            )
+            plan = ExecutionPlan(
+                configuration_hash="7" * 64,
+                scientific_configuration_hash="8" * 64,
+                through="sensitivity",
+                tasks=(task,),
+            )
+            identity = RunIdentity(
+                study_id="synthetic",
+                run_id="oss-cache-resume",
+                study_base_sha256="9" * 64,
+                code_identity="synthetic-code-v1",
+                configuration_hash=plan.configuration_hash,
+                scientific_configuration_hash=(
+                    plan.scientific_configuration_hash
+                ),
+                plan_hash=plan_hash(plan),
+            )
+            run_root = root / "run"
+            store = RunStore.open(
+                run_root,
+                identity,
+                resolved_configuration={"profile": "synthetic"},
+                configuration_sources=(),
+            )
+            store.write_task_state(
+                task.task_id,
+                {
+                    "endpoint_id": endpoint_id,
+                    "service_id": task.service_id,
+                    "status": "completed",
+                    "reason": "none",
+                    "started_at": "2026-07-24T00:00:00Z",
+                    "finished_at": "2026-07-24T00:00:01Z",
+                    "result": ServiceResult.from_record(legacy).as_dict(),
+                },
+            )
+            authorizations: list[bool] = []
+
+            def migrate(request):
+                authorizations.append(request.allow_expensive_producers)
+                stable = establish_oss_axis_equivalence(
+                    descriptor=descriptor,
+                    endpoint_inputs={endpoint_id: object()},
+                    prepared_exposures={endpoint_id: object()},
+                    final_selections={endpoint_id: selection},
+                    provider=_Provider(
+                        final_ids,
+                        subject_axis,
+                        backend_version=OSS_SCIENTIFIC_BACKEND_VERSION,
+                    ),
+                    cache=cache,
+                    publisher=RunScopedArtifactPublisher(
+                        request.output_dir,
+                        "oss-axis-gate-stable",
+                        "1",
+                    ),
+                    toolchain=object(),
+                    workers=14,
+                    allow_expensive_producers=(
+                        request.allow_expensive_producers
+                    ),
+                )
+                return ServiceResult.from_record(stable)
+
+            resumed = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=RunStore.open(
+                        run_root,
+                        identity,
+                        resolved_configuration={"profile": "synthetic"},
+                        configuration_sources=(),
+                        resume=True,
+                    ),
+                    registry=ServiceRegistry(
+                        (RegisteredService(task.service_id, migrate),)
+                    ),
+                    provider=object(),
+                    endpoint_facts={},
+                    allow_expensive_producers=True,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    scientific_cache=cache,
+                    resume=True,
+                ),
+            )
+            stable_record = resumed.outcomes[0].result.decode_record()
+            stable_cache_valid = accepted_group_uses_stable_scientific_cache(
+                stable_record,
+                cache,
+            )
+
+        self.assertEqual(resumed.exit_code, 0)
+        self.assertEqual(authorizations, [False])
+        self.assertEqual(legacy_toolchain.calls, 4)
+        self.assertNotEqual(
+            stable_record.row_decision_ids,
+            legacy.row_decision_ids,
+        )
+        self.assertTrue(stable_cache_valid)
 
     def test_missing_legacy_row_stops_before_toolchain(self) -> None:
         legacy_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'2' * 64}"
