@@ -256,6 +256,21 @@ class Task17PerformanceCounterBuilderTest(unittest.TestCase):
         with self.assertRaises(builder.PerformanceCounterBuildError):
             builder.build(self.inputs)
 
+    def test_rejects_external_event_report_with_matching_name_and_sha(self) -> None:
+        inputs = json.loads(self.inputs.read_text(encoding="utf-8"))
+        event_path = Path(inputs["event_report_path"])
+        outside = self.root / "outside" / event_path.name
+        outside.parent.mkdir()
+        outside.write_bytes(event_path.read_bytes())
+        inputs["event_report_path"] = str(outside)
+        inputs["event_report_sha256"] = _sha(outside)
+        _write(self.inputs, inputs)
+        with self.assertRaisesRegex(
+            builder.PerformanceCounterBuildError,
+            "binding differs",
+        ):
+            builder.build(self.inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

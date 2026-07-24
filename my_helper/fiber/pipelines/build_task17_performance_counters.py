@@ -368,9 +368,22 @@ def build(input_path: Path) -> Path:
         base=base,
         label="performance event report",
     )
+    declared_event_path = Path(str(segment.get("performance_events_path", "")))
+    if declared_event_path.is_absolute():
+        raise PerformanceCounterBuildError(
+            "segment performance event path must be relative"
+        )
+    expected_event_path = (run_root / declared_event_path).resolve()
+    if (
+        expected_event_path != run_root
+        and run_root not in expected_event_path.parents
+    ):
+        raise PerformanceCounterBuildError(
+            "segment performance event path lies outside the run root"
+        )
     if (
         event_report.get("segment_id") != segment_id
-        or Path(str(segment["performance_events_path"])).name != event_path.name
+        or expected_event_path != event_path
         or segment.get("performance_events_sha256") != event_sha
     ):
         raise PerformanceCounterBuildError(
