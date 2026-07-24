@@ -5493,6 +5493,18 @@ categories may overlap the payload read/write/hash counters because they
 answer different provenance questions, but a single source read or scratch
 write contributes only once to its own category.
 
+Source accounting is defined at repository-controlled read boundaries rather
+than inferred from device telemetry. A full configured-input SHA pass
+contributes the file size once; loading an original NIfTI contributes the
+compressed file size once for that load; and each HDF5 connectome chunk
+contributes the logical bytes of the point, offset, and fiber-ID arrays
+returned to the workflow. Cache, parent-run, and current-run roots are excluded
+from `source_bytes`. This makes the ledger deterministic across filesystems
+without pretending that filesystem readahead, compression, or operating-system
+page-cache traffic is portable. Scratch accounting records each cache payload
+and cache manifest staged, each run-scoped artifact payload and metadata
+sidecar staged, and each temporary memmap's logical file allocation once.
+
 `run_task17_artifact_static_audit.py` produces the required
 `dual_frequency_artifact_static_audit_v1` source. It binds the terminal event
 report and artifact index, restricts task inspection to the event report's
