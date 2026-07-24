@@ -8537,12 +8537,29 @@ promotion provenance, parameter and ordered-axis mismatch, missing and corrupt
 rows, conflicting row payloads, conflicting decision evidence, cache-only
 failure before toolchain invocation, and in-flight implementation drift.
 Eighty-four focused OSS tests pass, the production dependency-boundary set
-passes, and complete `dual_frequency` discovery passes 700 tests with four
+passes, and complete `dual_frequency` discovery passes 701 tests with four
 expected skips and warnings treated as errors. Because the worktree does not
 contain Git-ignored repository data, the complete run used read-only paths to
 the main checkout's exact template segmentation and frozen acceptance
 fixtures. The repair remains intentionally unmerged until the active formal
 solver is terminal.
+
+Resume migration boundary:
+
+Completed accepted OSS-axis groups require referenced decision and row cache
+closure during restore. A group whose rows already use
+`ossdbsv2-ppam-scientific-v1` restores unchanged. A completed accepted group
+that still references `definition-sha256-*` rows is replayed together with its
+descendants, with expensive producer authorization forced off for the gate
+regardless of the original run flag. Exact historical rows and pass decisions
+therefore promote automatically on the first post-repair resume, while a real
+miss or invalid cache fails before OSS. Rejected historical groups retain their
+existing completed scientific decision because the frozen promotion contract
+allows only validated pass decisions. This behavior is driven by the completed
+result's referenced cache closure and does not inspect repository SHA.
+The executor and OSS focused set passes 126 tests, including stable restore,
+historical gate replay, descendant replay, and forced no-expensive task
+authorization.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 

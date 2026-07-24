@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from ..backends.activation.ossdbs import (
+    OSS_SCIENTIFIC_BACKEND_VERSION,
     OSSRowMaterializer,
     build_oss_row_cache_key,
 )
@@ -455,6 +456,47 @@ def _promote_historical_decision(
     )
 
 
+def accepted_group_uses_stable_scientific_cache(
+    record: OSSAxisEquivalenceGroupRecord,
+    cache: ContentAddressedCache,
+) -> bool:
+    """Validate an accepted group and report whether all rows use stable keys."""
+
+    if not isinstance(record, OSSAxisEquivalenceGroupRecord):
+        raise TypeError("record must be an OSSAxisEquivalenceGroupRecord")
+    if not isinstance(cache, ContentAddressedCache):
+        raise TypeError("cache must be a ContentAddressedCache")
+    if record.gate_status != "accepted_omega_max":
+        raise OSSAxisEquivalenceError(
+            "stable cache validation requires an accepted OSS axis group"
+        )
+    stable = True
+    for decision_id in record.row_decision_ids:
+        entry = cache.resolve_identity("oss_axis_equivalence", decision_id)
+        if entry is None:
+            raise OSSAxisEquivalenceError(
+                "accepted OSS axis group lacks a referenced decision cache"
+            )
+        payload = _decision_payload(entry)
+        if payload["group_id"] != record.group_id or payload["status"] != "pass":
+            raise OSSAxisEquivalenceError(
+                "accepted OSS axis group references a nonmatching pass decision"
+            )
+        for field in ("final_row_identity", "omega_row_identity"):
+            row_entry = cache.resolve_identity("oss_rows", payload[field])
+            if row_entry is None:
+                raise OSSAxisEquivalenceError(
+                    "accepted OSS axis group lacks a referenced row cache"
+                )
+            OSSRowMaterializer._load_entry(row_entry.path)
+            if (
+                row_entry.key.backend_version
+                != OSS_SCIENTIFIC_BACKEND_VERSION
+            ):
+                stable = False
+    return stable
+
+
 def establish_oss_axis_equivalence(
     *,
     descriptor: Mapping[str, Any],
@@ -726,5 +768,6 @@ __all__ = [
     "OSS_AXIS_GATE_VERSION",
     "OSS_AXIS_PROBABILITY_TOLERANCE",
     "OSSAxisEquivalenceError",
+    "accepted_group_uses_stable_scientific_cache",
     "establish_oss_axis_equivalence",
 ]

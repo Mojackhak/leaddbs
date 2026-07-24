@@ -21,6 +21,7 @@ from dual_frequency.contracts import (
     EndpointInputRecord,
     EndpointKey,
     FormalOperatorScratchRecord,
+    OSSAxisEquivalenceGroupRecord,
     ScratchArrayRecord,
     SourceRecord,
     SubjectExclusionRecord,
@@ -1724,6 +1725,125 @@ class ExecutorTest(unittest.TestCase):
             "restored_completed_result",
         )
         self.assertEqual(calls, [task.task_id])
+
+    def test_resume_replays_historical_accepted_oss_gate_cache_only(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        gate = _task(
+            endpoint,
+            "oss_axis_equivalence_synthetic",
+            "gate",
+            output_record_type="OSSAxisEquivalenceGroupRecord",
+            expensive=True,
+            cache_first_expensive=True,
+        )
+        child = _task(
+            endpoint,
+            "activation_sensitivity",
+            "child",
+            dependencies=(gate.task_id,),
+        )
+        plan = self._plan((gate, child))
+        axis = AxisRef("fibers", 2, "1" * 64)
+        record = OSSAxisEquivalenceGroupRecord(
+            group_id="oss-axis-group-test",
+            model_family="reference_fiber",
+            gate_status="accepted_omega_max",
+            final_feature_axis=axis,
+            omega_feature_axis=axis,
+            omega_cache_kind="fiber_exposures",
+            omega_cache_semantic_sha256="2" * 64,
+            endpoint_ids=(endpoint.identifier,),
+            row_decision_ids=("historical-decision",),
+        )
+        gate_authorizations: list[bool] = []
+        child_calls = 0
+
+        def gate_service(request):
+            gate_authorizations.append(request.allow_expensive_producers)
+            return ServiceResult.from_record(record)
+
+        def child_service(request):
+            nonlocal child_calls
+            child_calls += 1
+            return _result(request)
+
+        registry = ServiceRegistry(
+            (
+                RegisteredService("gate", gate_service),
+                RegisteredService("child", child_service),
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            first = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=self._store(root, plan),
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=True,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    scientific_cache=object(),
+                ),
+            )
+            with patch(
+                "dual_frequency.runtime.oss_axis_equivalence."
+                "accepted_group_uses_stable_scientific_cache",
+                return_value=True,
+            ):
+                stable_resume = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(root, plan, resume=True),
+                        registry=registry,
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=True,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        scientific_cache=object(),
+                        resume=True,
+                    ),
+                )
+            with patch(
+                "dual_frequency.runtime.oss_axis_equivalence."
+                "accepted_group_uses_stable_scientific_cache",
+                return_value=False,
+            ):
+                resumed = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(root, plan, resume=True),
+                        registry=registry,
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=True,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        scientific_cache=object(),
+                        resume=True,
+                    ),
+                )
+
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(stable_resume.exit_code, 0)
+        self.assertTrue(
+            all(
+                outcome.reason == "restored_completed_result"
+                for outcome in stable_resume.outcomes
+            )
+        )
+        self.assertEqual(resumed.exit_code, 0)
+        self.assertEqual(gate_authorizations, [True, False])
+        self.assertEqual(child_calls, 2)
 
     def test_resume_reruns_only_missing_operator_scratch_workspace(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")

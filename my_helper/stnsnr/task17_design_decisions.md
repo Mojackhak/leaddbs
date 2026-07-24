@@ -1248,3 +1248,19 @@ solver is active. After terminal independent acceptance, the compatibility
 repair and tests precede canonical OSS-v2 publication and the no-authorization
 combined extension. Existing reference rows are retained and must not be
 recomputed merely to obtain the stable identity.
+
+A terminal accepted group recorded before this repair remains scientifically
+valid, but ordinary resume would otherwise restore its completed task without
+invoking the stable-key promotion path. Resume therefore validates only
+completed `OSSAxisEquivalenceGroupRecord` values with
+`gate_status=accepted_omega_max` against their referenced decision and row
+caches. When every referenced row uses the stable scientific backend version,
+the task is restored normally. When the accepted group still references
+historical implementation-keyed rows, or one referenced accepted cache entry is
+missing or invalid, resume replays that gate and its descendants. The replay is
+forced cache-only even if the original invocation allowed expensive producers.
+It may promote exact historical rows and pass decisions, but it must fail
+before toolchain construction on any true miss, corruption, mismatch,
+ambiguity, or conflict. This is output-reference completion validation, not a
+repository SHA resume gate, and it never recomputes a historical scientific
+payload merely to change its address.

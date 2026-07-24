@@ -613,11 +613,15 @@ def _write_outcome(store: RunStore, outcome: TaskOutcome) -> None:
     store.write_task_state(outcome.task_id, outcome.as_dict())
 
 
-def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[str, TaskOutcome]:
+def _restore_outcomes(
+    plan: ExecutionPlan,
+    context: ExecutionContext,
+) -> tuple[dict[str, TaskOutcome], frozenset[str]]:
     if not context.resume:
-        return {}
+        return {}, frozenset()
     output: dict[str, TaskOutcome] = {}
     invalid_completed: set[str] = set()
+    cache_only_replays: set[str] = set()
     for task in plan.tasks:
         if any(dependency in invalid_completed for dependency in task.dependencies):
             invalid_completed.add(task.task_id)
@@ -672,6 +676,24 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
                     selections[0].final_model,
                     context.run_store.root,
                 )
+            if (
+                type(record).__name__ == "OSSAxisEquivalenceGroupRecord"
+                and getattr(record, "gate_status", None)
+                == "accepted_omega_max"
+                and context.scientific_cache is not None
+            ):
+                from ..runtime.oss_axis_equivalence import (
+                    accepted_group_uses_stable_scientific_cache,
+                )
+
+                cache_only_replays.add(task.task_id)
+                if not accepted_group_uses_stable_scientific_cache(
+                    record,
+                    context.scientific_cache,
+                ):
+                    invalid_completed.add(task.task_id)
+                    continue
+                cache_only_replays.discard(task.task_id)
         except (OSError, RuntimeError, TypeError, ValueError):
             invalid_completed.add(task.task_id)
             continue
@@ -693,7 +715,7 @@ def _restore_outcomes(plan: ExecutionPlan, context: ExecutionContext) -> dict[st
                 else None
             ),
         )
-    return output
+    return output, frozenset(cache_only_replays)
 
 
 def _dependency_layers(
@@ -832,8 +854,15 @@ def _invoke_local_service(
     context: ExecutionContext,
     dependencies: Mapping[str, DependencyState],
     output_dir: Path,
+    *,
+    allow_expensive_producers: bool | None = None,
 ) -> ServiceResult:
     service = context.registry.resolve(task.service_id)
+    allowed = (
+        context.allow_expensive_producers
+        if allow_expensive_producers is None
+        else allow_expensive_producers
+    )
     request = TaskExecutionRequest(
         task=task,
         dependencies=dependencies,
@@ -842,7 +871,7 @@ def _invoke_local_service(
         provider=context.provider,
         artifact_store=context.artifact_store,
         scientific_cache=context.scientific_cache,
-        allow_expensive_producers=context.allow_expensive_producers,
+        allow_expensive_producers=allowed,
         workers=1,
     )
     return _validate_service_result(task, service(request))
@@ -1250,7 +1279,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
         raise ExecutionError(str(exc)) from exc
 
     task_index = {task.task_id: task for task in plan.tasks}
-    outcomes = _restore_outcomes(plan, context)
+    outcomes, cache_only_replays = _restore_outcomes(plan, context)
     missing_checkpoint_roots = tuple(
         task.task_id
         for task in plan.tasks
@@ -1389,6 +1418,10 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
             )
             for task in ready:
                 admission_time = time.monotonic()
+                task_allows_expensive = (
+                    context.allow_expensive_producers
+                    and task.task_id not in cache_only_replays
+                )
                 if abort:
                     pending.pop(task.task_id)
                     metrics.close_task(task.task_id, admission_time)
@@ -1461,7 +1494,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 if (
                     task.expensive_producer
                     and not task.cache_first_expensive
-                    and not context.allow_expensive_producers
+                    and not task_allows_expensive
                 ):
                     pending.pop(task.task_id)
                     metrics.close_task(task.task_id, admission_time)
@@ -1529,7 +1562,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                         dependencies=dependencies,
                         run_id=context.run_store.run_id,
                         output_dir=output_dir,
-                        allow_expensive_producers=context.allow_expensive_producers,
+                        allow_expensive_producers=task_allows_expensive,
                     )
                     try:
                         future = pool.submit(execute_worker_command, command)
@@ -1551,6 +1584,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                         context,
                         dependencies,
                         output_dir,
+                        allow_expensive_producers=task_allows_expensive,
                     )
                 running[future] = invocation
                 metrics.scheduled(

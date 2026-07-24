@@ -40,6 +40,7 @@ from dual_frequency.runtime.activation_provider import (
 )
 from dual_frequency.runtime.oss_axis_equivalence import (
     OSSAxisEquivalenceError,
+    accepted_group_uses_stable_scientific_cache,
     establish_oss_axis_equivalence,
 )
 from dual_frequency.runtime.oss_toolchain import OSSRowExecutionEvidence
@@ -417,6 +418,12 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
                 allow_expensive_producers=True,
             )
             calls_after_legacy = legacy_toolchain.calls
+            self.assertFalse(
+                accepted_group_uses_stable_scientific_cache(
+                    legacy,
+                    cache,
+                )
+            )
 
             stable = establish_oss_axis_equivalence(
                 descriptor=descriptor,
@@ -441,6 +448,12 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
 
             self.assertEqual(legacy.gate_status, "accepted_omega_max")
             self.assertEqual(stable.gate_status, "accepted_omega_max")
+            self.assertTrue(
+                accepted_group_uses_stable_scientific_cache(
+                    stable,
+                    cache,
+                )
+            )
             self.assertEqual(legacy_toolchain.calls, calls_after_legacy)
             self.assertNotEqual(stable.row_decision_ids, legacy.row_decision_ids)
             decision_root = (
