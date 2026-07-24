@@ -81,6 +81,7 @@ The following repository-owned entrypoints parse successfully in Conda
 - `build_task17_preinstrumentation_windows.py`;
 - `validate_task17_preinstrumentation_resources.py`;
 - `validate_task17_resource_acceptance.py`;
+- `init_task17_performance_byte_ledger_index.py`;
 - `run_task17_performance_probe.py`;
 - `build_task17_performance_byte_ledger.py`;
 - `build_task17_performance_counters.py`;
