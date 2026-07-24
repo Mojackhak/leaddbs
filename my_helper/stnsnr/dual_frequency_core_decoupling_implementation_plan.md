@@ -7813,6 +7813,26 @@ package top-level; neither loaded a test body, and the corrected full run
 contains both modules and passes. Formal resume remains gated on the new
 segment and real add-on resource measurement.
 
+Segment 0011 then showed that the first unresolved add-on row contained 2004
+fibers and therefore bypassed the 2800-fiber partition. Its sample-01
+task-tree RSS peaked at 66341486592 bytes and remained below 64 GiB, but swap
+grew by 720896 bytes. The one-second guard emitted
+`swap_growth_sigterm`, terminated the runner, and left the add-on gate
+incomplete without publishing a standard row or equivalence decision. No
+process remained after termination. The NGSolve bootstrap was already fixed at
+one thread, so no further NGSolve concurrency reduction is available.
+
+The superseding execution bound is 1800 fibers. It splits the observed row
+into 1800 and 204 fibers and splits the known 7193-fiber axis into 1800, 1800,
+1800, and 1793 fibers. Tests must prove both layouts, exact ordered
+concatenation, unique chunk identities, and termination behavior. The next
+formal segment remains prohibited until those tests pass. Its production gate
+requires a real 1800-fiber chunk to complete with task-tree RSS `< 64 GiB`,
+swap growth `< 1` byte, and no guard stop event. The code gate is now closed:
+125 focused OSS, equivalence, cache, and executor tests pass, followed by the
+complete 614-test package regression. Only the real guarded resource gate
+remains open.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside

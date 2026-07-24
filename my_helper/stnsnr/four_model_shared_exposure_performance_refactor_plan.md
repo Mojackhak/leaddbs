@@ -2639,20 +2639,27 @@ producer reached 69068636160 bytes task-tree RSS and triggered the strict
 external child stopped; the reparented persistent worker was terminated
 explicitly, and no add-on decision or standard row cache published.
 
-The current execution contract therefore uses at most 2800 fibers per internal
-OSS chunk. The 7193-fiber add-on `Omega_max` row remains three chunks, so the
-repair reduces memory without adding a fourth FEM/OSS execution. Chunk
-identities remain deterministic implementation details and the concatenated
-logical row retains its existing scientific identity. Formal continuation
-requires focused regression and a new guarded segment whose first real
-maximum-size add-on chunk satisfies task-tree RSS `< 64 GiB`, swap growth
-`< 1` byte, and no guard stop event.
+The first repair used at most 2800 fibers per internal OSS chunk. Segment 0011
+then reached a complete 2004-fiber add-on row, which was below that limit and
+therefore remained unpartitioned. Its task-tree RSS peaked at 66341486592
+bytes and stayed below 64 GiB, but swap grew by 720896 bytes and triggered the
+strict guard. No standard row or decision published.
 
-The implementation and exact 7193-fiber layout fixture are complete. The
-focused toolchain, gate, cache, and executor suite passed 124 tests, and the
-complete package-scoped dual-frequency regression passed 610 tests. This
-closes the repository code gate only; the first real add-on maximum-size chunk
-must still pass the new segment's one-second resource guard.
+The current execution contract therefore uses at most 1800 fibers per internal
+OSS chunk. The observed row becomes 1800 and 204 fibers; the 7193-fiber
+add-on axis becomes 1800, 1800, 1800, and 1793 fibers. Chunk identities remain
+deterministic implementation details and the concatenated logical row retains
+its existing scientific identity. Formal continuation requires focused
+regression and a new guarded segment whose first real maximum-size add-on chunk
+satisfies task-tree RSS `< 64 GiB`, swap growth `< 1` byte, and no guard stop
+event.
+
+The superseding 1800-fiber implementation must update the exact 2004-fiber and
+7193-fiber layout fixtures before the next resume. The earlier 2800-fiber
+regression evidence is historical and does not close the new code or production
+resource gate. The new fixtures and implementation now pass 125 focused tests
+and the complete 614-test package regression. The production resource gate
+still requires the next real guarded chunk.
 
 The original independent OSS lineage predates three scheduler-only task fields
 in `sensitivity_plan.json`. Resume may compare an omitted

@@ -1052,3 +1052,32 @@ scientific task change, and byte preservation of the old plan before formal
 resume. The implementation passed all four focused compatibility checks, the
 real 590-task plan comparison while preserving the old file bytes, and the
 complete 613-test package regression.
+
+## Decision 36: Split The Real 2004-Fiber Add-On Row
+
+Segment 0011 proved that the 2800-fiber maximum did not constrain every
+resource-critical add-on row. The first retried row contained 2004 fibers, so
+it ran as one execution. During sample 01, the token-free guard measured a
+complete task-tree peak of 66341486592 bytes. This remained below 64 GiB, but
+swap increased by 720896 bytes and the guard emitted
+`swap_growth_sigterm`. The segment stopped with 197 completed tasks, the same
+one incomplete add-on gate, and 392 dependency-derived skips. No standard
+add-on row or equivalence decision published, and no runner, worker, solver, or
+guard process remained after termination.
+
+The OSS bootstrap already fixes NGSolve to one thread before entering its task
+manager. The failure therefore cannot be repaired by reducing NGSolve
+parallelism further. The execution maximum is reduced to 1800 fibers. The
+observed 2004-fiber row becomes ordered chunks of 1800 and 204 fibers, while a
+7193-fiber axis becomes 1800, 1800, 1800, and 1793 fibers. This remains an
+execution-only partition; concatenation, scientific row identity, cache
+identity, decision identity, and completed reference evidence remain
+unchanged.
+
+Before another formal resume, tests must cover the new exact layouts, complete
+ordered-axis reconstruction, and unchanged process termination. The next
+guarded segment must complete a real 1800-fiber chunk with task-tree RSS
+`< 64 GiB`, swap growth `< 1` byte, and no stop event. A synthetic pass does
+not close this production resource gate. The 1800-fiber implementation passed
+125 focused OSS, equivalence, cache, and executor tests and the complete
+614-test package regression.
