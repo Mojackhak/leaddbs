@@ -5506,6 +5506,11 @@ The counter-sidecar builder independently reopens every event-report and
 ledger fragment. Their task, process, exact run-relative path, SHA, and byte
 deltas must form the same closure; an external same-byte copy or a
 caller-authored summary cannot substitute for a run-owned attempt fragment.
+Because the live ledger observes worker attempt fragments, parent-process
+`source_bytes` and `scratch_bytes` must both remain below 1. Parent scheduling,
+state, and index publication events remain in the parent event section, but
+moving scientific source or scratch I/O into the parent requires a versioned
+live-ledger extension before such a run can be accepted.
 `source_bytes` counts bytes read from original configured scientific inputs;
 cache payload reads and run-owned artifacts remain under
 `payload_read_bytes`. `scratch_bytes` counts bytes newly written to temporary
