@@ -5459,7 +5459,9 @@ cache state, but it contains no counter values. The publisher verifies every
 bound source, rejects incomplete worker fragments and nonterminal segments,
 derives all 28 counters, and writes one deterministic
 `performance_counters_<segment_id>.json` document. The second identical
-invocation must byte-match the first.
+invocation must byte-match the first. The event report is not selected by
+basename: its segment-declared relative path must resolve inside the run root
+and must be the exact SHA-bound document supplied to the builder.
 
 The benchmark byte ledger has one repository-owned live index and one
 terminal document. The live
