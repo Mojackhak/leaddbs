@@ -1138,3 +1138,18 @@ swap growth `< 1` byte, continuous VAL writability, and no guard stop event.
 The 750-fiber implementation and exact-layout fixtures pass 125 focused OSS,
 equivalence, cache, and executor tests and the complete 614-test package
 regression. Only the guarded production resource gate remains open.
+
+Segment 0014 has supplied the first durable production confirmation for this
+bound. At least one complete 750-fiber add-on computation published its paired
+final and Omega rows plus equivalence decision
+`8c8614c12b2155a4b71232fd146feeb4657f1fdff71ed63bd8c6b9c699539991`.
+The decision belongs to `oss_axis_group_eaf54b8ab53dc387916e`, has status
+`pass`, maximum probability difference `0`, state mismatch count `0`, and
+activation-count mismatch count `0`. The segment-wide task-tree RSS peak so
+far is 46507081728 bytes, swap has not increased, VAL remains mounted, and the
+guard has emitted no stop event.
+
+This is positive intermediate evidence, not terminal acceptance. The add-on
+gate is still running, its authoritative `row_decision_ids` closure is not yet
+committed, and the 392 dependency-derived downstream tasks have not yet been
+released. Raw cache-directory counts must not substitute for that closure.

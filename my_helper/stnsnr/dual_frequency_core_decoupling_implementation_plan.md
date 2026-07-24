@@ -7876,6 +7876,21 @@ equivalence, cache, and executor tests and the complete 614-test package
 regression. Segment 0014 is therefore permitted to test the remaining
 production resource gate.
 
+Segment 0014 has now completed and published at least one real 750-fiber
+add-on decision. Decision
+`8c8614c12b2155a4b71232fd146feeb4657f1fdff71ed63bd8c6b9c699539991`
+belongs to `oss_axis_group_eaf54b8ab53dc387916e`; its maximum probability
+difference, state mismatch count, and activation-count mismatch count are all
+`0`, and its status is `pass`. Its paired final and Omega row manifests were
+committed before the next workspace began. The segment-wide task-tree RSS peak
+so far is 46507081728 bytes, swap has not increased, VAL remains mounted, and
+the guard has emitted no stop event.
+
+The segment and add-on gate remain active. The authoritative
+`row_decision_ids` closure is therefore unavailable, the 392
+dependency-derived downstream tasks remain skipped, and cumulative cache
+directory counts are not a valid terminal denominator.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside

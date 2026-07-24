@@ -2697,6 +2697,15 @@ The 750-fiber implementation and exact-layout fixtures pass 125 focused OSS,
 equivalence, cache, and executor tests and the complete 614-test package
 regression. The real guarded production resource gate remains open.
 
+Segment 0014 has now published at least one complete real 750-fiber add-on
+decision and its paired final and Omega rows. Decision
+`8c8614c12b2155a4b71232fd146feeb4657f1fdff71ed63bd8c6b9c699539991`
+has status `pass`; maximum probability difference, state mismatch count, and
+activation-count mismatch count are all `0`. The task-tree RSS peak so far is
+46507081728 bytes, swap has not increased, and the guard has emitted no stop
+event. This accepts the first real chunk but not the still-running add-on gate,
+its uncommitted decision closure, or the downstream pPAM tasks.
+
 The original independent OSS lineage predates three scheduler-only task fields
 in `sensitivity_plan.json`. Resume may compare an omitted
 `timeout_seconds`, `transient_safe`, or `max_transient_retries` field as the
