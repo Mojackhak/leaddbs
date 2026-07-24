@@ -392,6 +392,25 @@ def build(input_path: Path) -> Path:
     )
     if parity.get("schema_version") != "dual_frequency_candidate_parity_v1":
         raise PerformanceCounterBuildError("candidate parity schema differs")
+    parity_rows = parity.get("rows")
+    full_candidate_mismatch = _nonnegative(
+        parity.get("full_candidate_mismatch_count"),
+        "full candidate mismatch count",
+    )
+    fold_candidate_mismatch = _nonnegative(
+        parity.get("fold_candidate_mismatch_count"),
+        "fold candidate mismatch count",
+    )
+    if (
+        not isinstance(parity_rows, list)
+        or not parity_rows
+        or parity.get("row_count") != len(parity_rows)
+        or full_candidate_mismatch > 0
+        or fold_candidate_mismatch > 0
+    ):
+        raise PerformanceCounterBuildError(
+            "configured candidate parity failed or is incomplete"
+        )
     audit_path, audit, audit_sha = _bound_document(
         raw_path=inputs["artifact_static_audit_path"],
         raw_sha256=inputs["artifact_static_audit_sha256"],

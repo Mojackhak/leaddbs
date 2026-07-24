@@ -142,7 +142,11 @@ class Task17PerformanceCounterBuilderTest(unittest.TestCase):
             parity,
             {
                 "schema_version": "dual_frequency_candidate_parity_v1",
+                "row_count": 1,
+                "full_candidate_mismatch_count": 0,
+                "fold_candidate_mismatch_count": 0,
                 "candidate_false_negative_count": 0,
+                "rows": [{"row_id": "configured-row"}],
             },
         )
         _write(
