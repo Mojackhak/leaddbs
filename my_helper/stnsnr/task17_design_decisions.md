@@ -1109,3 +1109,32 @@ real 1500-fiber chunk completes with task-tree RSS `< 64 GiB`, swap growth
 The 1500-fiber implementation and exact-layout fixtures pass 125 focused OSS,
 equivalence, cache, and executor tests and the complete 614-test package
 regression. Only the guarded production resource gate remains open.
+
+## Decision 38: Bound Time-Domain Reconstruction At 750 Fibers
+
+Segment 0013 disproved the 1500-fiber production bound. The real add-on chunk
+contained 1500 fibers for `sub-SNr015`, right side, 30 Hz. OSS retained 1046
+axons inside the computational domain. The task tree remained near
+56380178432 bytes through frequency-domain field copying, then reached
+70575407104 bytes when time-domain reconstruction created the time-result
+payload. The guard emitted `rss_limit_sigterm`; swap growth remained `< 1`
+byte. No standard row or equivalence decision published, the task ledger
+remained unchanged, and no process survived.
+
+The 1500-fiber bound is superseded by 750 fibers. This halves the failing
+chunk's axon-dependent time-result payload while retaining the measured fixed
+field-solver cost. Applying the observed payload increment conservatively to a
+fully retained 750-fiber chunk leaves more than 2 GiB below the strict 64-GiB
+task-tree limit. The 2004-fiber row becomes 750, 750, and 504 fibers. A
+7193-fiber axis becomes nine 750-fiber chunks plus 443. Chunking remains an
+execution-only partition with exact ordered concatenation and unchanged
+scientific, cache, row, and decision identities.
+
+The implementation requires updated exact-layout fixtures, focused regression,
+and complete package regression before segment 0014. Production acceptance
+still requires a real guarded 750-fiber chunk with task-tree RSS `< 64 GiB`,
+swap growth `< 1` byte, continuous VAL writability, and no guard stop event.
+
+The 750-fiber implementation and exact-layout fixtures pass 125 focused OSS,
+equivalence, cache, and executor tests and the complete 614-test package
+regression. Only the guarded production resource gate remains open.

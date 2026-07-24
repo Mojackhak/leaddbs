@@ -2677,6 +2677,26 @@ The 1500-fiber implementation and exact-layout fixtures pass 125 focused OSS,
 equivalence, cache, and executor tests and the complete 614-test package
 regression. The remaining acceptance condition is the real guarded segment.
 
+Segment 0013 then ran a real 1500-fiber `sub-SNr015` add-on chunk with 1046
+axons retained inside the computational domain. The task tree remained near
+56380178432 bytes through frequency-field copying, then reached 70575407104
+bytes when time-domain reconstruction created the time-result payload. Swap
+growth remained `< 1` byte, but the guard stopped the segment before any
+standard row or decision publication.
+
+The current execution bound is therefore 750 fibers. The 2004-fiber row
+becomes 750, 750, and 504 fibers; the 7193-fiber axis becomes nine 750-fiber
+chunks plus 443. The new bound halves the failed chunk's axon-dependent
+reconstruction payload and retains more than 2 GiB of estimated margin below
+the strict 64-GiB task-tree limit even if all 750 fibers remain inside the
+domain. Exact ordered concatenation and all scientific/cache identities remain
+unchanged. Focused and complete regression must pass before the next guarded
+production segment.
+
+The 750-fiber implementation and exact-layout fixtures pass 125 focused OSS,
+equivalence, cache, and executor tests and the complete 614-test package
+regression. The real guarded production resource gate remains open.
+
 The original independent OSS lineage predates three scheduler-only task fields
 in `sensitivity_plan.json`. Resume may compare an omitted
 `timeout_seconds`, `transient_safe`, or `max_transient_retries` field as the

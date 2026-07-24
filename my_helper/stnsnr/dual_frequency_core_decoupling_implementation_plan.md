@@ -7855,6 +7855,27 @@ equivalence, cache, and executor tests and the complete 614-test package
 regression. Segment 0013 is therefore permitted to test the remaining
 production resource gate.
 
+Segment 0013 disproved that bound. A real `sub-SNr015` right-side 30-Hz chunk
+contained 1500 fibers and retained 1046 axons inside the computational domain.
+The complete task tree remained near 56380178432 bytes through frequency-field
+copying, then reached 70575407104 bytes when time-domain reconstruction
+created the time-result payload. The guard emitted `rss_limit_sigterm`; swap
+growth remained `< 1` byte. No standard row or decision published, the ledger
+was unchanged, and all processes terminated.
+
+The superseding execution bound is 750 fibers. It partitions a 2004-fiber row
+as 750, 750, and 504 and partitions a 7193-fiber axis as nine 750-fiber chunks
+plus 443. This halves the failed chunk's axon-dependent reconstruction payload
+and conservatively leaves more than 2 GiB below the strict 64-GiB task-tree
+limit even if all 750 fibers remain inside the domain. Scientific, cache, row,
+and decision identities remain unchanged. Focused and complete regression must
+pass before segment 0014 tests the real guarded boundary.
+
+The 750-fiber implementation and exact-layout fixtures pass 125 focused OSS,
+equivalence, cache, and executor tests and the complete 614-test package
+regression. Segment 0014 is therefore permitted to test the remaining
+production resource gate.
+
 An accepted maximum-row measurement window must contain at least two guard
 samples. Both the selected-row and owning-decision manifest commit times must
 fall inside the first-to-last actual sample envelope, not merely inside
