@@ -984,6 +984,10 @@ class _ExecutionMetrics:
             reason: 0.0 for reason in _ADMISSION_REASONS
         }
         self.max_task_admission_wait_seconds = 0.0
+        self._scheduler_windows: list[dict[str, object]] = []
+        self._window_started_monotonic: float | None = None
+        self._window_started_utc: str | None = None
+        self._next_window_at = 0.0
 
     def observe_ready_queue(self, depth: int) -> None:
         self.max_ready_queue_depth = max(self.max_ready_queue_depth, int(depth))
@@ -1031,6 +1035,69 @@ class _ExecutionMetrics:
         self.close_task(task_id, now)
         self.scheduled_task_count += 1
         self.observe_running(running_count)
+
+    def sample_scheduler_window(
+        self,
+        *,
+        ready_task_count: int,
+        running_task_count: int,
+        ledger: _ResourceLedger,
+        now_monotonic: float,
+        now_utc: str,
+        force: bool = False,
+    ) -> None:
+        """Retain one five-second scheduler window without filesystem I/O."""
+
+        if self._window_started_monotonic is None:
+            self._window_started_monotonic = now_monotonic
+            self._window_started_utc = now_utc
+            self._next_window_at = now_monotonic + 5.0
+            if not force:
+                return
+        if not force and now_monotonic < self._next_window_at:
+            return
+        started = self._window_started_monotonic
+        started_utc = self._window_started_utc
+        if started is None or started_utc is None:
+            raise ExecutionError("scheduler window lacks a start boundary")
+        elapsed = max(0.0, now_monotonic - started)
+        if elapsed > 0:
+            active_reasons = {
+                reason: sum(
+                    1
+                    for reasons in self._active.values()
+                    if reason in reasons
+                )
+                for reason in _ADMISSION_REASONS
+            }
+            self._scheduler_windows.append(
+                {
+                    "start_utc": started_utc,
+                    "finish_utc": now_utc,
+                    "elapsed_seconds": elapsed,
+                    "ready_task_count": int(ready_task_count),
+                    "running_task_count": int(running_task_count),
+                    "runnable_cpu_slots": min(
+                        ledger.workers,
+                        int(ready_task_count) + int(running_task_count),
+                    ),
+                    "reserved_cpu_slots": ledger.cpu_used,
+                    "reserved_memory_bytes": ledger.memory_used,
+                    "reserved_connectome_io_slots": ledger.io_used,
+                    "reserved_external_solver_slots": ledger.solver_used,
+                    "admission_blocked_task_count_by_reason": active_reasons,
+                    "storage_limited": active_reasons["connectome_io"] > 0,
+                }
+            )
+        self._window_started_monotonic = now_monotonic
+        self._window_started_utc = now_utc
+        self._next_window_at = now_monotonic + 5.0
+
+    @property
+    def scheduler_windows(self) -> tuple[dict[str, object], ...]:
+        """Return immutable terminal scheduler-window evidence."""
+
+        return tuple(dict(row) for row in self._scheduler_windows)
 
     def as_dict(
         self,
@@ -1298,6 +1365,13 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 and all(dependency in outcomes for dependency in task.dependencies)
             ]
             metrics.observe_ready_queue(len(ready))
+            metrics.sample_scheduler_window(
+                ready_task_count=len(ready),
+                running_task_count=len(running),
+                ledger=ledger,
+                now_monotonic=now_monotonic,
+                now_utc=_utc_now(),
+            )
             for task in ready:
                 admission_time = time.monotonic()
                 if abort:
@@ -1521,6 +1595,27 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
         if pool is not None:
             pool.shutdown(wait=True, cancel_futures=True)
         resource_monitor.sample_if_due(ledger, force=True)
+        terminal_now = time.monotonic()
+        metrics.sample_scheduler_window(
+            ready_task_count=0,
+            running_task_count=0,
+            ledger=ledger,
+            now_monotonic=terminal_now,
+            now_utc=_utc_now(),
+            force=True,
+        )
+        scheduler_evidence = (
+            context.run_store.write_execution_segment_scheduler_windows(
+                segment_id,
+                metrics.scheduler_windows,
+            )
+            if metrics.scheduler_windows
+            else {
+                "scheduler_windows_path": None,
+                "scheduler_windows_sha256": None,
+                "scheduler_window_count": 0,
+            }
+        )
         context.run_store.finish_execution_segment(
             segment_id,
             {
@@ -1537,6 +1632,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                     now=time.monotonic(),
                 ),
                 **resource_monitor.as_dict(ledger),
+                **scheduler_evidence,
             },
         )
 

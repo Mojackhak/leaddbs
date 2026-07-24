@@ -5442,6 +5442,26 @@ input copy hashes, command arguments, expected failure class, output closure,
 and quarantine inventory revalidate. Partial or failed cases are retained and
 never trigger cleanup of the acceptance root.
 
+Performance instrumentation implementation checkpoint on 2026-07-24:
+
+- the executor retains five-second scheduler windows in memory and publishes
+  one SHA-bound sidecar only when the segment closes;
+- the external performance probe preserves cumulative CPU time for descendant
+  processes after they exit and distinguishes PID reuse by process creation
+  time;
+- the matrix validator requires the exact 72-row closure for three configured
+  connectomes, workers 1, 3, 6, and 12, cold and warm non-pPAM rows, injected
+  pPAM rows, real warm cache-hit rows, and explicit unauthorized real-cold
+  rows;
+- resolved worker configuration, segment, probe, scheduler-window, counter,
+  numerical-identity, RSS, swap, and 12-worker utilization gates are checked
+  from their source evidence; and
+- 44 focused tests and the complete 613-test discovery pass.
+
+This checkpoint closes the missing probe, scheduler-trace, and validator
+implementation. It does not close Step 10 because the configured benchmark
+matrix has not run and the isolated fault harness is still unimplemented.
+
 - [ ] **Step 11: Update current status and commit**
 
 Only after all acceptance gates pass, mark the performance refactor complete in

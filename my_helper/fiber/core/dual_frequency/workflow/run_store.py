@@ -10,7 +10,7 @@ import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from threading import RLock
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from urllib.parse import unquote, urlparse
 
 import yaml
@@ -349,6 +349,53 @@ class RunStore:
                 path,
                 json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n",
             )
+
+    def write_execution_segment_scheduler_windows(
+        self,
+        segment_id: str,
+        rows: Sequence[Mapping[str, object]],
+    ) -> dict[str, object]:
+        """Publish terminal scheduler windows beside one execution segment."""
+
+        segment_id = _token(segment_id, "execution segment ID")
+        if not segment_id.startswith("segment_"):
+            raise RunStoreError("execution segment ID is invalid")
+        normalized = [dict(row) for row in rows]
+        if not normalized:
+            raise RunStoreError("scheduler-window payload must contain rows")
+        payload = {
+            "schema_version": "dual_frequency_scheduler_windows_v1",
+            "segment_id": segment_id,
+            "rows": normalized,
+        }
+        path = (
+            self.root
+            / "execution_segments"
+            / f"scheduler_windows_{segment_id}.json"
+        )
+        with self._lock:
+            if path.exists():
+                existing = json.loads(path.read_text(encoding="utf-8"))
+                if existing != payload:
+                    raise RunStoreError(
+                        "scheduler-window payload differs from existing publication"
+                    )
+            else:
+                _atomic_write_text(
+                    path,
+                    json.dumps(
+                        payload,
+                        indent=2,
+                        sort_keys=True,
+                        allow_nan=False,
+                    )
+                    + "\n",
+                )
+        return {
+            "scheduler_windows_path": str(path.relative_to(self.root)),
+            "scheduler_windows_sha256": _sha256_file(path),
+            "scheduler_window_count": len(normalized),
+        }
 
     def record_artifacts(self, artifacts: tuple[ArtifactRef, ...]) -> None:
         if not artifacts:

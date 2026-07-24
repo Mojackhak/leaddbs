@@ -571,6 +571,9 @@ class ExecutorTest(unittest.TestCase):
             )
             segments = tuple((root / "execution_segments").glob("segment_*.json"))
             document = json.loads(segments[0].read_text(encoding="utf-8"))
+            scheduler_path = root / document["scheduler_windows_path"]
+            scheduler = json.loads(scheduler_path.read_text(encoding="utf-8"))
+            scheduler_sha = hashlib.sha256(scheduler_path.read_bytes()).hexdigest()
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(len(segments), 1)
         self.assertEqual(document["status"], "finished")
@@ -599,6 +602,24 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["peak_task_tree_rss_bytes"], 0)
         self.assertEqual(document["minimum_available_memory_bytes"], 0)
         self.assertEqual(document["peak_swap_delta_bytes"], 0)
+        self.assertEqual(document["scheduler_window_count"], 1)
+        self.assertEqual(scheduler["segment_id"], document["segment_id"])
+        self.assertEqual(len(scheduler["rows"]), 1)
+        self.assertEqual(
+            scheduler_sha,
+            document["scheduler_windows_sha256"],
+        )
+        self.assertEqual(
+            set(scheduler["rows"][0]["admission_blocked_task_count_by_reason"]),
+            {
+                "worker_slots",
+                "cpu",
+                "managed_memory",
+                "memory_reserve",
+                "connectome_io",
+                "external_solver",
+            },
+        )
 
     def test_spawn_supervisor_retries_timeout_and_broken_generation(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
