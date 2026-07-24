@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import io
 import json
@@ -13,12 +13,13 @@ from pathlib import Path
 import numpy as np
 
 from ...cache import (
+    CacheEntry,
     CacheFileMetadata,
     CachedFile,
     ContentAddressedCache,
     RunScopedArtifactPublisher,
 )
-from ...cache.identity import ScientificCacheKey
+from ...cache.identity import CacheIdentityError, ScientificCacheKey
 from ...contracts import ArtifactRef, AxisRef, FinalModelRecord
 from ...contracts.identity import canonical_hash
 from .canonical_mapping import (
@@ -33,6 +34,8 @@ from .ppam import (
 
 
 DEFAULT_ROW_WORKERS = 3
+OSS_SCIENTIFIC_BACKEND_VERSION = "ossdbsv2-ppam-scientific-v1"
+HISTORICAL_OSS_BACKEND_PREFIX = "definition-sha256-"
 
 
 class OSSBackendError(RuntimeError):
@@ -59,7 +62,7 @@ def _sha256(value: str, field_name: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class OSSScientificSettings:
-    """Fixed v1 OSS/pPAM settings plus the explicit toolchain version."""
+    """Fixed v1 OSS/pPAM settings plus the semantic scientific version."""
 
     backend_version: str
     model: str = "OSS-DBSv2"
@@ -182,20 +185,59 @@ def build_oss_row_cache_key(
     )
 
 
+def historical_oss_row_key_is_compatible(
+    key: ScientificCacheKey,
+    row: OSSRowInput,
+    settings: OSSScientificSettings,
+) -> bool:
+    """Return whether a historical implementation-keyed row is scientifically exact."""
+
+    if (
+        not isinstance(key, ScientificCacheKey)
+        or not isinstance(row, OSSRowInput)
+        or not isinstance(settings, OSSScientificSettings)
+    ):
+        raise TypeError("key, row, and settings must be typed OSS values")
+    if settings.backend_version != OSS_SCIENTIFIC_BACKEND_VERSION:
+        return False
+    version = key.backend_version
+    suffix = version.removeprefix(HISTORICAL_OSS_BACKEND_PREFIX)
+    if (
+        not version.startswith(HISTORICAL_OSS_BACKEND_PREFIX)
+        or len(suffix) != 64
+        or any(character not in "0123456789abcdef" for character in suffix)
+    ):
+        return False
+    historical_settings = replace(settings, backend_version=version)
+    return build_oss_row_cache_key(row, historical_settings) == key
+
+
 @dataclass(frozen=True, slots=True)
 class OSSRowProduct:
     """One producer result before immutable cache publication."""
 
     feature_ids: np.ndarray
     probabilities: np.ndarray
+    producer_implementation_attestation: str | None = None
 
     def __post_init__(self) -> None:
         ids = activation_universe(self.feature_ids)
         probabilities = validate_ten_sample_probabilities(self.probabilities)
         if probabilities.ndim != 1 or probabilities.shape != (ids.size,):
             raise OSSBackendError("row probabilities must be one-dimensional on feature_ids")
+        attestation = self.producer_implementation_attestation
+        if attestation is not None:
+            attestation = _token(
+                attestation,
+                "producer_implementation_attestation",
+            )
         object.__setattr__(self, "feature_ids", ids)
         object.__setattr__(self, "probabilities", probabilities)
+        object.__setattr__(
+            self,
+            "producer_implementation_attestation",
+            attestation,
+        )
 
 
 OSSRowProducer = Callable[[OSSRowInput], OSSRowProduct]
@@ -348,6 +390,142 @@ class OSSRowMaterializer:
         self.publisher = publisher
         self.producer = producer
 
+    @staticmethod
+    def _row_payload_signature(entry: CacheEntry) -> tuple[tuple[str, str], ...]:
+        records = {
+            record.relative_path: record
+            for record in entry.files
+            if record.relative_path in {"fiber_ids.npy", "probabilities.npy"}
+        }
+        if set(records) != {"fiber_ids.npy", "probabilities.npy"}:
+            raise OSSBackendError(
+                "compatible legacy OSS row lacks its scientific payload closure"
+            )
+        return tuple(
+            (name, records[name].sha256)
+            for name in ("fiber_ids.npy", "probabilities.npy")
+        )
+
+    @classmethod
+    def _validated_row_product(
+        cls,
+        entry: CacheEntry,
+        row: OSSRowInput,
+    ) -> OSSRowProduct:
+        records = {record.relative_path: record for record in entry.files}
+        try:
+            ids_record = records["fiber_ids.npy"]
+            probabilities_record = records["probabilities.npy"]
+        except KeyError as exc:
+            raise OSSBackendError(
+                "compatible legacy OSS row lacks required arrays"
+            ) from exc
+        if (
+            ids_record.metadata.dtype != "int64"
+            or ids_record.metadata.shape != (row.feature_axis.count,)
+            or ids_record.metadata.axes != (row.feature_axis,)
+            or ids_record.metadata.units != "fiber_id"
+            or ids_record.metadata.space != "right_canonical"
+            or probabilities_record.metadata.dtype != "float32"
+            or probabilities_record.metadata.shape != (row.feature_axis.count,)
+            or probabilities_record.metadata.axes != (row.feature_axis,)
+            or probabilities_record.metadata.units != "probability"
+            or probabilities_record.metadata.space != "right_canonical"
+        ):
+            raise OSSBackendError(
+                "compatible legacy OSS row metadata differs from the request"
+            )
+        ids, probabilities = cls._load_entry(entry.path)
+        if not np.array_equal(ids, row.feature_ids):
+            raise OSSBackendError(
+                "compatible legacy OSS row fiber axis differs from the request"
+            )
+        return OSSRowProduct(ids, probabilities)
+
+    def compatible_historical_entries(
+        self,
+        row: OSSRowInput,
+        settings: OSSScientificSettings,
+    ) -> tuple[CacheEntry, ...]:
+        """Return fully verified historical entries for one exact current row."""
+
+        kind_root = self.cache.root / "shared_exposure_v2" / "oss_rows"
+        if not kind_root.is_dir():
+            return ()
+        matches: list[CacheEntry] = []
+        for directory in sorted(kind_root.iterdir(), key=lambda path: path.name):
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            manifest_path = directory / "manifest.json"
+            try:
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                key = ScientificCacheKey.from_dict(
+                    payload["scientific_cache_key"]
+                )
+            except (
+                OSError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                KeyError,
+                CacheIdentityError,
+            ):
+                continue
+            if (
+                key.kind != "oss_rows"
+                or key.digest != directory.name
+                or not historical_oss_row_key_is_compatible(key, row, settings)
+            ):
+                continue
+            entry = self.cache.resolve(key)
+            if entry is None:
+                raise OSSBackendError(
+                    "compatible legacy OSS row disappeared during validation"
+                )
+            self._validated_row_product(entry, row)
+            matches.append(entry)
+        signatures = {
+            self._row_payload_signature(entry)
+            for entry in matches
+        }
+        if len(signatures) > 1:
+            raise OSSBackendError(
+                "compatible legacy OSS rows contain conflicting scientific payloads"
+            )
+        return tuple(matches)
+
+    def resolve_or_promote_historical(
+        self,
+        row: OSSRowInput,
+        key: ScientificCacheKey,
+        settings: OSSScientificSettings,
+    ) -> tuple[CacheEntry | None, tuple[str, ...]]:
+        """Resolve the stable key or atomically promote one unique legacy payload."""
+
+        entry = self.cache.resolve(key)
+        if entry is not None:
+            self._validated_row_product(entry, row)
+            return entry, ()
+        historical_entries = self.compatible_historical_entries(row, settings)
+        if not historical_entries:
+            return None, ()
+        product = self._validated_row_product(historical_entries[0], row)
+        self.publish_product(
+            row,
+            key,
+            settings,
+            product,
+            compatibility_sources=historical_entries,
+        )
+        promoted = self.cache.resolve(key)
+        if promoted is None:
+            raise OSSBackendError(
+                "stable OSS row remained unavailable after legacy promotion"
+            )
+        self._validated_row_product(promoted, row)
+        return promoted, tuple(
+            entry.key.digest for entry in historical_entries
+        )
+
     def materialize(self, request: OSSRowBatchRequest) -> OSSRowBatchArtifact:
         if not isinstance(request, OSSRowBatchRequest):
             raise TypeError("request must be an OSSRowBatchRequest")
@@ -355,7 +533,19 @@ class OSSRowMaterializer:
         keyed_rows = tuple(
             (row, build_oss_row_cache_key(row, request.settings)) for row in ordered_rows
         )
-        entries = {key.digest: self.cache.resolve(key) for _row, key in keyed_rows}
+        entries: dict[str, CacheEntry | None] = {}
+        historical_promotions: dict[str, tuple[str, ...]] = {}
+        for row, key in keyed_rows:
+            if key.digest in entries:
+                continue
+            entry, sources = self.resolve_or_promote_historical(
+                row,
+                key,
+                request.settings,
+            )
+            entries[key.digest] = entry
+            if sources:
+                historical_promotions[key.digest] = sources
         missing_by_digest: dict[str, tuple[OSSRowInput, ScientificCacheKey]] = {}
         for row, key in keyed_rows:
             if entries[key.digest] is None:
@@ -439,6 +629,11 @@ class OSSRowMaterializer:
                 "requested_rows": len(ordered_rows),
                 "unique_row_cache_keys": len(entries),
                 "produced_cache_keys": len(missing_by_digest),
+                "historical_promoted_cache_keys": len(historical_promotions),
+                "historical_promotion_sources": {
+                    key: list(historical_promotions[key])
+                    for key in sorted(historical_promotions)
+                },
                 "cache_keys": sorted(entries),
                 "merge_rule": "max_probability_union",
                 "fitting_probability_threshold": 0.5,
@@ -502,6 +697,8 @@ class OSSRowMaterializer:
         key: ScientificCacheKey,
         settings: OSSScientificSettings,
         product: OSSRowProduct,
+        *,
+        compatibility_sources: tuple[CacheEntry, ...] = (),
     ) -> None:
         """Publish one row with constant-size manifest metadata and one payload write."""
 
@@ -532,6 +729,9 @@ class OSSRowMaterializer:
                     "n_fibers": row.feature_axis.count,
                     "backend_name": key.backend_name,
                     "backend_version": key.backend_version,
+                    "producer_implementation_attestation": (
+                        product.producer_implementation_attestation
+                    ),
                     "manifest_item_policy": "row_level_only",
                 },
                 sort_keys=True,
@@ -564,6 +764,48 @@ class OSSRowMaterializer:
             ),
             "row_metadata.json": (metadata_bytes, CacheFileMetadata()),
         }
+        if compatibility_sources:
+            source_rows = []
+            for source in sorted(
+                compatibility_sources,
+                key=lambda entry: entry.key.digest,
+            ):
+                if not historical_oss_row_key_is_compatible(
+                    source.key,
+                    row,
+                    settings,
+                ):
+                    raise OSSBackendError(
+                        "legacy promotion provenance is incompatible with the row"
+                    )
+                source_rows.append(
+                    {
+                        "scientific_identity": source.key.digest,
+                        "backend_version": source.key.backend_version,
+                        "scientific_payload_sha256": {
+                            name: digest
+                            for name, digest in self._row_payload_signature(source)
+                        },
+                    }
+                )
+            compatibility_bytes = (
+                json.dumps(
+                    {
+                        "schema_version": "dual_frequency_oss_historical_promotion_v1",
+                        "stable_scientific_identity": key.digest,
+                        "sources": source_rows,
+                    },
+                    sort_keys=True,
+                    indent=2,
+                    ensure_ascii=True,
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+            payloads["compatibility_source.json"] = (
+                compatibility_bytes,
+                CacheFileMetadata(),
+            )
 
         def _cache_producer(staging: Path) -> tuple[CachedFile, ...]:
             output = []
@@ -604,8 +846,10 @@ class OSSRowMaterializer:
 
 __all__ = [
     "DEFAULT_ROW_WORKERS",
+    "HISTORICAL_OSS_BACKEND_PREFIX",
     "MissingAcceptanceFixture",
     "OSSBackendError",
+    "OSS_SCIENTIFIC_BACKEND_VERSION",
     "OSSRowBatchRequest",
     "OSSRowBatchArtifact",
     "OSSRowInput",
@@ -613,4 +857,5 @@ __all__ = [
     "OSSRowProduct",
     "OSSScientificSettings",
     "build_oss_row_cache_key",
+    "historical_oss_row_key_is_compatible",
 ]

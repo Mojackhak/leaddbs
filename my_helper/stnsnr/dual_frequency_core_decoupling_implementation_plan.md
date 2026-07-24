@@ -8517,6 +8517,33 @@ carrying `--allow-expensive-producers`; its successful replay is the production
 proof that both terminal reference and add-on rows remain usable after
 execution-only code changes.
 
+Implementation checkpoint on 2026-07-24:
+
+The compatibility repair is isolated in
+`/private/tmp/leaddbs-task17-oss-cache-compat` while the formal add-on solver
+continues from the unchanged main checkout. The worktree now contains the
+stable scientific backend version, cache-first legacy row and decision
+promotion, promotion provenance, and before/after implementation attestation.
+Newly executed rows persist the accepted attestation in
+`row_metadata.json`; promoted rows retain the verified historical fingerprints
+in `compatibility_source.json`. Neither provenance field participates in the
+stable scientific identity. Production APIs use the project-neutral term
+`historical`; the recognized historical backend string remains the exact
+portable `definition-sha256-*` format.
+
+The final isolated implementation test pass covers stable-key independence
+from execution chunk size, exact historical row and pass-decision promotion,
+promotion provenance, parameter and ordered-axis mismatch, missing and corrupt
+rows, conflicting row payloads, conflicting decision evidence, cache-only
+failure before toolchain invocation, and in-flight implementation drift.
+Eighty-four focused OSS tests pass, the production dependency-boundary set
+passes, and complete `dual_frequency` discovery passes 700 tests with four
+expected skips and warnings treated as errors. Because the worktree does not
+contain Git-ignored repository data, the complete run used read-only paths to
+the main checkout's exact template segmentation and frozen acceptance
+fixtures. The repair remains intentionally unmerged until the active formal
+solver is terminal.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
@@ -8598,9 +8625,11 @@ audit.
   permitted under the authority contract.
 - [ ] OSS row and decision cache identities use the stable scientific contract
   rather than the complete repository implementation fingerprint; verified
-  legacy rows and pass decisions promote cache-first without an expensive
+  historical rows and pass decisions promote cache-first without an expensive
   producer, while implementation drift is retained only as execution
-  attestation.
+  attestation. The isolated implementation and complete regression pass; merge
+  and production cache-only promotion remain pending until the active solver is
+  terminal.
 - [ ] CPU-heavy work uses spawned processes, large disjoint work units, and a
   persistent event-driven ready queue; `execution.workers` is the one public
   global CPU ceiling and nested pools cannot bypass it.

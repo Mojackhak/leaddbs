@@ -1194,9 +1194,12 @@ The corrected contract has two identities:
 2. The complete current producer implementation remains a
    `definition-sha256-*` execution attestation. An authorized cache miss
    computes it immediately before and after external row production and rejects
-   any in-flight change. It is retained as audit provenance and never controls
-   lookup, resume, direct-copy portability, or use of a previously completed
-   scientific payload.
+   any in-flight change. A successful newly produced row records that exact
+   attestation in `row_metadata.json`; a promoted row instead records all
+   verified historical fingerprints in `compatibility_source.json`. These
+   fields are audit provenance only and never control lookup, resume,
+   direct-copy portability, or use of a previously completed scientific
+   payload.
 
 Changing a scientific definition requires an explicit new semantic version.
 Changing only execution policy retains the existing version. This is the

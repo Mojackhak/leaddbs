@@ -17,9 +17,12 @@ from urllib.parse import unquote, urlsplit
 import numpy as np
 
 import dual_frequency.backends.activation.fitting as ppam_fitting
+import dual_frequency.runtime.oss_toolchain as oss_toolchain_runtime
 from dual_frequency.backends.activation import (
+    HISTORICAL_OSS_BACKEND_PREFIX,
     MissingAcceptanceFixture,
     OSSBackendError,
+    OSS_SCIENTIFIC_BACKEND_VERSION,
     OSSRowBatchRequest,
     OSSRowInput,
     OSSRowMaterializer,
@@ -31,6 +34,7 @@ from dual_frequency.backends.activation import (
     binary_activation,
     build_oss_row_cache_key,
     compute_ppam_permutation_block,
+    historical_oss_row_key_is_compatible,
     subset_probability_axis,
 )
 from dual_frequency.backends.formal.common import (
@@ -45,6 +49,7 @@ from dual_frequency.backends.statistics import (
 )
 from dual_frequency.cache import (
     ArtifactStore,
+    CacheCorruption,
     ContentAddressedCache,
     RunScopedArtifactPublisher,
     sha256_file,
@@ -224,6 +229,7 @@ def _request(
     fiber_ids: np.ndarray,
     rows: tuple[OSSRowInput, ...],
     workers: int = 3,
+    backend_version: str = "2.2.0",
 ) -> OSSRowBatchRequest:
     return OSSRowBatchRequest(
         final_model=_final(scale_id, feature_axis),
@@ -233,7 +239,7 @@ def _request(
         feature_axis=feature_axis,
         feature_ids=fiber_ids,
         rows=rows,
-        settings=OSSScientificSettings(backend_version="2.2.0"),
+        settings=OSSScientificSettings(backend_version=backend_version),
         allow_expensive_producers=allow_expensive,
         workers=workers,
     )
@@ -323,6 +329,26 @@ class OSSRowIdentityTest(unittest.TestCase):
         self.assertNotIn("final", json.dumps(first.as_dict()))
         self.assertNotIn("worker", json.dumps(first.as_dict()))
 
+    def test_key_is_independent_of_execution_chunk_size(self) -> None:
+        fibers = AxisRef("fibers", 3, "a" * 64)
+        row = _rows(("sub-01",), fibers, np.arange(3, dtype=np.int64))[0]
+        settings = OSSScientificSettings(
+            backend_version=OSS_SCIENTIFIC_BACKEND_VERSION
+        )
+        with patch.object(
+            oss_toolchain_runtime,
+            "OSS_MAX_FIBERS_PER_EXECUTION",
+            750,
+        ):
+            first = build_oss_row_cache_key(row, settings)
+        with patch.object(
+            oss_toolchain_runtime,
+            "OSS_MAX_FIBERS_PER_EXECUTION",
+            375,
+        ):
+            second = build_oss_row_cache_key(row, settings)
+        self.assertEqual(first, second)
+
     def test_key_changes_for_every_scientific_identity_dimension(self) -> None:
         fibers = AxisRef("fibers", 3, "a" * 64)
         row = _rows(("sub-01",), fibers, np.arange(3, dtype=np.int64))[0]
@@ -360,6 +386,66 @@ class OSSRowIdentityTest(unittest.TestCase):
         self.assertNotEqual(
             build_oss_row_cache_key(row, settings).digest,
             build_oss_row_cache_key(reordered, settings).digest,
+        )
+
+    def test_legacy_compatibility_requires_exact_settings_and_ordered_axis(
+        self,
+    ) -> None:
+        fibers = AxisRef("fibers", 3, "a" * 64)
+        row = _rows(("sub-01",), fibers, np.arange(3, dtype=np.int64))[0]
+        stable_settings = OSSScientificSettings(
+            backend_version=OSS_SCIENTIFIC_BACKEND_VERSION
+        )
+        legacy_settings = dataclasses.replace(
+            stable_settings,
+            backend_version=f"{HISTORICAL_OSS_BACKEND_PREFIX}{'1' * 64}",
+        )
+        legacy_key = build_oss_row_cache_key(row, legacy_settings)
+
+        self.assertTrue(
+            historical_oss_row_key_is_compatible(
+                legacy_key,
+                row,
+                stable_settings,
+            )
+        )
+        self.assertFalse(
+            historical_oss_row_key_is_compatible(
+                legacy_key,
+                row,
+                legacy_settings,
+            )
+        )
+
+        mismatched_hashes = tuple(
+            (
+                name,
+                ("e" * 64 if name == "oss_ppam_v1" else digest),
+            )
+            for name, digest in legacy_key.scientific_parameter_hashes
+        )
+        parameter_mismatch = dataclasses.replace(
+            legacy_key,
+            scientific_parameter_hashes=mismatched_hashes,
+        )
+        self.assertFalse(
+            historical_oss_row_key_is_compatible(
+                parameter_mismatch,
+                row,
+                stable_settings,
+            )
+        )
+
+        reordered = dataclasses.replace(
+            row,
+            feature_ids=np.asarray([1, 0, 2], dtype=np.int64),
+        )
+        self.assertFalse(
+            historical_oss_row_key_is_compatible(
+                legacy_key,
+                reordered,
+                stable_settings,
+            )
         )
 
 
@@ -419,6 +505,47 @@ class OSSRowMaterializerTest(unittest.TestCase):
                 self.fiber_ids,
                 np.asarray([0.0, 0.1, 0.37, 0.9, 1.0], dtype=np.float32),
             )
+
+    def test_new_row_records_execution_attestation_outside_its_key(self) -> None:
+        row = self.rows[0]
+        settings = OSSScientificSettings(
+            backend_version=OSS_SCIENTIFIC_BACKEND_VERSION
+        )
+        key = build_oss_row_cache_key(row, settings)
+        attestation = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'a' * 64}"
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache = ContentAddressedCache(root / "cache")
+            materializer = OSSRowMaterializer(
+                cache,
+                RunScopedArtifactPublisher(root / "run", "oss_test", "1"),
+                producer=None,
+            )
+            materializer.publish_product(
+                row,
+                key,
+                settings,
+                OSSRowProduct(
+                    row.feature_ids,
+                    self._values(row),
+                    producer_implementation_attestation=attestation,
+                ),
+            )
+            entry = cache.resolve(key)
+            assert entry is not None
+            metadata = json.loads(
+                entry.file_path("row_metadata.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(metadata["scientific_identity"], key.digest)
+        self.assertEqual(
+            metadata["producer_implementation_attestation"],
+            attestation,
+        )
+        self.assertNotIn(attestation, json.dumps(key.as_dict()))
 
     def test_omega_simulation_rows_are_cropped_to_the_locked_final_axis(self) -> None:
         final_axis = AxisRef("final-fibers", 2, "1" * 64)
@@ -559,6 +686,198 @@ class OSSRowMaterializerTest(unittest.TestCase):
             ]
         )
         np.testing.assert_array_equal(first_probability, expected)
+
+    def test_legacy_rows_promote_without_invoking_a_producer(self) -> None:
+        legacy_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'1' * 64}"
+        calls: list[str] = []
+
+        def producer(row: OSSRowInput) -> OSSRowProduct:
+            calls.append(row.source_id)
+            return OSSRowProduct(row.feature_ids, self._values(row))
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache = ContentAddressedCache(root / "cache")
+            legacy = OSSRowMaterializer(
+                cache,
+                RunScopedArtifactPublisher(root / "legacy-run", "oss_test", "1"),
+                producer=producer,
+            ).materialize(
+                _request(
+                    scale_id="legacy-scale",
+                    allow_expensive=True,
+                    subjects=self.subjects,
+                    subject_axis=self.subject_axis,
+                    feature_axis=self.feature_axis,
+                    fiber_ids=self.fiber_ids,
+                    rows=self.rows,
+                    backend_version=legacy_version,
+                )
+            )
+            legacy_probabilities = _artifact_array(legacy.activation_probability)
+            calls_after_legacy = tuple(calls)
+
+            def forbidden(_row: OSSRowInput) -> OSSRowProduct:
+                raise AssertionError("legacy promotion must not invoke a producer")
+
+            promoted = OSSRowMaterializer(
+                cache,
+                RunScopedArtifactPublisher(root / "stable-run", "oss_test", "1"),
+                producer=forbidden,
+            ).materialize(
+                _request(
+                    scale_id="stable-scale",
+                    allow_expensive=False,
+                    subjects=self.subjects,
+                    subject_axis=self.subject_axis,
+                    feature_axis=self.feature_axis,
+                    fiber_ids=self.fiber_ids,
+                    rows=tuple(reversed(self.rows)),
+                    backend_version=OSS_SCIENTIFIC_BACKEND_VERSION,
+                )
+            )
+            promoted_probabilities = _artifact_array(
+                promoted.activation_probability
+            )
+            stable_settings = OSSScientificSettings(
+                backend_version=OSS_SCIENTIFIC_BACKEND_VERSION
+            )
+            promoted_entries = tuple(
+                cache.resolve(build_oss_row_cache_key(row, stable_settings))
+                for row in self.rows
+            )
+
+            self.assertEqual(tuple(calls), calls_after_legacy)
+            np.testing.assert_array_equal(
+                promoted_probabilities,
+                legacy_probabilities,
+            )
+            self.assertTrue(all(entry is not None for entry in promoted_entries))
+            for entry in promoted_entries:
+                assert entry is not None
+                self.assertEqual(len(entry.files), 4)
+                row_metadata = json.loads(
+                    entry.file_path("row_metadata.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertIsNone(
+                    row_metadata["producer_implementation_attestation"]
+                )
+                provenance = json.loads(
+                    entry.file_path("compatibility_source.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(
+                    provenance["stable_scientific_identity"],
+                    entry.key.digest,
+                )
+                self.assertEqual(len(provenance["sources"]), 1)
+                self.assertEqual(
+                    provenance["sources"][0]["backend_version"],
+                    legacy_version,
+                )
+
+    def test_conflicting_legacy_rows_fail_closed(self) -> None:
+        row = self.rows[0]
+        first_settings = OSSScientificSettings(
+            backend_version=f"{HISTORICAL_OSS_BACKEND_PREFIX}{'1' * 64}"
+        )
+        second_settings = OSSScientificSettings(
+            backend_version=f"{HISTORICAL_OSS_BACKEND_PREFIX}{'2' * 64}"
+        )
+        stable_settings = OSSScientificSettings(
+            backend_version=OSS_SCIENTIFIC_BACKEND_VERSION
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache = ContentAddressedCache(root / "cache")
+            materializer = OSSRowMaterializer(
+                cache,
+                RunScopedArtifactPublisher(root / "run", "oss_test", "1"),
+                producer=None,
+            )
+            first_values = self._values(row)
+            second_values = first_values.copy()
+            second_values[0] = (
+                np.float32(0.0)
+                if second_values[0] > 0.0
+                else np.float32(0.1)
+            )
+            materializer.publish_product(
+                row,
+                build_oss_row_cache_key(row, first_settings),
+                first_settings,
+                OSSRowProduct(row.feature_ids, first_values),
+            )
+            materializer.publish_product(
+                row,
+                build_oss_row_cache_key(row, second_settings),
+                second_settings,
+                OSSRowProduct(row.feature_ids, second_values),
+            )
+
+            with self.assertRaisesRegex(
+                OSSBackendError,
+                "conflicting scientific payloads",
+            ):
+                materializer.resolve_or_promote_historical(
+                    row,
+                    build_oss_row_cache_key(row, stable_settings),
+                    stable_settings,
+                )
+
+    def test_corrupt_legacy_row_fails_before_promotion(self) -> None:
+        row = self.rows[0]
+        legacy_settings = OSSScientificSettings(
+            backend_version=f"{HISTORICAL_OSS_BACKEND_PREFIX}{'3' * 64}"
+        )
+        stable_settings = OSSScientificSettings(
+            backend_version=OSS_SCIENTIFIC_BACKEND_VERSION
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache = ContentAddressedCache(root / "cache")
+            materializer = OSSRowMaterializer(
+                cache,
+                RunScopedArtifactPublisher(root / "run", "oss_test", "1"),
+                producer=None,
+            )
+            legacy_key = build_oss_row_cache_key(row, legacy_settings)
+            materializer.publish_product(
+                row,
+                legacy_key,
+                legacy_settings,
+                OSSRowProduct(row.feature_ids, self._values(row)),
+            )
+            probabilities = (
+                cache.entry_path(legacy_key) / "probabilities.npy"
+            )
+            with probabilities.open("r+b") as stream:
+                stream.seek(-1, 2)
+                final_byte = stream.read(1)
+                stream.seek(-1, 2)
+                stream.write(bytes([final_byte[0] ^ 1]))
+
+            fresh_cache = ContentAddressedCache(cache.root)
+            fresh_materializer = OSSRowMaterializer(
+                fresh_cache,
+                RunScopedArtifactPublisher(
+                    root / "fresh-run",
+                    "oss_test",
+                    "1",
+                ),
+                producer=None,
+            )
+            with self.assertRaises(CacheCorruption):
+                fresh_materializer.resolve_or_promote_historical(
+                    row,
+                    build_oss_row_cache_key(row, stable_settings),
+                    stable_settings,
+                )
 
 
 class PPAMActivationBackendTest(unittest.TestCase):

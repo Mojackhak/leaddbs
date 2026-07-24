@@ -45,8 +45,10 @@ from .fitting import (
 )
 from .ossdbs import (
     DEFAULT_ROW_WORKERS,
+    HISTORICAL_OSS_BACKEND_PREFIX,
     MissingAcceptanceFixture,
     OSSBackendError,
+    OSS_SCIENTIFIC_BACKEND_VERSION,
     OSSRowBatchArtifact,
     OSSRowBatchRequest,
     OSSRowInput,
@@ -54,12 +56,14 @@ from .ossdbs import (
     OSSRowProduct,
     OSSScientificSettings,
     build_oss_row_cache_key,
+    historical_oss_row_key_is_compatible,
 )
 
 __all__ = [
     "FITTING_PROBABILITY_THRESHOLD",
     "PPAM_SAMPLE_COUNT",
     "DEFAULT_ROW_WORKERS",
+    "HISTORICAL_OSS_BACKEND_PREFIX",
     "LEFT_SIDE",
     "RIGHT_SIDE",
     "CanonicalMappingError",
@@ -80,6 +84,7 @@ __all__ = [
     "close_ppam_operator_scratch",
     "MissingAcceptanceFixture",
     "OSSBackendError",
+    "OSS_SCIENTIFIC_BACKEND_VERSION",
     "OSSRowBatchArtifact",
     "OSSRowBatchRequest",
     "OSSRowInput",
@@ -89,6 +94,7 @@ __all__ = [
     "activation_universe",
     "binary_activation",
     "build_oss_row_cache_key",
+    "historical_oss_row_key_is_compatible",
     "fit_ppam_activation",
     "max_probability_union",
     "merge_right_canonical_probabilities",

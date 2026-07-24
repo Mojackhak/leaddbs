@@ -1116,19 +1116,33 @@ documents and fixed settings before execution. Nested paths must stay
 inside validated study subject roots or the repository root, and captured input
 paths and structural metadata must remain unchanged through publication. Subject roots are keyed
 by subject ID, so one subject's locator cannot resolve through another subject's
-root. The target computes the complete implementation attestation once per
-immutable run-environment identity and binds it to the backend version in the
-cache path; each row uses a lightweight semantic/version guard. `OSS-DBSv2.yml`
-pins the accepted upstream commit, declared versions for
-installed OSS/Lead-DBS-interface package resources (including HOC/MOD
-scientific assets), normalized entrypoints, the Conda/Python environment
-inventory, and exact MATLAB runtime identity. The local
-implementation attestation includes the transitive Lead-DBS/MATLAB bridge and
-coordinate helpers as well as the top-level producer, and the platform ANTs
-point-transform binary is part of that attestation. Authorized misses reuse the
-attested immutable-environment record and validate only the lightweight row
-guard; a changed environment identity requires a new complete attestation.
-Only executable paths may be cached.
+root. The cache path binds the stable internal scientific contract version
+`ossdbsv2-ppam-scientific-v1`, the exact ordered fiber axis, every explicit OSS
+scientific setting, and all row input content identities. Execution chunk size,
+worker count, scheduler policy, repository SHA, resource limits, publication
+code, and the complete implementation fingerprint do not control lookup or
+resume. A scientific-definition change requires an explicit new scientific
+contract version.
+
+The complete producer implementation is retained separately as a
+`definition-sha256-*` execution attestation. `OSS-DBSv2.yml` pins the accepted
+upstream commit, declared versions for installed OSS/Lead-DBS-interface package
+resources including HOC/MOD scientific assets, normalized entrypoints, the
+Conda/Python environment inventory, and exact MATLAB runtime identity. The
+local attestation includes the transitive Lead-DBS/MATLAB bridge, coordinate
+helpers, top-level producer, and platform ANTs point-transform binary. An
+authorized cache miss computes the complete attestation immediately before and
+after external row production and rejects any in-flight change before cache
+publication. A successful new row records that attestation in
+`row_metadata.json` as audit provenance, without using it for lookup.
+
+On a stable-key miss, a completed historical `definition-sha256-*` row may be
+promoted without an external producer only after exact scientific-key
+reconstruction, full manifest and payload SHA verification, exact ordered-axis
+validation, and agreement among every compatible historical payload. The
+historical entry remains immutable and the stable entry records its
+compatibility provenance. Missing, corrupt, mismatched, ambiguous, or
+conflicting candidates fail closed. Only executable paths may be cached.
 The converted OSS
 JSON must explicitly confirm the exact segmentation, `ColeCole4`, inactive DTI,
 rectangular zero-phase waveform, requested control/frequency/pulse width, and

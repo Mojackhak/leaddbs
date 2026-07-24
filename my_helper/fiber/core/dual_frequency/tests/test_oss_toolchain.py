@@ -726,7 +726,9 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
 
         self.assertEqual(executor.rows, [])
 
-    def test_rejects_backend_attestation_mismatch_before_execution(self) -> None:
+    def test_scientific_version_is_independent_of_execution_attestation(
+        self,
+    ) -> None:
         executor = _FakeOSSRowExecutor()
         source = self._publish_source(
             "attestation-mismatch-source",
@@ -738,20 +740,50 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
             backend_version_resolver=lambda _root: "different-toolchain-version",
         )
 
-        with self.assertRaisesRegex(
-            OSSProducerExecutionError,
-            "implementation differs from the row cache backend version",
-        ):
-            toolchain.produce(
-                self._request((source,), delivery_mode="alternating")
-            )
-        self.assertEqual(executor.rows, [])
+        product = toolchain.produce(
+            self._request((source,), delivery_mode="alternating")
+        )
 
-    def test_backend_attestation_is_cached_once_across_rows(self) -> None:
+        self.assertEqual(len(executor.rows), 1)
+        np.testing.assert_array_equal(product.feature_ids, self.feature_ids)
+        self.assertEqual(
+            product.producer_implementation_attestation,
+            "different-toolchain-version",
+        )
+
+    def test_backend_attestation_is_checked_around_each_row(self) -> None:
         executor = _FakeOSSRowExecutor()
         source = self._publish_source(
             "attestation-change-source",
             subject_id="generic-attestation-change-subject",
+            delivery_mode="alternating",
+        )
+        calls = 0
+
+        def resolver(_root: Path) -> str:
+            nonlocal calls
+            calls += 1
+            return (
+                "synthetic-toolchain-v1"
+                if calls < 3
+                else "changed-toolchain-version"
+            )
+
+        toolchain = self._toolchain(
+            executor,
+            backend_version_resolver=resolver,
+        )
+        request = self._request((source,), delivery_mode="alternating")
+        toolchain.produce(request)
+        toolchain.produce(request)
+        self.assertEqual(calls, 4)
+        self.assertEqual(len(executor.rows), 2)
+
+    def test_backend_attestation_rejects_in_flight_change(self) -> None:
+        executor = _FakeOSSRowExecutor()
+        source = self._publish_source(
+            "attestation-drift-source",
+            subject_id="generic-attestation-drift-subject",
             delivery_mode="alternating",
         )
         calls = 0
@@ -769,11 +801,15 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
             executor,
             backend_version_resolver=resolver,
         )
-        request = self._request((source,), delivery_mode="alternating")
-        toolchain.produce(request)
-        toolchain.produce(request)
-        self.assertEqual(calls, 1)
-        self.assertEqual(len(executor.rows), 2)
+        with self.assertRaisesRegex(
+            OSSProducerExecutionError,
+            "implementation changed during row production",
+        ):
+            toolchain.produce(
+                self._request((source,), delivery_mode="alternating")
+            )
+        self.assertEqual(calls, 2)
+        self.assertEqual(len(executor.rows), 1)
 
     def test_backend_attestation_covers_all_core_python_modules(self) -> None:
         repository = self.root / "attestation-repository"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -10,7 +11,12 @@ import unittest
 
 import numpy as np
 
-from dual_frequency.backends.activation import OSSRowProduct, OSSScientificSettings
+from dual_frequency.backends.activation import (
+    HISTORICAL_OSS_BACKEND_PREFIX,
+    OSS_SCIENTIFIC_BACKEND_VERSION,
+    OSSRowProduct,
+    OSSScientificSettings,
+)
 from dual_frequency.cache import (
     CacheCorruption,
     CacheFileMetadata,
@@ -33,6 +39,7 @@ from dual_frequency.runtime.activation_provider import (
     OSSActivationRuntimeRequest,
 )
 from dual_frequency.runtime.oss_axis_equivalence import (
+    OSSAxisEquivalenceError,
     establish_oss_axis_equivalence,
 )
 from dual_frequency.runtime.oss_toolchain import OSSRowExecutionEvidence
@@ -100,9 +107,16 @@ def _selection(axis: AxisRef) -> FinalSelectionRecord:
 
 
 class _Provider:
-    def __init__(self, final_ids: np.ndarray, subject_axis: AxisRef) -> None:
+    def __init__(
+        self,
+        final_ids: np.ndarray,
+        subject_axis: AxisRef,
+        *,
+        backend_version: str = "synthetic-oss-v1",
+    ) -> None:
         self.final_ids = final_ids
         self.subject_axis = subject_axis
+        self.backend_version = backend_version
 
     def activation_runtime_request(
         self,
@@ -140,7 +154,7 @@ class _Provider:
             feature_ids=self.final_ids,
             sources=sources,
             connectome_feature_hash="9" * 64,
-            settings=OSSScientificSettings(backend_version="synthetic-oss-v1"),
+            settings=OSSScientificSettings(backend_version=self.backend_version),
             allow_expensive_producers=allow_expensive_producers,
             simulation_feature_axis=simulation_feature_axis,
             simulation_feature_ids=simulation_feature_ids,
@@ -374,6 +388,279 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
             self.assertEqual(restored.gate_status, "accepted_omega_max")
             self.assertEqual(restored.row_decision_ids, expected.row_decision_ids)
             self.assertEqual(copied_toolchain.calls, 0)
+
+    def test_legacy_pass_decisions_promote_without_toolchain(self) -> None:
+        legacy_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'1' * 64}"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, selection, descriptor = self._fixture(root)
+            endpoint_id = selection.endpoint.identifier
+            legacy_toolchain = _Toolchain()
+            legacy = establish_oss_axis_equivalence(
+                descriptor=descriptor,
+                endpoint_inputs={endpoint_id: object()},
+                prepared_exposures={endpoint_id: object()},
+                final_selections={endpoint_id: selection},
+                provider=_Provider(
+                    final_ids,
+                    subject_axis,
+                    backend_version=legacy_version,
+                ),
+                cache=cache,
+                publisher=RunScopedArtifactPublisher(
+                    root / "legacy-output",
+                    "oss-axis-gate-legacy",
+                    "1",
+                ),
+                toolchain=legacy_toolchain,
+                workers=14,
+                allow_expensive_producers=True,
+            )
+            calls_after_legacy = legacy_toolchain.calls
+
+            stable = establish_oss_axis_equivalence(
+                descriptor=descriptor,
+                endpoint_inputs={endpoint_id: object()},
+                prepared_exposures={endpoint_id: object()},
+                final_selections={endpoint_id: selection},
+                provider=_Provider(
+                    final_ids,
+                    subject_axis,
+                    backend_version=OSS_SCIENTIFIC_BACKEND_VERSION,
+                ),
+                cache=cache,
+                publisher=RunScopedArtifactPublisher(
+                    root / "stable-output",
+                    "oss-axis-gate-stable",
+                    "1",
+                ),
+                toolchain=object(),
+                workers=14,
+                allow_expensive_producers=False,
+            )
+
+            self.assertEqual(legacy.gate_status, "accepted_omega_max")
+            self.assertEqual(stable.gate_status, "accepted_omega_max")
+            self.assertEqual(legacy_toolchain.calls, calls_after_legacy)
+            self.assertNotEqual(stable.row_decision_ids, legacy.row_decision_ids)
+            decision_root = (
+                root
+                / "cache"
+                / "shared_exposure_v2"
+                / "oss_axis_equivalence"
+            )
+            stable_decisions = tuple(
+                cache.resolve_identity("oss_axis_equivalence", decision_id)
+                for decision_id in stable.row_decision_ids
+            )
+            self.assertTrue(all(entry is not None for entry in stable_decisions))
+            for entry in stable_decisions:
+                assert entry is not None
+                provenance = json.loads(
+                    entry.file_path("compatibility_source.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(
+                    provenance["stable_decision_id"],
+                    entry.key.digest,
+                )
+                self.assertEqual(len(provenance["sources"]), 1)
+            self.assertEqual(
+                len(tuple(decision_root.glob("*/decision.json"))),
+                4,
+            )
+            stable_row_manifests = []
+            row_root = root / "cache" / "shared_exposure_v2" / "oss_rows"
+            for manifest_path in row_root.glob("*/manifest.json"):
+                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if (
+                    payload["scientific_cache_key"]["backend_version"]
+                    == OSS_SCIENTIFIC_BACKEND_VERSION
+                ):
+                    stable_row_manifests.append(manifest_path)
+            self.assertEqual(len(stable_row_manifests), 4)
+            for manifest_path in stable_row_manifests:
+                self.assertTrue(
+                    (manifest_path.parent / "compatibility_source.json").is_file()
+                )
+
+    def test_missing_legacy_row_stops_before_toolchain(self) -> None:
+        legacy_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'2' * 64}"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, selection, descriptor = self._fixture(root)
+            endpoint_id = selection.endpoint.identifier
+            legacy_toolchain = _Toolchain()
+            legacy = establish_oss_axis_equivalence(
+                descriptor=descriptor,
+                endpoint_inputs={endpoint_id: object()},
+                prepared_exposures={endpoint_id: object()},
+                final_selections={endpoint_id: selection},
+                provider=_Provider(
+                    final_ids,
+                    subject_axis,
+                    backend_version=legacy_version,
+                ),
+                cache=cache,
+                publisher=RunScopedArtifactPublisher(
+                    root / "legacy-output",
+                    "oss-axis-gate-legacy",
+                    "1",
+                ),
+                toolchain=legacy_toolchain,
+                workers=14,
+                allow_expensive_producers=True,
+            )
+            decision_path = (
+                root
+                / "cache"
+                / "shared_exposure_v2"
+                / "oss_axis_equivalence"
+                / legacy.row_decision_ids[0]
+                / "decision.json"
+            )
+            decision = json.loads(decision_path.read_text(encoding="utf-8"))
+            shutil.rmtree(
+                root
+                / "cache"
+                / "shared_exposure_v2"
+                / "oss_rows"
+                / decision["omega_row_identity"]
+            )
+            forbidden_toolchain = _Toolchain()
+
+            with self.assertRaisesRegex(
+                OSSAxisEquivalenceError,
+                "cache misses require expensive producer authorization",
+            ):
+                establish_oss_axis_equivalence(
+                    descriptor=descriptor,
+                    endpoint_inputs={endpoint_id: object()},
+                    prepared_exposures={endpoint_id: object()},
+                    final_selections={endpoint_id: selection},
+                    provider=_Provider(
+                        final_ids,
+                        subject_axis,
+                        backend_version=OSS_SCIENTIFIC_BACKEND_VERSION,
+                    ),
+                    cache=ContentAddressedCache(cache.root),
+                    publisher=RunScopedArtifactPublisher(
+                        root / "stable-output",
+                        "oss-axis-gate-stable",
+                        "1",
+                    ),
+                    toolchain=forbidden_toolchain,
+                    workers=14,
+                    allow_expensive_producers=False,
+                )
+            self.assertEqual(forbidden_toolchain.calls, 0)
+
+    def test_conflicting_legacy_decision_evidence_fails_closed(self) -> None:
+        first_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'3' * 64}"
+        second_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'4' * 64}"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, selection, descriptor = self._fixture(root)
+            endpoint_id = selection.endpoint.identifier
+            second_result = None
+            for index, backend_version in enumerate(
+                (first_version, second_version),
+                start=1,
+            ):
+                result = establish_oss_axis_equivalence(
+                    descriptor=descriptor,
+                    endpoint_inputs={endpoint_id: object()},
+                    prepared_exposures={endpoint_id: object()},
+                    final_selections={endpoint_id: selection},
+                    provider=_Provider(
+                        final_ids,
+                        subject_axis,
+                        backend_version=backend_version,
+                    ),
+                    cache=cache,
+                    publisher=RunScopedArtifactPublisher(
+                        root / f"legacy-output-{index}",
+                        f"oss-axis-gate-legacy-{index}",
+                        "1",
+                    ),
+                    toolchain=_Toolchain(),
+                    workers=14,
+                    allow_expensive_producers=True,
+                )
+                if backend_version == second_version:
+                    second_result = result
+            assert second_result is not None
+
+            decision_root = (
+                root
+                / "cache"
+                / "shared_exposure_v2"
+                / "oss_axis_equivalence"
+            )
+            for decision_id in second_result.row_decision_ids:
+                entry_root = decision_root / decision_id
+                decision_path = entry_root / "decision.json"
+                payload = json.loads(decision_path.read_text(encoding="utf-8"))
+                payload["max_probability_difference"] = 5.0e-8
+                decision_data = (
+                    json.dumps(
+                        payload,
+                        sort_keys=True,
+                        indent=2,
+                        ensure_ascii=True,
+                        allow_nan=False,
+                    )
+                    + "\n"
+                ).encode("utf-8")
+                decision_path.write_bytes(decision_data)
+                manifest_path = entry_root / "manifest.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                decision_record = next(
+                    record
+                    for record in manifest["files"]
+                    if record["relative_path"] == "decision.json"
+                )
+                decision_record["sha256"] = hashlib.sha256(
+                    decision_data
+                ).hexdigest()
+                decision_record["size_bytes"] = len(decision_data)
+                manifest_path.write_text(
+                    json.dumps(
+                        manifest,
+                        sort_keys=True,
+                        indent=2,
+                        ensure_ascii=True,
+                        allow_nan=False,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            with self.assertRaisesRegex(
+                OSSAxisEquivalenceError,
+                "conflicting evidence",
+            ):
+                establish_oss_axis_equivalence(
+                    descriptor=descriptor,
+                    endpoint_inputs={endpoint_id: object()},
+                    prepared_exposures={endpoint_id: object()},
+                    final_selections={endpoint_id: selection},
+                    provider=_Provider(
+                        final_ids,
+                        subject_axis,
+                        backend_version=OSS_SCIENTIFIC_BACKEND_VERSION,
+                    ),
+                    cache=ContentAddressedCache(cache.root),
+                    publisher=RunScopedArtifactPublisher(
+                        root / "stable-output",
+                        "oss-axis-gate-stable",
+                        "1",
+                    ),
+                    toolchain=object(),
+                    workers=14,
+                    allow_expensive_producers=False,
+                )
 
     def test_cached_decision_requires_both_standard_row_entries(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

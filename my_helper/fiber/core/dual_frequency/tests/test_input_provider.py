@@ -23,6 +23,7 @@ import numpy as np
 
 from seed_target_connectivity.connectome import LeadDBSHDF5Connectome
 
+from dual_frequency.backends.activation import OSS_SCIENTIFIC_BACKEND_VERSION
 from dual_frequency.cache import (
     ArtifactStore,
     CacheCorruption,
@@ -1501,6 +1502,10 @@ class InputProviderTest(unittest.TestCase):
             second_request.connectome_feature_hash,
         )
         self.assertEqual(first_request.settings, second_request.settings)
+        self.assertEqual(
+            first_request.settings.backend_version,
+            OSS_SCIENTIFIC_BACKEND_VERSION,
+        )
 
     def test_missing_addon_frequency_excludes_only_that_addon_endpoint(self) -> None:
         provider, catalog, _store, artifact_root = self._provider(

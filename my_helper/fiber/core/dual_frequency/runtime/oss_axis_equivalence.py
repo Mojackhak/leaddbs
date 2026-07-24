@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,7 @@ from ..backends.activation.ossdbs import (
     build_oss_row_cache_key,
 )
 from ..cache import (
+    CacheEntry,
     CacheFileMetadata,
     CachedFile,
     ContentAddressedCache,
@@ -153,22 +156,14 @@ def _decision_key(
     )
 
 
-def _load_decision(
-    cache: ContentAddressedCache,
-    key: ScientificCacheKey,
-    *,
-    group_id: str,
-    final_request: OSSProducerRequest,
-    omega_request: OSSProducerRequest,
-) -> dict[str, Any] | None:
-    entry = cache.resolve(key)
-    if entry is None:
-        return None
-    path = entry.file_path("decision.json")
+def _decision_payload(entry: CacheEntry) -> dict[str, Any]:
     try:
+        path = entry.file_path("decision.json")
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OSSAxisEquivalenceError("cached OSS axis decision is unreadable") from exc
+    except (KeyError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise OSSAxisEquivalenceError(
+            "cached OSS axis decision is unreadable"
+        ) from exc
     expected = {
         "schema_version",
         "decision_id",
@@ -181,18 +176,61 @@ def _load_decision(
         "max_probability_difference",
         "probability_tolerance",
     }
-    final_key = build_oss_row_cache_key(final_request.row, final_request.settings)
-    omega_key = build_oss_row_cache_key(omega_request.row, omega_request.settings)
+    maximum = payload.get("max_probability_difference") if isinstance(payload, dict) else None
     if (
         not isinstance(payload, dict)
         or set(payload) != expected
         or payload["schema_version"] != "dual_frequency_oss_axis_decision_v1"
-        or payload["decision_id"] != key.digest
-        or payload["group_id"] != group_id
+        or payload["decision_id"] != entry.key.digest
+        or not isinstance(payload["group_id"], str)
+        or not payload["group_id"]
         or payload["status"] not in {"pass", "fail"}
+        or not isinstance(payload["final_row_identity"], str)
+        or not isinstance(payload["omega_row_identity"], str)
+        or type(payload["state_mismatch_count"]) is not int
+        or payload["state_mismatch_count"] < 0
+        or type(payload["activation_count_mismatch_count"]) is not int
+        or payload["activation_count_mismatch_count"] < 0
+        or isinstance(maximum, bool)
+        or not isinstance(maximum, (int, float))
+        or not math.isfinite(float(maximum))
+        or float(maximum) < 0.0
+        or payload["probability_tolerance"] != OSS_AXIS_PROBABILITY_TOLERANCE
+    ):
+        raise OSSAxisEquivalenceError(
+            "cached OSS axis decision identity changed"
+        )
+    should_pass = (
+        payload["state_mismatch_count"] == 0
+        and payload["activation_count_mismatch_count"] == 0
+        and float(payload["max_probability_difference"])
+        < OSS_AXIS_PROBABILITY_TOLERANCE
+    )
+    if (payload["status"] == "pass") is not should_pass:
+        raise OSSAxisEquivalenceError(
+            "cached OSS axis decision status differs from its evidence"
+        )
+    return payload
+
+
+def _load_decision(
+    cache: ContentAddressedCache,
+    key: ScientificCacheKey,
+    *,
+    group_id: str,
+    final_request: OSSProducerRequest,
+    omega_request: OSSProducerRequest,
+) -> dict[str, Any] | None:
+    entry = cache.resolve(key)
+    if entry is None:
+        return None
+    payload = _decision_payload(entry)
+    final_key = build_oss_row_cache_key(final_request.row, final_request.settings)
+    omega_key = build_oss_row_cache_key(omega_request.row, omega_request.settings)
+    if (
+        payload["group_id"] != group_id
         or payload["final_row_identity"] != final_key.digest
         or payload["omega_row_identity"] != omega_key.digest
-        or payload["probability_tolerance"] != OSS_AXIS_PROBABILITY_TOLERANCE
     ):
         raise OSSAxisEquivalenceError("cached OSS axis decision identity changed")
     for row_key in (final_key, omega_key):
@@ -209,8 +247,10 @@ def _publish_decision(
     cache: ContentAddressedCache,
     key: ScientificCacheKey,
     payload: Mapping[str, Any],
+    *,
+    compatibility_sources: Sequence[CacheEntry] = (),
 ) -> None:
-    data = (
+    decision_data = (
         json.dumps(
             payload,
             sort_keys=True,
@@ -220,20 +260,199 @@ def _publish_decision(
         )
         + "\n"
     ).encode("utf-8")
+    payloads = {"decision.json": decision_data}
+    if compatibility_sources:
+        sources = []
+        for entry in sorted(
+            compatibility_sources,
+            key=lambda value: value.key.digest,
+        ):
+            source = _decision_payload(entry)
+            sources.append(
+                {
+                    "decision_id": source["decision_id"],
+                    "final_row_identity": source["final_row_identity"],
+                    "omega_row_identity": source["omega_row_identity"],
+                }
+            )
+        compatibility_data = (
+            json.dumps(
+                {
+                    "schema_version": (
+                        "dual_frequency_oss_historical_decision_promotion_v1"
+                    ),
+                    "stable_decision_id": key.digest,
+                    "sources": sources,
+                },
+                sort_keys=True,
+                indent=2,
+                ensure_ascii=True,
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+        payloads["compatibility_source.json"] = compatibility_data
 
     def producer(staging: Path) -> tuple[CachedFile, ...]:
-        path = staging / "decision.json"
-        path.write_bytes(data)
-        return (
-            CachedFile(
-                relative_path="decision.json",
-                sha256=hashlib.sha256(data).hexdigest(),
-                size_bytes=len(data),
-                metadata=CacheFileMetadata(),
-            ),
-        )
+        output = []
+        for relative_path in sorted(payloads):
+            data = payloads[relative_path]
+            path = staging / relative_path
+            path.write_bytes(data)
+            output.append(
+                CachedFile(
+                    relative_path=relative_path,
+                    sha256=hashlib.sha256(data).hexdigest(),
+                    size_bytes=len(data),
+                    metadata=CacheFileMetadata(),
+                )
+            )
+        return tuple(output)
 
     cache.publish_generated(key, producer, items=())
+
+
+def _compatible_historical_decisions(
+    cache: ContentAddressedCache,
+    materializer: OSSRowMaterializer,
+    *,
+    group_id: str,
+    final_request: OSSProducerRequest,
+    omega_request: OSSProducerRequest,
+) -> tuple[CacheEntry, ...]:
+    final_entries = {
+        entry.key.backend_version: entry
+        for entry in materializer.compatible_historical_entries(
+            final_request.row,
+            final_request.settings,
+        )
+    }
+    omega_entries = {
+        entry.key.backend_version: entry
+        for entry in materializer.compatible_historical_entries(
+            omega_request.row,
+            omega_request.settings,
+        )
+    }
+    matches: list[tuple[CacheEntry, tuple[object, ...]]] = []
+    for backend_version in sorted(set(final_entries) & set(omega_entries)):
+        final_entry = final_entries[backend_version]
+        omega_entry = omega_entries[backend_version]
+        historical_settings = replace(
+            final_request.settings,
+            backend_version=backend_version,
+        )
+        historical_final_request = replace(
+            final_request,
+            scientific_identity=final_entry.key.digest,
+            settings=historical_settings,
+        )
+        historical_omega_request = replace(
+            omega_request,
+            scientific_identity=omega_entry.key.digest,
+            settings=historical_settings,
+        )
+        key = _decision_key(
+            group_id,
+            historical_final_request,
+            historical_omega_request,
+        )
+        entry = cache.resolve(key)
+        if entry is None:
+            continue
+        payload = _decision_payload(entry)
+        if (
+            payload["group_id"] != group_id
+            or payload["status"] != "pass"
+            or payload["final_row_identity"] != final_entry.key.digest
+            or payload["omega_row_identity"] != omega_entry.key.digest
+            or payload["state_mismatch_count"] != 0
+            or payload["activation_count_mismatch_count"] != 0
+            or not (
+                float(payload["max_probability_difference"])
+                < OSS_AXIS_PROBABILITY_TOLERANCE
+            )
+        ):
+            raise OSSAxisEquivalenceError(
+                "compatible legacy OSS decision differs from the pass contract"
+            )
+        signature = (
+            payload["status"],
+            payload["state_mismatch_count"],
+            payload["activation_count_mismatch_count"],
+            float(payload["max_probability_difference"]),
+            payload["probability_tolerance"],
+            materializer._row_payload_signature(final_entry),
+            materializer._row_payload_signature(omega_entry),
+        )
+        matches.append((entry, signature))
+    if len({signature for _entry, signature in matches}) > 1:
+        raise OSSAxisEquivalenceError(
+            "compatible legacy OSS decisions contain conflicting evidence"
+        )
+    return tuple(entry for entry, _signature in matches)
+
+
+def _promote_historical_decision(
+    cache: ContentAddressedCache,
+    materializer: OSSRowMaterializer,
+    key: ScientificCacheKey,
+    *,
+    group_id: str,
+    final_request: OSSProducerRequest,
+    omega_request: OSSProducerRequest,
+) -> dict[str, Any] | None:
+    sources = _compatible_historical_decisions(
+        cache,
+        materializer,
+        group_id=group_id,
+        final_request=final_request,
+        omega_request=omega_request,
+    )
+    if not sources:
+        return None
+    final_key = build_oss_row_cache_key(
+        final_request.row,
+        final_request.settings,
+    )
+    omega_key = build_oss_row_cache_key(
+        omega_request.row,
+        omega_request.settings,
+    )
+    final_entry, _final_sources = materializer.resolve_or_promote_historical(
+        final_request.row,
+        final_key,
+        final_request.settings,
+    )
+    omega_entry, _omega_sources = materializer.resolve_or_promote_historical(
+        omega_request.row,
+        omega_key,
+        omega_request.settings,
+    )
+    if final_entry is None or omega_entry is None:
+        raise OSSAxisEquivalenceError(
+            "legacy OSS decision rows could not be promoted"
+        )
+    source = _decision_payload(sources[0])
+    payload = {
+        **source,
+        "decision_id": key.digest,
+        "final_row_identity": final_key.digest,
+        "omega_row_identity": omega_key.digest,
+    }
+    _publish_decision(
+        cache,
+        key,
+        payload,
+        compatibility_sources=sources,
+    )
+    return _load_decision(
+        cache,
+        key,
+        group_id=group_id,
+        final_request=final_request,
+        omega_request=omega_request,
+    )
 
 
 def establish_oss_axis_equivalence(
@@ -354,6 +573,15 @@ def establish_oss_axis_equivalence(
             final_request=final_request,
             omega_request=omega_request,
         )
+        if decision is None:
+            decision = _promote_historical_decision(
+                cache,
+                materializer,
+                decision_key,
+                group_id=group_id,
+                final_request=final_request,
+                omega_request=omega_request,
+            )
         if decision is None:
             if not allow_expensive_producers:
                 raise OSSAxisEquivalenceError(

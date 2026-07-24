@@ -26,7 +26,11 @@ import numpy as np
 from scipy.ndimage import map_coordinates
 
 from seed_target_connectivity.connectome import LeadDBSHDF5Connectome, open_connectome
-from ..backends.activation.ossdbs import OSSRowBatchArtifact, OSSScientificSettings
+from ..backends.activation.ossdbs import (
+    OSS_SCIENTIFIC_BACKEND_VERSION,
+    OSSRowBatchArtifact,
+    OSSScientificSettings,
+)
 from ..backends.interaction.reference_overlap import prepare_reference_overlap
 from ..backends.normative_fiber.addon import prepare_addon_fiber_exposure
 from ..backends.protocols import ArtifactPublisher
@@ -74,7 +78,7 @@ from .activation_provider import (
     CanonicalStimulationSource,
     OSSActivationRuntimeRequest,
 )
-from .oss_toolchain import LeadDBSOSSProducerToolchain, oss_backend_version
+from .oss_toolchain import LeadDBSOSSProducerToolchain
 
 
 _ACTIVE_INPUT_HASHES: ContextVar[dict[str, str] | None] = ContextVar(
@@ -887,13 +891,6 @@ class StudyRuntimeInputProvider:
         if require_bilateral and hemispheres != {"L", "R"}:
             return GroupResolution(tuple(selected), "missing_required_hemisphere")
         return GroupResolution(tuple(selected), None)
-
-    def _oss_backend_version(self) -> str:
-        repository_root = Path(__file__).resolve().parents[5]
-        return oss_backend_version(
-            repository_root,
-            file_hasher=self._path_hash,
-        )
 
     def oss_producer_toolchain(self) -> LeadDBSOSSProducerToolchain:
         """Return the project-neutral producer used only for authorized OSS misses."""
@@ -4763,7 +4760,7 @@ class StudyRuntimeInputProvider:
             )
         oss = self.configuration.normative_fiber.oss
         settings = OSSScientificSettings(
-            backend_version=self._oss_backend_version(),
+            backend_version=OSS_SCIENTIFIC_BACKEND_VERSION,
             model=oss.model,
             activation_model=oss.activation_model,
             diameter_min_um=oss.fiber_diameter_um.minimum,

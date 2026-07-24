@@ -188,7 +188,7 @@ def oss_backend_version(
     *,
     file_hasher: Callable[[Path], str] | None = None,
 ) -> str:
-    """Attest the complete local implementation represented by a row cache key."""
+    """Attest the complete local producer implementation for execution audit."""
 
     root = Path(repository_root).expanduser().resolve(strict=True)
     hasher = file_hasher or _stable_file_hash
@@ -811,8 +811,6 @@ class LeadDBSOSSProducerToolchain:
                 "a custom backend_version_resolver requires an injected test executor"
             )
         self._backend_version_resolver = backend_version_resolver or oss_backend_version
-        self._attestation: str | None = None
-        self._attestation_lock = RLock()
         self.executor = executor or SubprocessOSSRowExecutor(
             work_root=self.work_root,
             repository_root=self.repository_root,
@@ -822,7 +820,7 @@ class LeadDBSOSSProducerToolchain:
             raise TypeError("executor must implement OSSRowExecutor")
 
     def produce(self, request: OSSProducerRequest) -> OSSRowProduct:
-        """Produce one row after one process-local toolchain attestation."""
+        """Produce one row between exact implementation attestations."""
 
         return self._produce(request, include_evidence=False).product
 
@@ -834,13 +832,11 @@ class LeadDBSOSSProducerToolchain:
 
         return self._produce(request, include_evidence=True)
 
-    def _attested_backend_version(self) -> str:
-        with self._attestation_lock:
-            if self._attestation is None:
-                self._attestation = self._backend_version_resolver(
-                    self.repository_root
-                )
-            return self._attestation
+    def _implementation_attestation(self) -> str:
+        return _token(
+            self._backend_version_resolver(self.repository_root),
+            "producer implementation attestation",
+        )
 
     def _produce(
         self,
@@ -850,11 +846,7 @@ class LeadDBSOSSProducerToolchain:
     ) -> OSSRowExecutionEvidence:
         if not isinstance(request, OSSProducerRequest):
             raise TypeError("request must be an OSSProducerRequest")
-        attestation = self._attested_backend_version()
-        if attestation != request.settings.backend_version:
-            raise OSSProducerExecutionError(
-                "producer implementation differs from the row cache backend version"
-            )
+        attestation_before = self._implementation_attestation()
         row = self._prepare(request)
         if include_evidence:
             execute_with_evidence = getattr(self.executor, "execute_with_evidence", None)
@@ -890,7 +882,19 @@ class LeadDBSOSSProducerToolchain:
             raise OSSProducerExecutionError("OSS executor changed the exact final fiber axis")
         for snapshot in row.input_snapshots:
             snapshot.assert_unchanged()
-        return evidence
+        attestation_after = self._implementation_attestation()
+        if attestation_after != attestation_before:
+            raise OSSProducerExecutionError(
+                "producer implementation changed during row production"
+            )
+        accepted_product = replace(
+            product,
+            producer_implementation_attestation=attestation_before,
+        )
+        return OSSRowExecutionEvidence(
+            accepted_product,
+            evidence.sample_states,
+        )
 
     def _snapshot(self, path: Path, expected_digest: object, label: str) -> OSSInputSnapshot:
         resolved = Path(path).resolve(strict=True)
