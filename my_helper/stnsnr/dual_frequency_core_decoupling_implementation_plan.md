@@ -7131,6 +7131,17 @@ reserved CPU `< workers + 1`. Its terminal task count must match the plan and
 every plan task document must be completed without a retained dependency skip
 or failure.
 
+The strict validator accepts only a single-component `segment_[0-9]+` identity.
+It verifies the segment's deterministic connectome-I/O ceiling, one solver
+slot, one BLAS thread per worker, positive managed-memory and reserve settings,
+and every CPU, memory, connectome-I/O, solver, and running-task peak against the
+corresponding declared ceiling. Admission-count and admission-wait maps must
+have the exact repository-owned reason closure with finite nonnegative values.
+The segment-declared scheduler-window path must be relative and contained by
+the run root; its SHA, segment identity, row count, timestamp order, reservation
+ceilings, admission-reason closure, and storage-limited derivation must all
+validate.
+
 The external guard is supplemental stop evidence. The validator parses every
 row, requires monotonic timestamps and self-consistent running RSS peaks,
 starts a new epoch when `swap_baseline_bytes` changes or the declared running
@@ -7143,8 +7154,9 @@ sample gap, epoch count, and SHA-256 remain visible in the report. The report
 also binds the run manifest, plan, selected segment, and every terminal task
 document and uses atomic same-byte publication. Focused fixtures cover a valid
 multi-epoch guard, RSS rejection, swap rejection, terminal-task mismatch, and
-stop-event rejection. Independent OSS and combined execution require separate
-reports.
+stop-event rejection. A runner-exit, runner-exited, or completed event is
+terminal and may occur only in the final row; no sample may follow it.
+Independent OSS and combined execution require separate reports.
 
 The resource validator is implemented. Five focused fixtures pass with Python
 resource warnings promoted to errors, and the complete dual-frequency
@@ -8366,6 +8378,23 @@ recovery, so the validator's scheduled-versus-terminal closure remains valid.
 The independent OSS segment must never be upgraded by inference to this
 instrumented schema, and the combined segment must never fall back to the
 pre-instrumentation validator.
+
+Strict resource-closure checkpoint on 2026-07-24:
+
+- the validator now rejects unsafe segment identities, missing or escaped
+  scheduler sidecars, SHA or row-closure mismatches, unknown admission reasons,
+  and inconsistent storage classification;
+- declared managed-memory, reserve, connectome-I/O, solver, BLAS, CPU, memory,
+  running-task, queue, and admission boundaries are validated against both
+  segment aggregates and scheduler-window samples;
+- a guard terminal marker is accepted only as the final zero-RSS row, so no
+  later sample can be silently accepted; and
+- the checked-in guard plus pre-instrumentation and strict resource validators
+  pass 40 focused tests.
+
+This closes the strict-validator implementation gap for the future combined
+segment. It does not reinterpret the active independent OSS segment, which
+continues to require its separate pre-instrumentation acceptance.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 

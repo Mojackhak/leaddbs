@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any, Mapping, Sequence
 import uuid
@@ -18,6 +19,35 @@ import uuid
 
 _ALLOWED_GUARD_EVENTS = frozenset(
     {"sample", "runner_exit", "runner_exited", "completed"}
+)
+_TERMINAL_GUARD_EVENTS = frozenset(
+    {"runner_exit", "runner_exited", "completed"}
+)
+_ADMISSION_REASONS = frozenset(
+    {
+        "worker_slots",
+        "cpu",
+        "managed_memory",
+        "memory_reserve",
+        "connectome_io",
+        "external_solver",
+    }
+)
+_SCHEDULER_ROW_FIELDS = frozenset(
+    {
+        "start_utc",
+        "finish_utc",
+        "elapsed_seconds",
+        "ready_task_count",
+        "running_task_count",
+        "runnable_cpu_slots",
+        "reserved_cpu_slots",
+        "reserved_memory_bytes",
+        "reserved_connectome_io_slots",
+        "reserved_external_solver_slots",
+        "admission_blocked_task_count_by_reason",
+        "storage_limited",
+    }
 )
 
 
@@ -27,9 +57,12 @@ class ResourceAcceptanceError(RuntimeError):
 
 def _sha256_file(path: Path, block_size: int = 1024 * 1024) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while block := handle.read(block_size):
-            digest.update(block)
+    try:
+        with path.open("rb") as handle:
+            while block := handle.read(block_size):
+                digest.update(block)
+    except OSError as exc:
+        raise ResourceAcceptanceError(f"cannot hash evidence file: {path}") from exc
     return digest.hexdigest()
 
 
@@ -57,6 +90,8 @@ def _integer(
 
 
 def _number(value: object, label: str, *, minimum: float = 0.0) -> float:
+    if type(value) is bool:
+        raise ResourceAcceptanceError(f"{label} must be numeric")
     try:
         result = float(value)
     except (TypeError, ValueError) as exc:
@@ -170,13 +205,192 @@ def _validate_tasks(
     }
 
 
+def _reason_counts(value: object, label: str) -> dict[str, int]:
+    if not isinstance(value, Mapping) or set(value) != _ADMISSION_REASONS:
+        raise ResourceAcceptanceError(f"{label} reason closure differs")
+    return {
+        reason: _integer(value[reason], f"{label} {reason}")
+        for reason in sorted(_ADMISSION_REASONS)
+    }
+
+
+def _reason_waits(value: object, label: str) -> dict[str, float]:
+    if not isinstance(value, Mapping) or set(value) != _ADMISSION_REASONS:
+        raise ResourceAcceptanceError(f"{label} reason closure differs")
+    return {
+        reason: _number(value[reason], f"{label} {reason}")
+        for reason in sorted(_ADMISSION_REASONS)
+    }
+
+
+def _utc_timestamp(value: object, label: str) -> datetime:
+    try:
+        timestamp = datetime.fromisoformat(str(value))
+    except ValueError as exc:
+        raise ResourceAcceptanceError(f"{label} is invalid") from exc
+    if (
+        timestamp.utcoffset() is None
+        or timestamp.utcoffset().total_seconds() != 0
+    ):
+        raise ResourceAcceptanceError(f"{label} is not UTC")
+    return timestamp
+
+
+def _validate_scheduler_windows(
+    run_root: Path,
+    segment: Mapping[str, Any],
+    *,
+    workers: int,
+    managed_memory_bytes: int,
+    connectome_io_slots: int,
+    external_solver_slots: int,
+) -> dict[str, Any]:
+    relative = segment.get("scheduler_windows_path")
+    if not isinstance(relative, str) or not relative:
+        raise ResourceAcceptanceError("segment lacks scheduler-window path")
+    relative_path = Path(relative)
+    if relative_path.is_absolute():
+        raise ResourceAcceptanceError("scheduler-window path must be relative")
+    path = (run_root / relative_path).resolve()
+    if run_root.resolve() not in path.parents:
+        raise ResourceAcceptanceError("scheduler-window path escapes run root")
+    expected_sha = str(segment.get("scheduler_windows_sha256", "")).strip().lower()
+    if (
+        len(expected_sha) != 64
+        or any(character not in "0123456789abcdef" for character in expected_sha)
+        or _sha256_file(path) != expected_sha
+    ):
+        raise ResourceAcceptanceError("scheduler-window SHA differs")
+    document = _read_json(path, "scheduler windows")
+    rows = document.get("rows")
+    declared_count = _integer(
+        segment.get("scheduler_window_count"),
+        "scheduler-window count",
+        minimum=1,
+    )
+    if (
+        set(document) != {"schema_version", "segment_id", "rows"}
+        or document.get("schema_version")
+        != "dual_frequency_scheduler_windows_v1"
+        or document.get("segment_id") != segment.get("segment_id")
+        or not isinstance(rows, list)
+        or len(rows) != declared_count
+    ):
+        raise ResourceAcceptanceError("scheduler-window closure differs")
+    prior_finish: datetime | None = None
+    peak_cpu = 0
+    peak_memory = 0
+    peak_io = 0
+    peak_solver = 0
+    peak_admission_counts = {
+        reason: 0
+        for reason in sorted(_ADMISSION_REASONS)
+    }
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping) or set(row) != _SCHEDULER_ROW_FIELDS:
+            raise ResourceAcceptanceError(
+                f"scheduler window {index} fields differ"
+            )
+        start = _utc_timestamp(
+            row["start_utc"],
+            f"scheduler window {index} start",
+        )
+        finish = _utc_timestamp(
+            row["finish_utc"],
+            f"scheduler window {index} finish",
+        )
+        if finish <= start or (prior_finish is not None and start != prior_finish):
+            raise ResourceAcceptanceError(
+                "scheduler-window time closure differs"
+            )
+        elapsed = _number(
+            row["elapsed_seconds"],
+            f"scheduler window {index} elapsed",
+        )
+        if elapsed <= 0:
+            raise ResourceAcceptanceError(
+                "scheduler-window elapsed time must be positive"
+            )
+        scheduler_counts = {
+            field: _integer(row[field], f"scheduler window {index} {field}")
+            for field in (
+                "ready_task_count",
+                "running_task_count",
+                "runnable_cpu_slots",
+            )
+        }
+        running = scheduler_counts["running_task_count"]
+        runnable = scheduler_counts["runnable_cpu_slots"]
+        cpu = _integer(
+            row["reserved_cpu_slots"],
+            f"scheduler window {index} reserved CPU",
+        )
+        memory = _integer(
+            row["reserved_memory_bytes"],
+            f"scheduler window {index} reserved memory",
+        )
+        connectome_io = _integer(
+            row["reserved_connectome_io_slots"],
+            f"scheduler window {index} reserved connectome I/O",
+        )
+        solver = _integer(
+            row["reserved_external_solver_slots"],
+            f"scheduler window {index} reserved solver",
+        )
+        if (
+            running > workers
+            or runnable > workers
+            or cpu > workers
+            or memory > managed_memory_bytes
+            or connectome_io > connectome_io_slots
+            or solver > external_solver_slots
+        ):
+            raise ResourceAcceptanceError(
+                "scheduler-window reservation exceeds its ceiling"
+            )
+        reasons = _reason_counts(
+            row["admission_blocked_task_count_by_reason"],
+            f"scheduler window {index} admission",
+        )
+        for reason, count in reasons.items():
+            peak_admission_counts[reason] = max(
+                peak_admission_counts[reason],
+                count,
+            )
+        if (
+            type(row["storage_limited"]) is not bool
+            or row["storage_limited"] != (reasons["connectome_io"] > 0)
+        ):
+            raise ResourceAcceptanceError(
+                "scheduler-window storage classification differs"
+            )
+        peak_cpu = max(peak_cpu, cpu)
+        peak_memory = max(peak_memory, memory)
+        peak_io = max(peak_io, connectome_io)
+        peak_solver = max(peak_solver, solver)
+        prior_finish = finish
+    return {
+        "path": str(path),
+        "sha256": expected_sha,
+        "window_count": len(rows),
+        "peak_reserved_cpu_slots": peak_cpu,
+        "peak_reserved_memory_bytes": peak_memory,
+        "peak_reserved_connectome_io_slots": peak_io,
+        "peak_reserved_external_solver_slots": peak_solver,
+        "peak_admission_blocked_task_count_by_reason": peak_admission_counts,
+        "status": "validated",
+    }
+
+
 def _validate_segment(
     run_root: Path,
     segment_id: str,
     *,
     workers: int,
     max_rss_bytes: int,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    if re.fullmatch(r"segment_[0-9]+", segment_id) is None:
+        raise ResourceAcceptanceError("selected segment identity is invalid")
     path = run_root / "execution_segments" / f"{segment_id}.json"
     segment = _read_json(path, "execution segment")
     if (
@@ -190,17 +404,38 @@ def _validate_segment(
         )
     if _integer(segment.get("workers"), "segment workers", minimum=1) != workers:
         raise ResourceAcceptanceError("segment worker ceiling differs")
+    managed_memory = _integer(
+        segment.get("managed_memory_bytes"),
+        "managed-memory ceiling",
+        minimum=1,
+    )
+    if managed_memory > max_rss_bytes:
+        raise ResourceAcceptanceError("managed-memory ceiling exceeds RSS ceiling")
+    memory_reserve = _integer(
+        segment.get("required_memory_reserve_bytes"),
+        "required memory reserve",
+        minimum=1,
+    )
+    expected_io_slots = max(1, min(2, workers))
+    connectome_io_slots = _integer(
+        segment.get("connectome_io_slots"),
+        "connectome I/O slots",
+        minimum=1,
+    )
+    if connectome_io_slots != expected_io_slots:
+        raise ResourceAcceptanceError("connectome I/O slot boundary differs")
     if _integer(
         segment.get("blas_threads_per_worker"),
         "BLAS threads per worker",
         minimum=1,
     ) != 1:
         raise ResourceAcceptanceError("segment BLAS thread boundary differs")
-    if _integer(
+    external_solver_slots = _integer(
         segment.get("external_solver_slots"),
         "external solver slots",
         minimum=1,
-    ) != 1:
+    )
+    if external_solver_slots != 1:
         raise ResourceAcceptanceError("segment must expose one solver slot")
     peak_rss = _integer(
         segment.get("peak_task_tree_rss_bytes"),
@@ -232,6 +467,22 @@ def _validate_segment(
         raise ResourceAcceptanceError(
             "segment reserved CPU peak exceeds the worker contract"
         )
+    memory_peak = _integer(
+        segment.get("peak_reserved_memory_bytes"),
+        "segment reserved memory peak",
+    )
+    if memory_peak > managed_memory:
+        raise ResourceAcceptanceError(
+            "segment reserved memory peak exceeds its ceiling"
+        )
+    connectome_io_peak = _integer(
+        segment.get("peak_reserved_connectome_io_slots"),
+        "segment reserved connectome I/O peak",
+    )
+    if connectome_io_peak > connectome_io_slots:
+        raise ResourceAcceptanceError(
+            "segment reserved connectome I/O peak exceeds its ceiling"
+        )
     solver_peak = _integer(
         segment.get("peak_reserved_external_solver_slots"),
         "segment reserved solver peak",
@@ -240,6 +491,30 @@ def _validate_segment(
         raise ResourceAcceptanceError(
             "segment reserved solver peak exceeds one token"
         )
+    running_peak = _integer(
+        segment.get("peak_running_task_count"),
+        "segment running-task peak",
+    )
+    if running_peak > workers:
+        raise ResourceAcceptanceError(
+            "segment running-task peak exceeds the worker ceiling"
+        )
+    ready_peak = _integer(
+        segment.get("max_ready_queue_depth"),
+        "segment ready-queue peak",
+    )
+    admission_counts = _reason_counts(
+        segment.get("admission_blocked_task_count_by_reason"),
+        "segment admission count",
+    )
+    admission_waits = _reason_waits(
+        segment.get("admission_wait_seconds_by_reason"),
+        "segment admission wait",
+    )
+    maximum_admission_wait = _number(
+        segment.get("max_task_admission_wait_seconds"),
+        "segment maximum admission wait",
+    )
     generations = _integer(
         segment.get("pool_generation_count"),
         "segment pool generation count",
@@ -253,22 +528,62 @@ def _validate_segment(
         raise ResourceAcceptanceError(
             "multiple pool generations lack a recorded recovery event"
         )
+    for field in (
+        "transient_retry_count",
+        "quarantined_attempt_count",
+    ):
+        _integer(segment.get(field), f"segment {field}")
+    scheduler = _validate_scheduler_windows(
+        run_root,
+        segment,
+        workers=workers,
+        managed_memory_bytes=managed_memory,
+        connectome_io_slots=connectome_io_slots,
+        external_solver_slots=external_solver_slots,
+    )
+    if (
+        scheduler["peak_reserved_cpu_slots"] > cpu_peak
+        or scheduler["peak_reserved_memory_bytes"] > memory_peak
+        or scheduler["peak_reserved_connectome_io_slots"] > connectome_io_peak
+        or scheduler["peak_reserved_external_solver_slots"] > solver_peak
+        or any(
+            scheduler["peak_admission_blocked_task_count_by_reason"][reason]
+            > admission_counts[reason]
+            for reason in _ADMISSION_REASONS
+        )
+    ):
+        raise ResourceAcceptanceError(
+            "scheduler-window peak exceeds the segment aggregate"
+        )
     tasks = _validate_tasks(run_root, segment)
     return (
         {
             "segment_id": segment_id,
             "segment_sha256": _sha256_file(path),
             "workers": workers,
+            "managed_memory_bytes": managed_memory,
+            "required_memory_reserve_bytes": memory_reserve,
+            "connectome_io_slots": connectome_io_slots,
+            "external_solver_slots": external_solver_slots,
+            "blas_threads_per_worker": 1,
             "pool_generation_count": generations,
             "resource_sample_count": samples,
             "peak_task_tree_rss_bytes": peak_rss,
             "peak_swap_delta_bytes": segment["peak_swap_delta_bytes"],
             "swap_delta_bytes": segment["swap_delta_bytes"],
             "peak_reserved_cpu_slots": cpu_peak,
+            "peak_reserved_memory_bytes": memory_peak,
+            "peak_reserved_connectome_io_slots": connectome_io_peak,
             "peak_reserved_external_solver_slots": solver_peak,
+            "peak_running_task_count": running_peak,
+            "max_ready_queue_depth": ready_peak,
+            "admission_blocked_task_count_by_reason": admission_counts,
+            "admission_wait_seconds_by_reason": admission_waits,
+            "max_task_admission_wait_seconds": maximum_admission_wait,
             "status": "validated",
         },
         tasks,
+        scheduler,
     )
 
 
@@ -313,12 +628,10 @@ def _validate_guard(path: Path, *, max_rss_bytes: int) -> dict[str, Any]:
     maximum_gap = 0.0
     global_peak = 0
     for index, row in enumerate(rows, start=2):
-        try:
-            timestamp = datetime.fromisoformat(row["timestamp_utc"])
-        except (ValueError, TypeError) as exc:
-            raise ResourceAcceptanceError(
-                f"guard timestamp is invalid on line {index}"
-            ) from exc
+        timestamp = _utc_timestamp(
+            row["timestamp_utc"],
+            f"guard timestamp on line {index}",
+        )
         if previous_time is not None:
             gap = (timestamp - previous_time).total_seconds()
             if gap <= 0:
@@ -335,6 +648,14 @@ def _validate_guard(path: Path, *, max_rss_bytes: int) -> dict[str, Any]:
         if event not in _ALLOWED_GUARD_EVENTS:
             raise ResourceAcceptanceError(
                 f"guard contains a stop or unsupported event: {event}"
+            )
+        is_last = index == len(rows) + 1
+        if (
+            (event in _TERMINAL_GUARD_EVENTS) != is_last
+            or (is_last and tree_rss != 0)
+        ):
+            raise ResourceAcceptanceError(
+                "guard terminal-event boundary differs"
             )
         if tree_rss >= max_rss_bytes or declared_peak >= max_rss_bytes:
             raise ResourceAcceptanceError("guard RSS reached its ceiling")
@@ -407,7 +728,7 @@ def validate(
         "RSS ceiling",
         minimum=1,
     )
-    segment, tasks = _validate_segment(
+    segment, tasks, scheduler = _validate_segment(
         root,
         segment_id,
         workers=workers,
@@ -425,6 +746,7 @@ def validate(
         "run_manifest_sha256": _sha256_file(manifest_path),
         "max_rss_bytes": max_rss_bytes,
         "segment": segment,
+        "scheduler_windows": scheduler,
         "tasks": tasks,
         "guard": guard,
         "status": "validated",
