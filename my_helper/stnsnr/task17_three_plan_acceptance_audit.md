@@ -38,11 +38,13 @@ Status vocabulary:
 | Canonical independent OSS-v2 publication | PENDING | Self-contained extension-v2 publisher and validator fixtures pass. The source OSS child is not terminal. | Publish twice without filters, validate the normative-fiber OSS-v2 root, and audit source/parent bindings plus forbidden paths. |
 | Cache-first combined jitter and OSS replay | PENDING | Compiler, executor, physical jitter, and OSS decision fixtures prove cache-first behavior and fail before a producer call on a miss without authorization. | Start the frozen combined child without `--allow-expensive-producers`, attach the checked-in guard, and require complete cache reuse plus terminal DAG closure. |
 | Canonical combined-v2 publication | PENDING | Publisher and validator fixtures cover both public domains. No terminal combined child exists. | Publish twice, validate both domain roots, and audit complete jitter plus normative-fiber OSS scope. |
-| Resume and copied-cache portability | ACCEPTED | Resume fixtures use input JSON/YAML identities and complete result JSON records, ignore repository code identity, selectively rerun missing blocks and consumers, and reuse a directly copied cache under a different path. | Perform one production identical resume after terminal child completion and retain the resulting manifest evidence. |
+| Resume and copied-cache implementation | ACCEPTED | Resume fixtures use input JSON/YAML identities and complete result JSON records, ignore repository code identity, selectively rerun missing blocks and consumers, and reuse a directly copied cache under a different path. | Recheck these fail-closed static contracts after the last implementation change. |
+| Production identical resume acceptance | PENDING | The main and completed jitter lineages preserve resumable state, and the active OSS lineage has repeatedly restored its immutable plan and completed predecessors without invalidating scientific products after code-only changes. The complete terminal-child identical replay has not yet run. | After each production child becomes terminal, run its exact resume path, prove no accepted payload was rewritten, and retain the task-outcome and manifest evidence. |
 | Resource scheduling and guard contract | ACTIVE | One persistent spawn pool, 14-worker ceiling, single solver token, 48-GiB admission charge, task-tree RSS `< 64 GiB`, and swap growth `< 1` byte are implemented and covered by static tests. Segment 0014 is currently guarded. | Build the repository-owned maximum-row measurement window from the terminal segment and pass the independent resource validator. Repeat strict acceptance for combined. |
 | Display smoothing v2 publication | PENDING | `/private/tmp/task17-display-smoothing-v2-stage.zAofAX` contains 112 NIfTI replacements and 112 metadata records. All preserve exact raw finite support, all staged hashes and sizes match, and the repair-manifest SHA-256 is `dff3ab60616b2bd9d77075bc6781f6ef928db666f1052ac31d5f02f4088f6b5c`. | After OSS exits, validate, promote through the repository transaction into the canonical direct-voxel publication, archive replaced untracked files in the declared VAL Trash root, and validate again. |
 | Formal paired-fit, voxel 2-D, and fiber 2-D output | PENDING | The durable request resolves 28 scales, 112 endpoints, canonical public inputs, and all three batch components in read-only preflight. The 37-test visualization suite and 30-test publication suite pass with temporary fixtures. | Render the formal output, repeat without force, verify no completed component rewrite, run `--validate-output` twice, and visually inspect representative outputs. |
-| Interactive voxel and fiber 3-D scenes | ACCEPTED | The two PDQ-39 MATLAB examples resolve only canonical publications, request 0.5-mm inward voxel sampling, use signed `vik` mappings and independent colorbars, preserve grayscale anatomy, and create no export unless explicitly requested. | Reopen both examples after final publication validation for the final sampled visual review. |
+| Interactive voxel and fiber 3-D implementation | ACCEPTED | The two PDQ-39 MATLAB examples resolve only canonical publications, request 0.5-mm inward voxel sampling, use signed `vik` mappings and independent colorbars, preserve grayscale anatomy, and create no export unless explicitly requested. Static and synthetic MATLAB scene contracts pass. | Retain both examples and their migrated export helpers unchanged through final publication work. |
+| Final canonical 3-D scene review | PENDING | Earlier real and synthetic reviews established the intended rendering contract, but they predate the final canonical publication revalidation and full-goal closure. | After final public inputs validate, reopen both PDQ-39 examples, inspect voxel coverage, anatomy grayscale, voxel and fiber colorbars, RAS arrows, and interactive scene behavior, and record the review. |
 | Cleanup policy and later sensitivity capability | ACCEPTED | Production `delete_run_cache_on_success` is false. Failed or partial runs are never cleanup-eligible, and shared scientific cache is outside the cleanup boundary. | Confirm no cleanup marker or missing cache entry before the no-expensive combined replay. |
 | Final three-plan requirement audit | PENDING | This ledger names the production gates and authoritative evidence required for closure. | Reopen every named manifest, validator result, output root, and visual sample; update all rows to `ACCEPTED` only when direct evidence is terminal. |
 
@@ -52,13 +54,15 @@ The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
 `BLOCKED`. In particular, the following sequence cannot be skipped:
 
 1. terminal independent OSS and downstream pPAM closure;
-2. repository-owned canonical jitter-v2 validation;
+2. completed-jitter identical resume and repository-owned canonical jitter-v2
+   validation;
 3. configured-data shared-preparation parity replay and independent OSS
-   resource acceptance;
+   exact resume plus resource acceptance;
 4. canonical OSS-v2 replay;
-5. no-authorization combined execution and resource acceptance;
+5. no-authorization combined execution, exact resume, and resource acceptance;
 6. canonical combined-v2 replay;
 7. display-smoothing promotion and canonical revalidation;
 8. formal 112-endpoint postprocess, identical resume, independent validation,
-   and sampled visual review; and
-9. requirement-by-requirement reinspection of all three source plans.
+   and sampled 2-D/statistical visual review;
+9. final canonical voxel and fiber 3-D scene review; and
+10. requirement-by-requirement reinspection of all three source plans.
