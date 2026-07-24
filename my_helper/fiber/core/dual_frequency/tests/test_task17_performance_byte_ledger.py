@@ -10,6 +10,7 @@ import unittest
 
 from dual_frequency.instrumentation import _EVENTS, _KEYED_EVENTS
 from my_helper.fiber.pipelines import build_task17_performance_byte_ledger
+from my_helper.fiber.pipelines import init_task17_performance_byte_ledger_index
 from my_helper.fiber.pipelines.task17_performance_byte_ledger import (
     PerformanceByteLedgerError,
     aggregate_live_index,
@@ -104,7 +105,11 @@ class Task17PerformanceByteLedgerTest(unittest.TestCase):
         )
         _write(
             self.run / "run_manifest.json",
-            {"run_id": "benchmark-run", "final_status": "completed"},
+            {
+                "schema_version": "dual_frequency_run_v1",
+                "run_id": "benchmark-run",
+                "final_status": "completed",
+            },
         )
 
     def tearDown(self) -> None:
@@ -112,14 +117,12 @@ class Task17PerformanceByteLedgerTest(unittest.TestCase):
 
     def test_live_index_and_terminal_builder_match(self) -> None:
         index = self.root / "index.json"
-        _write(
-            index,
-            {
-                "schema_version": (
-                    "dual_frequency_performance_byte_ledger_index_v1"
-                ),
-                "run_root": str(self.run),
-            },
+        self.assertEqual(
+            init_task17_performance_byte_ledger_index.initialize(
+                run_root=self.run,
+                output=index,
+            ),
+            index.resolve(),
         )
         live = aggregate_live_index(index)
         output = self.root / "ledger.json"
@@ -139,6 +142,16 @@ class Task17PerformanceByteLedgerTest(unittest.TestCase):
             ),
             output.resolve(),
         )
+
+    def test_live_index_initializer_rejects_output_inside_run(self) -> None:
+        with self.assertRaisesRegex(
+            PerformanceByteLedgerError,
+            "outside the run root",
+        ):
+            init_task17_performance_byte_ledger_index.initialize(
+                run_root=self.run,
+                output=self.run / "byte-index.json",
+            )
 
     def test_terminal_builder_rejects_fragment_sha_change(self) -> None:
         self.fragment.write_text("{}\n", encoding="utf-8")
