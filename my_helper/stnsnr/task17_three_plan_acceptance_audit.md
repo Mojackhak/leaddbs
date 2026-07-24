@@ -32,7 +32,8 @@ Status vocabulary:
 | Canonical main model-set publication | ACCEPTED | Completed direct-voxel and normative-fiber model-set publications are the only allowed public parents. Postprocess preflight resolves them without a run-store fallback. | Repeat model-manifest and indexed-payload verification after display-smoothing promotion. |
 | Final in-sample inference and publication | ACCEPTED | Both model-set domains contain the canonical final-in-sample v2 extension. Formal postprocess resolves paired in-sample and LOOCV endpoint evidence from public paths. | Recheck exact 112-endpoint pairing and all declared statistics in the terminal postprocess output. |
 | Shared physical preparation and configured-data parity | PENDING | Shared geometry, one-time physical exposure, inclusive fiber overlap, exact minimum-grid `Omega_max`, side-specific fiber peak reduction, cache-backed subject/feature views, copied-cache reuse, and bounded parity fixtures pass 104 focused tests. These fixtures prove the implementation boundary but do not compare the complete configured production matrices. | After independent OSS releases the formal connectome and VAL I/O path, run the repository-owned configured-data post-refactor replay. Record complete matrix parity, worker-count determinism, physical-row counters, logical-versus-physical write reduction, and absence of endpoint matrix copies or repeated full-connectome traversal. |
-| Independent spatial jitter | ACCEPTED | `task17-jitter-v8-support-preserving-formal-20260719` completed and was replayed into self-contained canonical jitter-v2 extensions in both domains. Identical replay preserved the terminal publication. | Run the frozen independent publication validator after OSS releases shared VAL bandwidth. |
+| Independent spatial jitter computation | ACCEPTED | `task17-jitter-v8-support-preserving-formal-20260719` completed its support-preserving block and endpoint closure with no terminal failure. Jitter compilation, selective block resume, cache-first dispatch, and extension publication boundaries pass 25 focused tests with temporary fixtures. | Reopen the completed child manifest, block closure, endpoint closure, artifact index, and parent binding during final audit. |
+| Canonical independent jitter-v2 publication | PENDING | The completed jitter child was replayed twice into self-contained v2 extensions in both public domains. The identical replay preserved both terminal publications and their source/parent bindings. | After independent OSS releases shared VAL bandwidth, run the frozen repository-owned publication validator across both roots and retain its atomic acceptance document. |
 | Independent OSS axis equivalence and pPAM | ACTIVE | `task17-oss-v1-inclusive-formal-20260719` is running through guarded `segment_0014` with a 750-fiber execution bound. The first new add-on decision, `8c8614c12b2155a4b71232fd146feeb4657f1fdff71ed63bd8c6b9c699539991`, passed with zero probability, state, and activation-count mismatch. Peak task-tree RSS so far is 46507081728 bytes and swap has not increased. | Finish the authoritative add-on `row_decision_ids` closure, rerun all 392 dependency-derived downstream tasks, require zero terminal failures, and validate reporting, artifact index, and resources. |
 | Canonical independent OSS-v2 publication | PENDING | Self-contained extension-v2 publisher and validator fixtures pass. The source OSS child is not terminal. | Publish twice without filters, validate the normative-fiber OSS-v2 root, and audit source/parent bindings plus forbidden paths. |
 | Cache-first combined jitter and OSS replay | PENDING | Compiler, executor, physical jitter, and OSS decision fixtures prove cache-first behavior and fail before a producer call on a miss without authorization. | Start the frozen combined child without `--allow-expensive-producers`, attach the checked-in guard, and require complete cache reuse plus terminal DAG closure. |
@@ -51,12 +52,13 @@ The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
 `BLOCKED`. In particular, the following sequence cannot be skipped:
 
 1. terminal independent OSS and downstream pPAM closure;
-2. configured-data shared-preparation parity replay and independent OSS
+2. repository-owned canonical jitter-v2 validation;
+3. configured-data shared-preparation parity replay and independent OSS
    resource acceptance;
-3. canonical OSS-v2 replay;
-4. no-authorization combined execution and resource acceptance;
-5. canonical combined-v2 replay;
-6. display-smoothing promotion and canonical revalidation;
-7. formal 112-endpoint postprocess, identical resume, independent validation,
+4. canonical OSS-v2 replay;
+5. no-authorization combined execution and resource acceptance;
+6. canonical combined-v2 replay;
+7. display-smoothing promotion and canonical revalidation;
+8. formal 112-endpoint postprocess, identical resume, independent validation,
    and sampled visual review; and
-8. requirement-by-requirement reinspection of all three source plans.
+9. requirement-by-requirement reinspection of all three source plans.
