@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,8 @@ _EVENTS = frozenset(
         "cancellation",
         "timeout",
         "retry",
+        "physical_cache_use",
+        "cache_resolve",
     }
 )
 _KEYED_EVENTS = frozenset(
@@ -54,6 +57,8 @@ _KEYED_EVENTS = frozenset(
         "connectome_row4_audit_pass",
         "direct_copy_verification",
         "filtered_connectome_build",
+        "physical_cache_use",
+        "cache_resolve",
     }
 )
 _PROCESS_IDENTITY = f"{os.getpid()}-{time.time_ns()}"
@@ -313,6 +318,7 @@ def aggregate_performance_fragments(
                 "task_id": task_id,
                 "process_identity": process,
                 "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
         )
     return {

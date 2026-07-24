@@ -871,6 +871,10 @@ def prepare_jitter_exposure_block(request: TaskExecutionRequest) -> ServiceResul
                     raise JitterBlockError(
                         "jitter producer lease ended without a complete cache entry"
                     )
+    increment_performance_event(
+        "physical_cache_use",
+        key=f"{key.kind}:{key.digest}",
+    )
     publisher = RunScopedArtifactPublisher(
         request.output_dir,
         request.task.task_id,

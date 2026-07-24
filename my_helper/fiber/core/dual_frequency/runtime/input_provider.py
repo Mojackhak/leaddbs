@@ -1807,6 +1807,10 @@ class StudyRuntimeInputProvider:
         with preparation_lock:
             entry = self._scientific_cache.resolve(key)
             if entry is not None:
+                increment_performance_event(
+                    "physical_cache_use",
+                    key=f"{key.kind}:{key.digest}",
+                )
                 physical = self._open_shared_exposure(
                     self._shared_exposure_artifact(entry),
                     key.digest,
@@ -1872,6 +1876,10 @@ class StudyRuntimeInputProvider:
                             )
                     finally:
                         self._release_temporary_matrix(temporary)
+            increment_performance_event(
+                "physical_cache_use",
+                key=f"{key.kind}:{key.digest}",
+            )
             physical = self._open_shared_exposure(
                 self._shared_exposure_artifact(entry),
                 key.digest,

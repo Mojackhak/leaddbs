@@ -1098,12 +1098,16 @@ class ContentAddressedCache:
                         f"cache file failed verification: {record.relative_path}"
                     )
         self._validate_shards(files)
-        if verify_payloads and not trust_publisher_payloads:
+        if verify_payloads:
             increment_performance_event(
                 "cache_full_verification",
                 key=f"{expected_key.kind}:{expected_key.digest}",
             )
         self._verified_entries.add(verified_key)
+        increment_performance_event(
+            "cache_resolve",
+            key=f"{expected_key.kind}:{expected_key.digest}",
+        )
         return CacheEntry(path, actual_key, files, items, reused)
 
 

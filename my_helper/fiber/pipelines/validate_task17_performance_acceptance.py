@@ -422,9 +422,20 @@ def _validate_executed_row(
         counter_document.get("schema_version")
         != "dual_frequency_performance_counters_v1"
         or counter_document.get("segment_id") != segment_id
-        or set(counter_document) != {"schema_version", "segment_id", "counters"}
+        or set(counter_document)
+        != {"schema_version", "segment_id", "source_evidence", "counters"}
     ):
         raise PerformanceAcceptanceError("performance counter sidecar differs")
+    source_evidence = counter_document["source_evidence"]
+    if (
+        not isinstance(source_evidence, Mapping)
+        or source_evidence.get("segment_sha256") != _sha256_file(segment_path)
+        or source_evidence.get("event_report_sha256")
+        != segment.get("performance_events_sha256")
+    ):
+        raise PerformanceAcceptanceError(
+            "performance counter source evidence differs"
+        )
     counters = _validate_counters(
         counter_document["counters"],
         cache_state=str(row["cache_state"]),

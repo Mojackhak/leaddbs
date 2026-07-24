@@ -460,6 +460,21 @@ class RunStore:
                 if not isinstance(artifact, ArtifactRef):
                     raise RunStoreError("artifact index accepts only ArtifactRef values")
                 self._validate_artifact_location(artifact)
+                axis_tokens = tuple(
+                    axis.axis_id.lower() for axis in artifact.axis_refs
+                )
+                if (
+                    "null" in artifact.kind.lower()
+                    and any("permutation" in token for token in axis_tokens)
+                    and any(
+                        any(label in token for label in ("feature", "fiber", "voxel"))
+                        for token in axis_tokens
+                    )
+                ):
+                    increment_performance_event(
+                        "retained_null_n_by_f_output",
+                        key=artifact.identifier,
+                    )
                 entry = {
                     "artifact_id": artifact.identifier,
                     "kind": artifact.kind,

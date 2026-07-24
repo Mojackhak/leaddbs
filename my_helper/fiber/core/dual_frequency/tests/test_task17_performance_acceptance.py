@@ -167,12 +167,21 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                     "scheduler_windows_path": str(scheduler.relative_to(root)),
                     "scheduler_windows_sha256": _sha(scheduler),
                     "scheduler_window_count": 2,
+                    "performance_events_path": (
+                        f"execution_segments/performance_events_{segment_id}.json"
+                    ),
+                    "performance_events_sha256": self._digest(
+                        f"events:{workers}"
+                    ),
                 },
             )
+            segment = root / "execution_segments" / f"{segment_id}.json"
             self.runs[workers] = {
                 "root": root,
                 "configuration_sha256": _sha(configuration),
                 "probe": probe,
+                "segment_sha256": _sha(segment),
+                "event_sha256": self._digest(f"events:{workers}"),
             }
 
     def _executed_row(
@@ -195,6 +204,10 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             {
                 "schema_version": "dual_frequency_performance_counters_v1",
                 "segment_id": "segment_0001",
+                "source_evidence": {
+                    "segment_sha256": run["segment_sha256"],
+                    "event_report_sha256": run["event_sha256"],
+                },
                 "counters": self._counters(cache_state),
             },
         )
