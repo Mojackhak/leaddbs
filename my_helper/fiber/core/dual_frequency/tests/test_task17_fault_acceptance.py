@@ -345,6 +345,137 @@ class Task17FaultAcceptanceTest(unittest.TestCase):
         ):
             harness.run(self.plan, self.acceptance)
 
+    def test_command_relative_path_escape_is_rejected(self) -> None:
+        document = json.loads(self.plan.read_text(encoding="utf-8"))
+        document["corruption_cases"][0]["command"].append("../../etc/passwd")
+        _write_json(self.plan, document)
+        harness.initialize(self.plan, self.acceptance)
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "relative path escapes",
+        ):
+            harness.run(self.plan, self.acceptance)
+
+    def test_marker_copied_closure_deletion_is_rejected(self) -> None:
+        harness.initialize(self.plan, self.acceptance)
+        marker_path = (
+            self.acceptance / ".task17_fault_acceptance_root.json"
+        )
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        marker["copied_artifacts"] = []
+        _write_json(marker_path, marker)
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "copied closure differs",
+        ):
+            harness.run(self.plan, self.acceptance)
+
+    def test_path_unsafe_case_id_is_rejected(self) -> None:
+        document = json.loads(self.plan.read_text(encoding="utf-8"))
+        document["corruption_cases"][0]["id"] = "../escape"
+        _write_json(self.plan, document)
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "path-safe token",
+        ):
+            harness.initialize(self.plan, self.acceptance)
+
+    def test_duplicate_case_id_is_rejected(self) -> None:
+        document = json.loads(self.plan.read_text(encoding="utf-8"))
+        document["fail_once_case"]["id"] = document[
+            "corruption_cases"
+        ][0]["id"]
+        _write_json(self.plan, document)
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "must be unique",
+        ):
+            harness.initialize(self.plan, self.acceptance)
+
+    def test_terminal_case_contract_tamper_is_rejected(self) -> None:
+        harness.initialize(self.plan, self.acceptance)
+        harness.run(self.plan, self.acceptance)
+        terminal = (
+            self.acceptance
+            / "cases"
+            / "payload-corruption"
+            / "result.json"
+        )
+        result = json.loads(terminal.read_text(encoding="utf-8"))
+        result["case_contract_sha256"] = "0" * 64
+        _write_json(terminal, result)
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "contract differs",
+        ):
+            harness.validate_existing(self.plan, self.acceptance)
+
+    def test_validation_rejects_changed_report_without_rewriting(self) -> None:
+        harness.initialize(self.plan, self.acceptance)
+        harness.run(self.plan, self.acceptance)
+        report_path = self.acceptance / "fault_acceptance.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        report["status"] = "changed"
+        _write_json(report_path, report)
+        changed_bytes = report_path.read_bytes()
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "report differs",
+        ):
+            harness.validate_existing(self.plan, self.acceptance)
+        self.assertEqual(report_path.read_bytes(), changed_bytes)
+
+    def test_terminal_fail_once_task_tamper_is_rejected(self) -> None:
+        harness.initialize(self.plan, self.acceptance)
+        harness.run(self.plan, self.acceptance)
+        _write_json(
+            self.acceptance / "tasks" / "child-a.json",
+            {"status": "failed"},
+        )
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "task state is not completed",
+        ):
+            harness.validate_existing(self.plan, self.acceptance)
+
+    def test_terminal_fail_once_snapshot_swap_is_rejected(self) -> None:
+        harness.initialize(self.plan, self.acceptance)
+        harness.run(self.plan, self.acceptance)
+        terminal = (
+            self.acceptance / "cases" / "fail-once" / "result.json"
+        )
+        result = json.loads(terminal.read_text(encoding="utf-8"))
+        result["skipped_descendant_evidence"].reverse()
+        _write_json(terminal, result)
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "evidence identity differs",
+        ):
+            harness.validate_existing(self.plan, self.acceptance)
+
+    def test_terminal_rebuilt_output_tamper_is_rejected(self) -> None:
+        harness.initialize(self.plan, self.acceptance)
+        harness.run(self.plan, self.acceptance)
+        (self.acceptance / "rebuilt-output.txt").write_text(
+            "changed\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "differs from one-shot",
+        ):
+            harness.validate_existing(self.plan, self.acceptance)
+
+    def test_terminal_cache_output_tamper_is_rejected(self) -> None:
+        harness.initialize(self.plan, self.acceptance)
+        harness.run(self.plan, self.acceptance)
+        (self.acceptance / "cache-output.bin").write_bytes(b"changed")
+        with self.assertRaisesRegex(
+            harness.FaultAcceptanceError,
+            "cache replay output SHA differs",
+        ):
+            harness.validate_existing(self.plan, self.acceptance)
+
 
 if __name__ == "__main__":
     unittest.main()

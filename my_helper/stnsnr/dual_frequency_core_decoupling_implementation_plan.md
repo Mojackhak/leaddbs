@@ -5652,6 +5652,25 @@ The harness is resumable by case. A completed case is reused only after its
 input copy hashes, command arguments, expected failure class, output closure,
 and quarantine inventory revalidate. Partial or failed cases are retained and
 never trigger cleanup of the acceptance root.
+The marker has an exact field closure and must retain the complete copied-input
+closure derived from the current plan; deleting a marker row cannot suppress
+input revalidation. Every terminal case stores a deterministic hash of its
+current case object. Reuse requires that hash, the exact terminal result schema,
+and the immutable attempt inventory to match. It then reruns the case-specific
+read-only postconditions: corruption targets equal their declared isolated
+copies, fail-once task and descendants remain completed while protected files
+retain their hashes, the rebuilt lineage and one-shot comparisons still pass,
+and copied-cache outputs retain their expected hashes. A `status: validated`
+string or unchanged log inventory alone is not sufficient reuse evidence.
+The three corruption IDs plus fail-once, rebuild, and cache-replay IDs are
+nonempty path-safe tokens and form one unique six-case closure. A separator,
+dot traversal token, duplicate ID, or case path outside the marked acceptance
+root fails while the plan is loaded, before any case directory is created.
+The `validate` operation is read-only. It evaluates marker, case, attempt,
+command, output, comparison, and read-only-root evidence without publishing or
+repairing any file, then compares the recomputed report with the existing
+`fault_acceptance.json`. A missing or changed report fails; validation must not
+call a path that rewrites the report before comparison.
 
 Performance instrumentation implementation checkpoint on 2026-07-24:
 
@@ -5717,6 +5736,22 @@ Isolated fault-harness implementation checkpoint on 2026-07-24:
 The five fault-harness tests, 49 combined executor/performance/fault tests, and
 complete 618-test discovery pass. This closes the missing harness
 implementation, not the production-scale fault acceptance sequence.
+
+Terminal fault-reuse closure was completed later on 2026-07-24. The marker now
+has an exact plan-derived copied-input closure; all six case IDs are path-safe
+and unique; relative traversal arguments fail; and every terminal result binds
+its exact case contract, command/log evidence, attempt inventory, and
+case-specific current postconditions. Fail-once retains immutable failed and
+dependency-skipped task snapshots before resume. Rebuild and copied-cache
+outputs are revalidated on every reuse. Validation recomputes the complete
+report without writing and rejects a changed report byte-for-byte. Fifteen
+focused harness tests cover the complete replay plus marker deletion, absolute
+and relative path escape, unsafe and duplicate case IDs, attempt tampering,
+case-contract tampering, fail-once task drift and snapshot-identity swapping,
+rebuilt-output drift,
+copied-cache-output drift, and read-only report validation. Complete
+dual-frequency discovery passes 690 tests with warnings treated as errors.
+The production-scale fault plan and sequence remain pending.
 
 - [ ] **Step 11: Update current status and commit**
 

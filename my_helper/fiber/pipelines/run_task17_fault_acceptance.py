@@ -43,6 +43,20 @@ def _sha(value: object, label: str) -> str:
     return token
 
 
+def _canonical_sha256(value: object, label: str) -> str:
+    try:
+        payload = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise FaultAcceptanceError(f"{label} is not canonical JSON") from exc
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -95,6 +109,18 @@ def _relative(value: object, label: str) -> Path:
     return path
 
 
+def _case_id(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+    ):
+        raise FaultAcceptanceError(f"{label} must be a path-safe token")
+    return value
+
+
 def _path_under(path: Path, roots: Sequence[Path]) -> bool:
     resolved = path.expanduser().resolve()
     return any(resolved == root or root in resolved.parents for root in roots)
@@ -126,6 +152,27 @@ def _load_plan(path: Path) -> tuple[dict[str, Any], str]:
         or not plan["conda_environment"]
     ):
         raise FaultAcceptanceError("Conda environment must be nonempty")
+    corruption = plan["corruption_cases"]
+    terminal_cases = (
+        plan["fail_once_case"],
+        plan["rebuild_case"],
+        plan["cache_replay_case"],
+    )
+    if (
+        not isinstance(corruption, list)
+        or len(corruption) != 3
+        or any(not isinstance(item, Mapping) for item in corruption)
+        or any(not isinstance(item, Mapping) for item in terminal_cases)
+    ):
+        raise FaultAcceptanceError(
+            "fault plan must declare exactly six case objects"
+        )
+    case_ids = [
+        _case_id(item.get("id"), "fault case ID")
+        for item in (*corruption, *terminal_cases)
+    ]
+    if len(set(case_ids)) != 6:
+        raise FaultAcceptanceError("fault case IDs must be unique")
     return plan, _sha256_file(path)
 
 
@@ -159,6 +206,38 @@ def _validate_acceptance_root(root: Path, readonly_roots: Sequence[Path]) -> Pat
     if resolved.exists() and resolved.is_symlink():
         raise FaultAcceptanceError("acceptance root cannot be a symlink")
     return resolved
+
+
+def _copied_artifact_specs(
+    plan: Mapping[str, object],
+    readonly_roots: Sequence[Path],
+) -> list[tuple[Path, Path, str]]:
+    copied = plan["copied_artifacts"]
+    if not isinstance(copied, list) or not copied:
+        raise FaultAcceptanceError("copied artifact closure must be nonempty")
+    specs: list[tuple[Path, Path, str]] = []
+    seen: set[Path] = set()
+    for item in copied:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != {"source_path", "relative_path", "sha256"}
+        ):
+            raise FaultAcceptanceError("copied artifact row fields differ")
+        source = Path(str(item["source_path"])).expanduser().resolve()
+        relative = _relative(item["relative_path"], "copied artifact path")
+        expected = _sha(item["sha256"], "copied artifact SHA")
+        if (
+            relative in seen
+            or not _path_under(source, readonly_roots)
+            or not source.is_file()
+            or _sha256_file(source) != expected
+        ):
+            raise FaultAcceptanceError(
+                "copied artifact source or identity differs"
+            )
+        seen.add(relative)
+        specs.append((source, relative, expected))
+    return specs
 
 
 def _readonly_snapshot(
@@ -219,25 +298,14 @@ def initialize(
             )
     root.mkdir(parents=True, exist_ok=True)
     snapshot = _readonly_snapshot(plan, readonly_roots)
-    copied = plan["copied_artifacts"]
-    if not isinstance(copied, list) or not copied:
-        raise FaultAcceptanceError("copied artifact closure must be nonempty")
     copied_results: list[dict[str, str]] = []
-    for item in copied:
-        if (
-            not isinstance(item, Mapping)
-            or set(item) != {"source_path", "relative_path", "sha256"}
-        ):
-            raise FaultAcceptanceError("copied artifact row fields differ")
-        source = Path(str(item["source_path"])).expanduser().resolve()
-        relative = _relative(item["relative_path"], "copied artifact path")
+    for source, relative, expected in _copied_artifact_specs(
+        plan,
+        readonly_roots,
+    ):
         destination = (root / "inputs" / relative).resolve()
-        expected = _sha(item["sha256"], "copied artifact SHA")
         if (
-            not _path_under(source, readonly_roots)
-            or not source.is_file()
-            or _sha256_file(source) != expected
-            or root not in destination.parents
+            root not in destination.parents
         ):
             raise FaultAcceptanceError("copied artifact source or identity differs")
         if destination.exists():
@@ -276,6 +344,17 @@ def _verify_marker(
     readonly_roots: Sequence[Path],
 ) -> dict[str, Any]:
     marker = _read_json(root / ".task17_fault_acceptance_root.json", "acceptance marker")
+    _exact_keys(
+        marker,
+        {
+            "schema_version",
+            "plan_id",
+            "plan_sha256",
+            "readonly_snapshot",
+            "copied_artifacts",
+        },
+        "acceptance marker",
+    )
     if (
         marker.get("schema_version") != _MARKER_SCHEMA
         or marker.get("plan_id") != plan["plan_id"]
@@ -284,7 +363,19 @@ def _verify_marker(
         raise FaultAcceptanceError("acceptance marker identity differs")
     if marker.get("readonly_snapshot") != _readonly_snapshot(plan, readonly_roots):
         raise FaultAcceptanceError("read-only closure changed")
-    for item in marker.get("copied_artifacts", ()):
+    expected_copies = [
+        {
+            "relative_path": str(relative),
+            "sha256": expected,
+        }
+        for _source, relative, expected in _copied_artifact_specs(
+            plan,
+            readonly_roots,
+        )
+    ]
+    if marker["copied_artifacts"] != expected_copies:
+        raise FaultAcceptanceError("acceptance marker copied closure differs")
+    for item in expected_copies:
         path = root / "inputs" / _relative(item["relative_path"], "marker copy path")
         if not path.is_file() or _sha256_file(path) != item["sha256"]:
             raise FaultAcceptanceError("isolated copied artifact changed")
@@ -312,6 +403,10 @@ def _run_command(
 ) -> dict[str, object]:
     for argument in command:
         candidate = argument.split("=", 1)[-1] if "=" in argument else argument
+        if ".." in Path(candidate).parts:
+            raise FaultAcceptanceError(
+                f"command relative path escapes allowed roots: {candidate}"
+            )
         if candidate.startswith("/"):
             path = Path(candidate).expanduser().resolve()
             if not _path_under(path, allowed_argument_roots):
@@ -345,6 +440,64 @@ def _run_command(
         "stderr_sha256": _sha256_file(stderr),
         "combined_output": result.stdout + result.stderr,
     }
+
+
+def _command_evidence(result: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "command": list(result["command"]),
+        "exit_code": result["exit_code"],
+        "stdout_sha256": result["stdout_sha256"],
+        "stderr_sha256": result["stderr_sha256"],
+    }
+
+
+def _verify_command_evidence(
+    raw: object,
+    *,
+    expected_command: Sequence[str],
+    attempt: Path,
+    log_label: str,
+    expected_exit_code: object,
+    expected_text: object | None = None,
+) -> None:
+    if (
+        type(expected_exit_code) is not int
+        or expected_exit_code < 0
+        or (expected_text is not None and expected_exit_code < 1)
+    ):
+        raise FaultAcceptanceError("terminal expected exit code is invalid")
+    if not isinstance(raw, Mapping):
+        raise FaultAcceptanceError("terminal command evidence must be an object")
+    _exact_keys(
+        raw,
+        {
+            "command",
+            "exit_code",
+            "stdout_sha256",
+            "stderr_sha256",
+        },
+        "terminal command evidence",
+    )
+    if raw["command"] != list(expected_command):
+        raise FaultAcceptanceError("terminal command arguments differ")
+    if raw["exit_code"] != expected_exit_code:
+        raise FaultAcceptanceError("terminal command exit code differs")
+    stdout = attempt / "logs" / f"{log_label}.stdout.txt"
+    stderr = attempt / "logs" / f"{log_label}.stderr.txt"
+    if (
+        not stdout.is_file()
+        or not stderr.is_file()
+        or _sha256_file(stdout) != raw["stdout_sha256"]
+        or _sha256_file(stderr) != raw["stderr_sha256"]
+    ):
+        raise FaultAcceptanceError("terminal command log evidence differs")
+    if expected_text is not None:
+        text = str(expected_text)
+        if not text or text not in (
+            stdout.read_text(encoding="utf-8")
+            + stderr.read_text(encoding="utf-8")
+        ):
+            raise FaultAcceptanceError("terminal command rejection text differs")
 
 
 def _expect_failure(
@@ -389,14 +542,46 @@ def _attempt_inventory(case_root: Path) -> list[dict[str, str]]:
     ]
 
 
-def _reuse_case(terminal: Path, label: str) -> dict[str, Any]:
+def _reuse_case(
+    terminal: Path,
+    label: str,
+    raw: Mapping[str, object],
+    expected_fields: set[str],
+) -> tuple[dict[str, Any], Path]:
     result = _read_json(terminal, label)
+    _exact_keys(
+        result,
+        {
+            "status",
+            "case_contract_sha256",
+            "attempt_relative_path",
+            "attempt_inventory",
+            *expected_fields,
+        },
+        label,
+    )
+    if result["case_contract_sha256"] != _canonical_sha256(
+        dict(raw),
+        f"{label} contract",
+    ):
+        raise FaultAcceptanceError(f"{label} contract differs")
+    relative_attempt = _relative(
+        result["attempt_relative_path"],
+        f"{label} attempt path",
+    )
+    attempt = (terminal.parent / relative_attempt).resolve()
+    if (
+        attempt.parent != terminal.parent.resolve()
+        or not attempt.is_dir()
+        or not attempt.name.startswith("attempt_")
+    ):
+        raise FaultAcceptanceError(f"{label} attempt path differs")
     expected = result.get("attempt_inventory")
     if not isinstance(expected, list) or expected != _attempt_inventory(terminal.parent):
         raise FaultAcceptanceError(f"{label} attempt inventory differs")
     if result.get("status") != "validated":
         raise FaultAcceptanceError(f"{label} is not validated")
-    return result
+    return result, attempt
 
 
 def _withhold(path: Path, quarantine: Path) -> None:
@@ -444,15 +629,44 @@ def _run_corruption_cases(
             },
             "corruption case",
         )
-        case_id = str(raw.get("id", ""))
-        if not case_id:
-            raise FaultAcceptanceError("corruption case ID must be nonempty")
+        case_id = _case_id(raw.get("id"), "corruption case ID")
         terminal = root / "cases" / case_id / "result.json"
+        target = root / "inputs" / _relative(
+            raw["relative_path"],
+            "corruption path",
+        )
         if terminal.exists():
-            results.append(_reuse_case(terminal, f"case {case_id}"))
+            reused, attempt = _reuse_case(
+                terminal,
+                f"case {case_id}",
+                raw,
+                {
+                    "case_id",
+                    "kind",
+                    "original_sha256",
+                    "command_evidence",
+                },
+            )
+            if (
+                reused["case_id"] != case_id
+                or reused["kind"] != raw["kind"]
+                or not target.is_file()
+                or _sha256_file(target) != reused["original_sha256"]
+            ):
+                raise FaultAcceptanceError(
+                    f"case {case_id} restored input differs"
+                )
+            _verify_command_evidence(
+                reused["command_evidence"],
+                expected_command=_expand_command(raw["command"], root),
+                attempt=attempt,
+                log_label="reject",
+                expected_exit_code=raw["expected_exit_code"],
+                expected_text=raw["expected_error_substring"],
+            )
+            results.append(reused)
             continue
         attempt = _attempt_root(terminal.parent)
-        target = root / "inputs" / _relative(raw["relative_path"], "corruption path")
         original_sha = _sha256_file(target)
         quarantine = attempt / "quarantine" / "original"
         _withhold(target, quarantine)
@@ -487,10 +701,13 @@ def _run_corruption_cases(
             "case_id": case_id,
             "kind": raw["kind"],
             "status": "validated",
+            "case_contract_sha256": _canonical_sha256(
+                dict(raw),
+                f"case {case_id} contract",
+            ),
+            "attempt_relative_path": str(attempt.relative_to(terminal.parent)),
             "original_sha256": original_sha,
-            "command_exit_code": command_result["exit_code"],
-            "stdout_sha256": command_result["stdout_sha256"],
-            "stderr_sha256": command_result["stderr_sha256"],
+            "command_evidence": _command_evidence(command_result),
             "attempt_inventory": _attempt_inventory(terminal.parent),
         }
         _atomic_json(terminal, result)
@@ -504,6 +721,65 @@ def _task_status(root: Path, relative: object, expected: str) -> str:
     if document.get("status") != expected:
         raise FaultAcceptanceError(f"task state is not {expected}: {path}")
     return _sha256_file(path)
+
+
+def _snapshot_task_evidence(
+    root: Path,
+    relative: object,
+    expected: str,
+    destination: Path,
+    case_root: Path,
+) -> dict[str, str]:
+    task_relative = _relative(relative, "task-state path")
+    source = root / task_relative
+    _task_status(root, relative, expected)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise FaultAcceptanceError("task-state evidence target already exists")
+    shutil.copy2(source, destination)
+    return {
+        "task_relative_path": str(task_relative),
+        "relative_path": str(destination.relative_to(case_root)),
+        "sha256": _sha256_file(destination),
+    }
+
+
+def _verify_task_evidence(
+    raw: object,
+    *,
+    case_root: Path,
+    expected_task_relative: object,
+    expected_status: str,
+) -> str:
+    if not isinstance(raw, Mapping):
+        raise FaultAcceptanceError("task-state evidence must be an object")
+    _exact_keys(
+        raw,
+        {"task_relative_path", "relative_path", "sha256"},
+        "task-state evidence",
+    )
+    expected_task = _relative(
+        expected_task_relative,
+        "expected task-state path",
+    )
+    if _relative(
+        raw["task_relative_path"],
+        "task-state evidence identity",
+    ) != expected_task:
+        raise FaultAcceptanceError("task-state evidence identity differs")
+    path = case_root / _relative(
+        raw["relative_path"],
+        "task-state evidence path",
+    )
+    expected_sha = _sha(raw["sha256"], "task-state evidence SHA")
+    if (
+        not path.is_file()
+        or _sha256_file(path) != expected_sha
+        or _read_json(path, "task-state evidence").get("status")
+        != expected_status
+    ):
+        raise FaultAcceptanceError("task-state evidence differs")
+    return expected_sha
 
 
 def _run_fail_once(
@@ -530,20 +806,125 @@ def _run_fail_once(
         },
         "fail-once case",
     )
-    case_id = str(raw.get("id", ""))
+    case_id = _case_id(raw.get("id"), "fail-once case ID")
     terminal = root / "cases" / case_id / "result.json"
-    if terminal.exists():
-        return _reuse_case(terminal, "fail-once result")
-    attempt = _attempt_root(terminal.parent)
-    target = root / "inputs" / _relative(raw["withheld_relative_path"], "fail-once path")
-    quarantine = attempt / "quarantine" / "withheld"
+    target = root / "inputs" / _relative(
+        raw["withheld_relative_path"],
+        "fail-once path",
+    )
     protected = raw["protected_artifacts"]
     if not isinstance(protected, list):
         raise FaultAcceptanceError("protected artifacts must be an array")
-    protected_before = {
-        str(item["relative_path"]): _sha(item["sha256"], "protected artifact SHA")
-        for item in protected
-    }
+    descendants = raw["descendant_task_states"]
+    if (
+        not isinstance(descendants, list)
+        or not descendants
+        or len({str(item) for item in descendants}) != len(descendants)
+    ):
+        raise FaultAcceptanceError(
+            "descendant task-state closure differs"
+        )
+    protected_before: dict[str, str] = {}
+    for item in protected:
+        if not isinstance(item, Mapping):
+            raise FaultAcceptanceError("protected artifact must be an object")
+        _exact_keys(
+            item,
+            {"relative_path", "sha256"},
+            "protected artifact",
+        )
+        relative = str(item["relative_path"])
+        if relative in protected_before:
+            raise FaultAcceptanceError("protected artifact path is duplicated")
+        protected_before[relative] = _sha(
+            item["sha256"],
+            "protected artifact SHA",
+        )
+    if terminal.exists():
+        reused, attempt = _reuse_case(
+            terminal,
+            "fail-once result",
+            raw,
+            {
+                "case_id",
+                "first_command_evidence",
+                "resume_command_evidence",
+                "failed_task_evidence",
+                "skipped_descendant_evidence",
+                "completed_task_sha256",
+                "completed_descendant_sha256",
+                "protected_artifacts",
+            },
+        )
+        if reused["case_id"] != case_id or not target.is_file():
+            raise FaultAcceptanceError("fail-once case identity differs")
+        _verify_command_evidence(
+            reused["first_command_evidence"],
+            expected_command=_expand_command(raw["first_command"], root),
+            attempt=attempt,
+            log_label="first",
+            expected_exit_code=raw["expected_exit_code"],
+            expected_text=raw["expected_error_substring"],
+        )
+        _verify_command_evidence(
+            reused["resume_command_evidence"],
+            expected_command=_expand_command(raw["resume_command"], root),
+            attempt=attempt,
+            log_label="resume",
+            expected_exit_code=0,
+        )
+        _verify_task_evidence(
+            reused["failed_task_evidence"],
+            case_root=terminal.parent,
+            expected_task_relative=raw["failed_task_state"],
+            expected_status="failed",
+        )
+        skipped_evidence = reused["skipped_descendant_evidence"]
+        if (
+            not isinstance(skipped_evidence, list)
+            or len(skipped_evidence) != len(descendants)
+        ):
+            raise FaultAcceptanceError(
+                "fail-once skipped descendant evidence differs"
+            )
+        for item, relative in zip(
+            skipped_evidence,
+            descendants,
+            strict=True,
+        ):
+            _verify_task_evidence(
+                item,
+                case_root=terminal.parent,
+                expected_task_relative=relative,
+                expected_status="skipped",
+            )
+        completed_sha = _task_status(
+            root,
+            raw["failed_task_state"],
+            "completed",
+        )
+        descendant_completed = [
+            _task_status(root, relative, "completed")
+            for relative in descendants
+        ]
+        protected_after = {
+            relative: _sha256_file(
+                root / _relative(relative, "protected artifact path")
+            )
+            for relative in protected_before
+        }
+        if (
+            reused["completed_task_sha256"] != completed_sha
+            or reused["completed_descendant_sha256"] != descendant_completed
+            or reused["protected_artifacts"] != protected_before
+            or protected_after != protected_before
+        ):
+            raise FaultAcceptanceError(
+                "fail-once terminal postconditions differ"
+            )
+        return reused
+    attempt = _attempt_root(terminal.parent)
+    quarantine = attempt / "quarantine" / "withheld"
     for relative, expected in protected_before.items():
         if _sha256_file(
             root / _relative(relative, "protected artifact path")
@@ -560,10 +941,22 @@ def _run_fail_once(
             label="first",
         )
         _expect_failure(first, raw["expected_exit_code"], raw["expected_error_substring"])
-        failed_sha = _task_status(root, raw["failed_task_state"], "failed")
-        skipped = [
-            _task_status(root, relative, "skipped")
-            for relative in raw["descendant_task_states"]
+        failed_evidence = _snapshot_task_evidence(
+            root,
+            raw["failed_task_state"],
+            "failed",
+            attempt / "evidence" / "failed_task_state.json",
+            terminal.parent,
+        )
+        skipped_evidence = [
+            _snapshot_task_evidence(
+                root,
+                relative,
+                "skipped",
+                attempt / "evidence" / f"skipped_descendant_{index:04d}.json",
+                terminal.parent,
+            )
+            for index, relative in enumerate(descendants)
         ]
     finally:
         _restore(target, quarantine)
@@ -580,7 +973,7 @@ def _run_fail_once(
     completed_sha = _task_status(root, raw["failed_task_state"], "completed")
     descendant_completed = [
         _task_status(root, relative, "completed")
-        for relative in raw["descendant_task_states"]
+        for relative in descendants
     ]
     protected_after = {
         relative: _sha256_file(root / _relative(relative, "protected artifact path"))
@@ -591,11 +984,16 @@ def _run_fail_once(
     result = {
         "case_id": case_id,
         "status": "validated",
-        "first_exit_code": first["exit_code"],
-        "resume_exit_code": resume["exit_code"],
-        "failed_task_sha256": failed_sha,
+        "case_contract_sha256": _canonical_sha256(
+            dict(raw),
+            "fail-once case contract",
+        ),
+        "attempt_relative_path": str(attempt.relative_to(terminal.parent)),
+        "first_command_evidence": _command_evidence(first),
+        "resume_command_evidence": _command_evidence(resume),
+        "failed_task_evidence": failed_evidence,
+        "skipped_descendant_evidence": skipped_evidence,
         "completed_task_sha256": completed_sha,
-        "skipped_descendant_sha256": skipped,
         "completed_descendant_sha256": descendant_completed,
         "protected_artifacts": protected_after,
         "attempt_inventory": _attempt_inventory(terminal.parent),
@@ -695,17 +1093,89 @@ def _run_rebuild(
         },
         "rebuild case",
     )
-    case_id = str(raw.get("id", ""))
+    case_id = _case_id(raw.get("id"), "rebuild case ID")
     terminal = root / "cases" / case_id / "result.json"
+    target = root / "inputs" / _relative(
+        raw["required_artifact_relative_path"],
+        "required artifact",
+    )
+    plain_command = _expand_command(raw["plain_extension_command"], root)
+    rebuild_command = _expand_command(raw["rebuild_command"], root)
+    extension_command = _expand_command(raw["extension_command"], root)
+    rebuilt_root = root / _relative(
+        raw["rebuilt_run_relative_path"],
+        "rebuilt run",
+    )
     if terminal.exists():
-        return _reuse_case(terminal, "rebuild result")
+        reused, attempt = _reuse_case(
+            terminal,
+            "rebuild result",
+            raw,
+            {
+                "case_id",
+                "plain_command_evidence",
+                "rebuild_command_evidence",
+                "extension_command_evidence",
+                "rebuilt_run_id",
+                "rebuilt_manifest_sha256",
+                "comparisons",
+            },
+        )
+        if reused["case_id"] != case_id or not target.is_file():
+            raise FaultAcceptanceError("rebuild case identity differs")
+        _verify_command_evidence(
+            reused["plain_command_evidence"],
+            expected_command=plain_command,
+            attempt=attempt,
+            log_label="plain",
+            expected_exit_code=raw["expected_exit_code"],
+            expected_text=raw["expected_error_substring"],
+        )
+        _verify_command_evidence(
+            reused["rebuild_command_evidence"],
+            expected_command=rebuild_command,
+            attempt=attempt,
+            log_label="rebuild",
+            expected_exit_code=0,
+        )
+        _verify_command_evidence(
+            reused["extension_command_evidence"],
+            expected_command=extension_command,
+            attempt=attempt,
+            log_label="extension",
+            expected_exit_code=0,
+        )
+        rebuilt_manifest = _read_json(
+            rebuilt_root / "run_manifest.json",
+            "rebuilt manifest",
+        )
+        if (
+            reused["rebuilt_run_id"] != raw["rebuilt_run_id"]
+            or rebuilt_manifest.get("run_id") != raw["rebuilt_run_id"]
+            or rebuilt_manifest.get("final_status") != "completed"
+            or rebuilt_manifest.get("run_id") == accepted_parent_run_id
+            or _sha256_file(rebuilt_root / "run_manifest.json")
+            != reused["rebuilt_manifest_sha256"]
+        ):
+            raise FaultAcceptanceError(
+                "rebuilt terminal lineage differs"
+            )
+        comparisons = _compare_outputs(
+            root,
+            raw["one_shot_comparisons"],
+            comparison_readonly_roots,
+        )
+        if reused["comparisons"] != comparisons:
+            raise FaultAcceptanceError(
+                "rebuilt terminal comparisons differ"
+            )
+        return reused
     attempt = _attempt_root(terminal.parent)
-    target = root / "inputs" / _relative(raw["required_artifact_relative_path"], "required artifact")
     quarantine = attempt / "quarantine" / "withheld"
     _withhold(target, quarantine)
     try:
         plain = _run_command(
-            _expand_command(raw["plain_extension_command"], root),
+            plain_command,
             environment=environment,
             working_directory=working_directory,
             allowed_argument_roots=(
@@ -718,7 +1188,7 @@ def _run_rebuild(
         )
         _expect_failure(plain, raw["expected_exit_code"], raw["expected_error_substring"])
         rebuilt = _run_command(
-            _expand_command(raw["rebuild_command"], root),
+            rebuild_command,
             environment=environment,
             working_directory=working_directory,
             allowed_argument_roots=(
@@ -731,7 +1201,6 @@ def _run_rebuild(
         )
         if rebuilt["exit_code"] != 0:
             raise FaultAcceptanceError("rebuild command did not complete")
-        rebuilt_root = root / _relative(raw["rebuilt_run_relative_path"], "rebuilt run")
         rebuilt_manifest = _read_json(rebuilt_root / "run_manifest.json", "rebuilt manifest")
         if (
             rebuilt_manifest.get("run_id") != raw["rebuilt_run_id"]
@@ -741,7 +1210,7 @@ def _run_rebuild(
         ):
             raise FaultAcceptanceError("rebuilt main lineage identity differs")
         extension = _run_command(
-            _expand_command(raw["extension_command"], root),
+            extension_command,
             environment=environment,
             working_directory=working_directory,
             allowed_argument_roots=(
@@ -764,9 +1233,14 @@ def _run_rebuild(
     result = {
         "case_id": case_id,
         "status": "validated",
-        "plain_exit_code": plain["exit_code"],
-        "rebuild_exit_code": rebuilt["exit_code"],
-        "extension_exit_code": extension["exit_code"],
+        "case_contract_sha256": _canonical_sha256(
+            dict(raw),
+            "rebuild case contract",
+        ),
+        "attempt_relative_path": str(attempt.relative_to(terminal.parent)),
+        "plain_command_evidence": _command_evidence(plain),
+        "rebuild_command_evidence": _command_evidence(rebuilt),
+        "extension_command_evidence": _command_evidence(extension),
         "rebuilt_run_id": raw["rebuilt_run_id"],
         "rebuilt_manifest_sha256": _sha256_file(rebuilt_root / "run_manifest.json"),
         "comparisons": comparisons,
@@ -774,6 +1248,48 @@ def _run_rebuild(
     }
     _atomic_json(terminal, result)
     return result
+
+
+def _cache_replay_outputs(
+    raw: object,
+    root: Path,
+) -> list[dict[str, str]]:
+    if not isinstance(raw, list) or not raw:
+        raise FaultAcceptanceError(
+            "cache replay outputs must be a nonempty array"
+        )
+    outputs: list[dict[str, str]] = []
+    seen: set[Path] = set()
+    for item in raw:
+        if not isinstance(item, Mapping):
+            raise FaultAcceptanceError(
+                "cache replay output must be an object"
+            )
+        _exact_keys(
+            item,
+            {"relative_path", "sha256"},
+            "cache replay output",
+        )
+        relative = _relative(
+            item["relative_path"],
+            "cache replay output",
+        )
+        if relative in seen:
+            raise FaultAcceptanceError(
+                "cache replay output path is duplicated"
+            )
+        seen.add(relative)
+        path = root / relative
+        expected = _sha(item["sha256"], "cache replay output SHA")
+        if not path.is_file() or _sha256_file(path) != expected:
+            raise FaultAcceptanceError("cache replay output SHA differs")
+        outputs.append(
+            {
+                "relative_path": str(relative),
+                "sha256": expected,
+            }
+        )
+    return outputs
 
 
 def _run_cache_replay(
@@ -795,15 +1311,41 @@ def _run_cache_replay(
         },
         "cache replay case",
     )
-    case_id = str(raw.get("id", ""))
+    case_id = _case_id(raw.get("id"), "cache replay case ID")
     terminal = root / "cases" / case_id / "result.json"
-    if terminal.exists():
-        return _reuse_case(terminal, "cache replay result")
-    attempt = _attempt_root(terminal.parent)
     command = _expand_command(raw["command"], root)
     forbidden = str(raw["forbidden_argument"])
-    if forbidden in command:
-        raise FaultAcceptanceError("cache replay command contains forbidden authorization")
+    if not forbidden or forbidden in command:
+        raise FaultAcceptanceError(
+            "cache replay command contains forbidden authorization"
+        )
+    if terminal.exists():
+        reused, attempt = _reuse_case(
+            terminal,
+            "cache replay result",
+            raw,
+            {
+                "case_id",
+                "command_evidence",
+                "outputs",
+            },
+        )
+        if reused["case_id"] != case_id:
+            raise FaultAcceptanceError("cache replay case identity differs")
+        _verify_command_evidence(
+            reused["command_evidence"],
+            expected_command=command,
+            attempt=attempt,
+            log_label="cache_replay",
+            expected_exit_code=0,
+        )
+        outputs = _cache_replay_outputs(raw["expected_outputs"], root)
+        if reused["outputs"] != outputs:
+            raise FaultAcceptanceError(
+                "cache replay terminal outputs differ"
+            )
+        return reused
+    attempt = _attempt_root(terminal.parent)
     execution = _run_command(
         command,
         environment=environment,
@@ -814,17 +1356,16 @@ def _run_cache_replay(
     )
     if execution["exit_code"] != 0:
         raise FaultAcceptanceError("copied-cache replay did not complete")
-    outputs: list[dict[str, str]] = []
-    for item in raw["expected_outputs"]:
-        path = root / _relative(item["relative_path"], "cache replay output")
-        expected = _sha(item["sha256"], "cache replay output SHA")
-        if _sha256_file(path) != expected:
-            raise FaultAcceptanceError("cache replay output SHA differs")
-        outputs.append({"relative_path": str(item["relative_path"]), "sha256": expected})
+    outputs = _cache_replay_outputs(raw["expected_outputs"], root)
     result = {
         "case_id": case_id,
         "status": "validated",
-        "exit_code": execution["exit_code"],
+        "case_contract_sha256": _canonical_sha256(
+            dict(raw),
+            "cache replay case contract",
+        ),
+        "attempt_relative_path": str(attempt.relative_to(terminal.parent)),
+        "command_evidence": _command_evidence(execution),
         "outputs": outputs,
         "attempt_inventory": _attempt_inventory(terminal.parent),
     }
@@ -832,8 +1373,13 @@ def _run_cache_replay(
     return result
 
 
-def run(plan_path: Path, acceptance_root: Path) -> dict[str, object]:
-    """Execute or reuse every isolated fault case and validate read-only roots."""
+def _evaluate(
+    plan_path: Path,
+    acceptance_root: Path,
+    *,
+    publish_report: bool,
+) -> dict[str, object]:
+    """Execute or reuse cases and optionally publish the terminal report."""
 
     plan, plan_sha = _load_plan(plan_path.expanduser().resolve())
     readonly_roots = _readonly_roots(plan)
@@ -893,8 +1439,19 @@ def run(plan_path: Path, acceptance_root: Path) -> dict[str, object]:
         "cache_replay_case": cache_replay,
         "readonly_snapshot": final_snapshot,
     }
-    _atomic_json(root / "fault_acceptance.json", report)
+    if publish_report:
+        _atomic_json(root / "fault_acceptance.json", report)
     return report
+
+
+def run(plan_path: Path, acceptance_root: Path) -> dict[str, object]:
+    """Execute or reuse every isolated fault case and publish its report."""
+
+    return _evaluate(
+        plan_path,
+        acceptance_root,
+        publish_report=True,
+    )
 
 
 def validate_existing(
@@ -918,8 +1475,15 @@ def validate_existing(
             raise FaultAcceptanceError(
                 f"terminal fault case is missing: {case_id}"
             )
-    report = run(plan_path, acceptance_root)
-    stored = _read_json(root / "fault_acceptance.json", "fault acceptance report")
+    stored = _read_json(
+        root / "fault_acceptance.json",
+        "fault acceptance report",
+    )
+    report = _evaluate(
+        plan_path,
+        acceptance_root,
+        publish_report=False,
+    )
     if stored != report:
         raise FaultAcceptanceError("terminal fault acceptance report differs")
     return report
