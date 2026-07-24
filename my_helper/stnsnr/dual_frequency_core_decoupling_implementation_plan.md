@@ -5457,9 +5457,37 @@ benchmark byte ledger, configured-data candidate-parity report, and
 artifact/static audit. It also declares the benchmark class and cold or warm
 cache state, but it contains no counter values. The publisher verifies every
 bound source, rejects incomplete worker fragments and nonterminal segments,
-derives all 27 counters, and writes one deterministic
+derives all 28 counters, and writes one deterministic
 `performance_counters_<segment_id>.json` document. The second identical
 invocation must byte-match the first.
+
+The benchmark byte ledger has one repository-owned live index and one
+terminal document. The live
+`dual_frequency_performance_byte_ledger_index_v1` document binds exactly one
+run root. On every probe sample, the probe reopens the task-status closure,
+selects only completed task attempts, validates each immutable
+`performance_counter_fragment.json`, and sums its `source_bytes` and
+`scratch_bytes` deltas. Callers do not enter either byte total. A missing,
+duplicate, malformed, task-mismatched, or nonterminal fragment fails the
+sample instead of contributing zero. The live index is static during the run;
+the probe CSV records the monotonically increasing derived totals.
+
+After the run and selected execution segment are terminal, the repository
+ledger builder repeats the same aggregation over the event report's exact
+fragment closure and writes
+`dual_frequency_performance_byte_ledger_v1`. The terminal ledger binds the
+run ID, segment ID, terminal segment SHA, event-report SHA, every fragment path
+and SHA, and the final source/scratch totals. The final probe sample must match
+this ledger byte for byte at the counter level before performance acceptance.
+`source_bytes` counts bytes read from original configured scientific inputs;
+cache payload reads and run-owned artifacts remain under
+`payload_read_bytes`. `scratch_bytes` counts bytes newly written to temporary
+matrices, cache staging generations, and run-scoped artifact staging files;
+an atomic rename contributes no additional bytes. Flush calls are tracked
+separately and do not multiply the logical scratch allocation. These
+categories may overlap the payload read/write/hash counters because they
+answer different provenance questions, but a single source read or scratch
+write contributes only once to its own category.
 
 `run_task17_artifact_static_audit.py` produces the required
 `dual_frequency_artifact_static_audit_v1` source. It binds the terminal event
