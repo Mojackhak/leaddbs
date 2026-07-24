@@ -24,6 +24,7 @@ from ...contracts import (
     canonical_hash,
 )
 from ...contracts.requests import ScientificMatrixInput
+from ...instrumentation import increment_performance_event
 from ..nuisance import NuisancePlan
 from ..protocols import ArtifactPublisher
 from ..source_resolver import SourceResolution, resolve_source
@@ -406,6 +407,13 @@ def _build_weight_cache(
         mode="w+",
         dtype=np.float32,
         shape=(exposure.shape[0], exposure.shape[1]),
+    )
+    increment_performance_event(
+        "scratch_bytes",
+        amount=int(
+            (work_root / "full_weights.npy").stat().st_size
+            + (work_root / "fold_weights.npy").stat().st_size
+        ),
     )
     all_subjects = np.arange(exposure.shape[0])
     _write_weight_row(

@@ -8,14 +8,66 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from dual_frequency.instrumentation import _EVENTS, _KEYED_EVENTS
 from my_helper.fiber.pipelines.run_task17_performance_probe import (
     PerformanceProbeError,
     ProcessSample,
+    _byte_counters,
     run_probe,
 )
 
 
 class Task17PerformanceProbeTest(unittest.TestCase):
+    def test_live_index_derives_atomic_fragment_totals(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run = root / "run"
+            fragment = (
+                run
+                / "work"
+                / "task_one"
+                / "attempt-one"
+                / "performance_counter_fragment.json"
+            )
+            fragment.parent.mkdir(parents=True)
+            scalars = {
+                event: 0 for event in sorted(_EVENTS - _KEYED_EVENTS)
+            }
+            scalars["source_bytes"] = 31
+            scalars["scratch_bytes"] = 47
+            fragment.write_text(
+                json.dumps(
+                    {
+                        "schema_version": (
+                            "dual_frequency_performance_counter_fragment_v1"
+                        ),
+                        "process_identity": "process-one",
+                        "task_id": "task_one",
+                        "events": {
+                            "process_identity": "process-one",
+                            "scalars": scalars,
+                            "keyed": {
+                                event: {} for event in sorted(_KEYED_EVENTS)
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            index = root / "byte-index.json"
+            index.write_text(
+                json.dumps(
+                    {
+                        "schema_version": (
+                            "dual_frequency_performance_byte_ledger_index_v1"
+                        ),
+                        "run_root": str(run),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(_byte_counters(index), (31, 47))
+
     def test_retired_process_cpu_remains_in_aggregate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

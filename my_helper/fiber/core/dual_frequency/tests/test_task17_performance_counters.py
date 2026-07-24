@@ -53,6 +53,8 @@ class Task17PerformanceCounterBuilderTest(unittest.TestCase):
         )
         fragment_events = _events()
         fragment_events["scalars"]["memmap_flush"] = 2
+        fragment_events["scalars"]["source_bytes"] = 11
+        fragment_events["scalars"]["scratch_bytes"] = 22
         fragment_events["keyed"]["physical_cache_use"] = {self.identity: 1}
         fragment_events["keyed"]["physical_producer"] = {self.identity: 1}
         fragment_events["keyed"]["cache_resolve"] = {self.identity: 2}
@@ -134,8 +136,25 @@ class Task17PerformanceCounterBuilderTest(unittest.TestCase):
                 "schema_version": (
                     "dual_frequency_performance_byte_ledger_v1"
                 ),
+                "run_id": "benchmark-run",
+                "segment_id": self.segment_id,
+                "segment_path": str(segment_path.relative_to(self.run)),
+                "segment_sha256": _sha(segment_path),
+                "event_report_path": str(event_path.relative_to(self.run)),
+                "event_report_sha256": _sha(event_path),
+                "fragment_count": 1,
                 "source_bytes": 11,
                 "scratch_bytes": 22,
+                "fragments": [
+                    {
+                        "task_id": "task_one",
+                        "process_identity": "process-one",
+                        "path": str(fragment_path.relative_to(self.run)),
+                        "sha256": _sha(fragment_path),
+                        "source_bytes": 11,
+                        "scratch_bytes": 22,
+                    }
+                ],
             },
         )
         _write(

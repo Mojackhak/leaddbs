@@ -384,6 +384,61 @@ def build(input_path: Path) -> Path:
     )
     if ledger.get("schema_version") != "dual_frequency_performance_byte_ledger_v1":
         raise PerformanceCounterBuildError("performance byte ledger schema differs")
+    if set(ledger) != {
+        "schema_version",
+        "run_id",
+        "segment_id",
+        "segment_path",
+        "segment_sha256",
+        "event_report_path",
+        "event_report_sha256",
+        "fragment_count",
+        "source_bytes",
+        "scratch_bytes",
+        "fragments",
+    }:
+        raise PerformanceCounterBuildError("performance byte ledger fields differ")
+    ledger_fragments = ledger.get("fragments")
+    event_fragments = event_report.get("fragments")
+    if (
+        ledger.get("run_id") != run_id
+        or ledger.get("segment_id") != segment_id
+        or ledger.get("segment_sha256") != segment_sha
+        or ledger.get("event_report_sha256") != event_sha
+        or not isinstance(ledger_fragments, list)
+        or not isinstance(event_fragments, list)
+        or ledger.get("fragment_count") != len(ledger_fragments)
+        or len(ledger_fragments) != len(event_fragments)
+    ):
+        raise PerformanceCounterBuildError(
+            "performance byte ledger binding differs"
+        )
+    ledger_fragment_closure = {
+        (
+            str(item.get("task_id", "")),
+            str(item.get("process_identity", "")),
+            str(item.get("sha256", "")),
+        )
+        for item in ledger_fragments
+        if isinstance(item, Mapping)
+    }
+    event_fragment_closure = {
+        (
+            str(item.get("task_id", "")),
+            str(item.get("process_identity", "")),
+            str(item.get("sha256", "")),
+        )
+        for item in event_fragments
+        if isinstance(item, Mapping)
+    }
+    if (
+        len(ledger_fragment_closure) != len(ledger_fragments)
+        or len(event_fragment_closure) != len(event_fragments)
+        or ledger_fragment_closure != event_fragment_closure
+    ):
+        raise PerformanceCounterBuildError(
+            "performance byte ledger fragment closure differs"
+        )
     parity_path, parity, parity_sha = _bound_document(
         raw_path=inputs["candidate_parity_path"],
         raw_sha256=inputs["candidate_parity_sha256"],
@@ -430,6 +485,15 @@ def build(input_path: Path) -> Path:
         raise PerformanceCounterBuildError("artifact/static audit closure differs")
 
     scalars, keyed, process_cache = _fragment_events(event_report)
+    source_bytes = _nonnegative(ledger.get("source_bytes"), "source bytes")
+    scratch_bytes = _nonnegative(ledger.get("scratch_bytes"), "scratch bytes")
+    if (
+        source_bytes != scalars["source_bytes"]
+        or scratch_bytes != scalars["scratch_bytes"]
+    ):
+        raise PerformanceCounterBuildError(
+            "performance byte ledger totals differ from event fragments"
+        )
     physical_closure = set(keyed["physical_cache_use"])
     producer_identities = set(keyed["physical_producer"])
     if not physical_closure:
@@ -506,11 +570,8 @@ def build(input_path: Path) -> Path:
         "payload_read_bytes": scalars["payload_read_bytes"],
         "payload_write_bytes": scalars["payload_write_bytes"],
         "payload_hash_bytes": scalars["payload_hash_bytes"],
-        "source_bytes": _nonnegative(ledger.get("source_bytes"), "source bytes"),
-        "scratch_bytes": _nonnegative(
-            ledger.get("scratch_bytes"),
-            "scratch bytes",
-        ),
+        "source_bytes": source_bytes,
+        "scratch_bytes": scratch_bytes,
         "cancellation_count": scalars["cancellation"],
         "timeout_count": _nonnegative(
             segment.get("task_timeout_count"),

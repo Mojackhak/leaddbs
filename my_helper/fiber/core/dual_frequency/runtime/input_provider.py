@@ -564,6 +564,22 @@ class StudyRuntimeInputProvider:
         ] = {}
         self._connectome_geometries: dict[str, _SharedConnectomeGeometry] = {}
 
+    def _is_original_input_path(self, path: Path) -> bool:
+        resolved = Path(path).expanduser().resolve()
+        excluded_roots = [self._work_root]
+        if self._artifact_store is not None:
+            excluded_roots.extend(self._artifact_store.allowed_roots)
+        if self._scientific_cache is not None:
+            excluded_roots.append(self._scientific_cache.root)
+        return not any(
+            resolved == root or root in resolved.parents
+            for root in excluded_roots
+        )
+
+    def _record_original_source_bytes(self, path: Path, amount: int) -> None:
+        if self._is_original_input_path(path):
+            increment_performance_event("source_bytes", amount=int(amount))
+
     @staticmethod
     def _file_signature(path: Path) -> tuple[int, int, int]:
         if _ACTIVE_HOT_LOOP.get():
@@ -608,6 +624,10 @@ class StudyRuntimeInputProvider:
             cached = self._hashes.get(resolved)
         if force or cached is None or cached.signature != signature_before:
             digest = sha256_file(resolved)
+            self._record_original_source_bytes(
+                resolved,
+                signature_before[1],
+            )
             signature_after = self._file_signature(resolved)
             if signature_after != signature_before:
                 raise RuntimeInputProviderError(
@@ -647,6 +667,10 @@ class StudyRuntimeInputProvider:
                 mode="w+",
                 dtype=np.dtype(dtype),
                 shape=shape,
+            )
+            increment_performance_event(
+                "scratch_bytes",
+                amount=int(path.stat().st_size),
             )
         except (OSError, ValueError) as exc:
             raise RuntimeInputProviderError(
@@ -1398,6 +1422,10 @@ class StudyRuntimeInputProvider:
                 return cached[1]
             rebuilding = cached is not None
         sampler = _NiftiSampler(resolved)
+        self._record_original_source_bytes(
+            resolved,
+            self._file_signature(resolved)[1],
+        )
         increment_performance_event("nifti_open", key=identity)
         if self._file_signature(resolved) != signature:
             raise RuntimeInputProviderError(
@@ -2240,7 +2268,15 @@ class StudyRuntimeInputProvider:
             dtype=np.int64,
             shape=(metadata.n_fibers + 1,),
         )
+        increment_performance_event(
+            "scratch_bytes",
+            amount=int(points_path.stat().st_size + offsets_path.stat().st_size),
+        )
         offsets[:] = connectome.point_offsets
+        increment_performance_event(
+            "source_bytes",
+            amount=int(np.asarray(connectome.point_offsets).nbytes),
+        )
         point_cursor = 0
         fiber_cursor = 0
         range_count = 0
@@ -2248,6 +2284,14 @@ class StudyRuntimeInputProvider:
         point_byte_budget = 256 * 1024**2
         try:
             for chunk in connectome.iter_point_balanced_chunks(point_byte_budget):
+                increment_performance_event(
+                    "source_bytes",
+                    amount=int(
+                        chunk.points.nbytes
+                        + chunk.point_offsets.nbytes
+                        + chunk.fiber_ids.nbytes
+                    ),
+                )
                 count = int(chunk.points.shape[0])
                 points[point_cursor : point_cursor + count] = chunk.points
                 expected_ids = np.arange(
@@ -2512,27 +2556,45 @@ class StudyRuntimeInputProvider:
 
                 chunks = geometry_chunks()
             elif isinstance(connectome, LeadDBSHDF5Connectome):
-                chunks = (
-                    (
-                        int(chunk.fiber_ids[0]) - 1,
-                        int(chunk.fiber_ids[-1]),
-                        chunk.points,
-                        chunk.point_offsets,
-                    )
+                def source_chunks():
                     for chunk in connectome.iter_point_balanced_chunks(
                         self._fiber_point_byte_budget
-                    )
-                )
+                    ):
+                        increment_performance_event(
+                            "source_bytes",
+                            amount=int(
+                                chunk.points.nbytes
+                                + chunk.point_offsets.nbytes
+                                + chunk.fiber_ids.nbytes
+                            ),
+                        )
+                        yield (
+                            int(chunk.fiber_ids[0]) - 1,
+                            int(chunk.fiber_ids[-1]),
+                            chunk.points,
+                            chunk.point_offsets,
+                        )
+
+                chunks = source_chunks()
             else:
-                chunks = (
-                    (
-                        int(chunk.fiber_ids[0]) - 1,
-                        int(chunk.fiber_ids[-1]),
-                        chunk.points,
-                        chunk.point_offsets,
-                    )
-                    for chunk in connectome.iter_chunks(self._fiber_chunk_size)
-                )
+                def source_chunks():
+                    for chunk in connectome.iter_chunks(self._fiber_chunk_size):
+                        increment_performance_event(
+                            "source_bytes",
+                            amount=int(
+                                chunk.points.nbytes
+                                + chunk.point_offsets.nbytes
+                                + chunk.fiber_ids.nbytes
+                            ),
+                        )
+                        yield (
+                            int(chunk.fiber_ids[0]) - 1,
+                            int(chunk.fiber_ids[-1]),
+                            chunk.points,
+                            chunk.point_offsets,
+                        )
+
+                chunks = source_chunks()
             expected_start = 0
             with self._hot_loop_guard():
                 for start, stop, points, point_offsets in chunks:

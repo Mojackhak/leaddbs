@@ -11,6 +11,8 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from ...instrumentation import increment_performance_event
+
 
 OPERATOR_SCRATCH_SCHEMA = "dual_frequency_formal_operator_scratch_v1"
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -138,6 +140,10 @@ def _publish_scratch_arrays(
                 dtype=value.dtype,
                 shape=value.shape,
                 fortran_order=fortran_order,
+            )
+            increment_performance_event(
+                "scratch_bytes",
+                amount=int(temporary_path.stat().st_size),
             )
             try:
                 output[...] = value

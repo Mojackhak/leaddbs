@@ -17,6 +17,18 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 
+if __package__:
+    from .task17_performance_byte_ledger import (
+        PerformanceByteLedgerError,
+        aggregate_live_index,
+    )
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from task17_performance_byte_ledger import (
+        PerformanceByteLedgerError,
+        aggregate_live_index,
+    )
+
 
 _CSV_FIELDS = (
     "timestamp_utc",
@@ -103,6 +115,15 @@ def _byte_counters(path: Path) -> tuple[int, int]:
         raise PerformanceProbeError(f"cannot read byte-counter document: {path}") from exc
     if not isinstance(payload, Mapping):
         raise PerformanceProbeError("byte-counter document must contain an object")
+    if (
+        payload.get("schema_version")
+        == "dual_frequency_performance_byte_ledger_index_v1"
+    ):
+        try:
+            aggregate = aggregate_live_index(path)
+        except PerformanceByteLedgerError as exc:
+            raise PerformanceProbeError(str(exc)) from exc
+        return int(aggregate["source_bytes"]), int(aggregate["scratch_bytes"])
     if isinstance(payload.get("counters"), Mapping):
         payload = payload["counters"]
     values: list[int] = []

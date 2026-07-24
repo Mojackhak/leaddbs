@@ -492,7 +492,12 @@ class ContentAddressedCache:
                 self._validate_file_structure(staging / record.relative_path, record)
             self._validate_shards(expected_files)
             payload = self._manifest_payload(key, expected_files, normalized_items)
-            _write_json(staging / MANIFEST_NAME, payload)
+            manifest_path = staging / MANIFEST_NAME
+            _write_json(manifest_path, payload)
+            increment_performance_event(
+                "scratch_bytes",
+                amount=int(manifest_path.stat().st_size),
+            )
 
             if destination.exists():
                 existing = self._load_entry(destination, expected_key=key, reused=True)
@@ -582,9 +587,18 @@ class ContentAddressedCache:
                     )
                 self._validate_file_structure(path, record)
             self._validate_shards(expected_files)
+            increment_performance_event(
+                "scratch_bytes",
+                amount=sum(record.size_bytes for record in expected_files),
+            )
+            manifest_path = staging / MANIFEST_NAME
             _write_json(
-                staging / MANIFEST_NAME,
+                manifest_path,
                 self._manifest_payload(key, expected_files, normalized_items),
+            )
+            increment_performance_event(
+                "scratch_bytes",
+                amount=int(manifest_path.stat().st_size),
             )
 
             if destination.exists():
@@ -987,6 +1001,7 @@ class ContentAddressedCache:
         increment_performance_event("payload_read_bytes", amount=size_bytes)
         increment_performance_event("payload_write_bytes", amount=size_bytes)
         increment_performance_event("payload_hash_bytes", amount=size_bytes)
+        increment_performance_event("scratch_bytes", amount=size_bytes)
         return digest.hexdigest(), size_bytes
 
     @staticmethod
@@ -1490,6 +1505,11 @@ class RunScopedArtifactPublisher:
         try:
             with temporary.open("wb") as stream:
                 np.save(stream, array, allow_pickle=False)
+            temporary_size = int(temporary.stat().st_size)
+            increment_performance_event(
+                "scratch_bytes",
+                amount=temporary_size,
+            )
             payload_hash = sha256_file(temporary)
             metadata = self._metadata_payload(
                 target=target,
@@ -1541,6 +1561,10 @@ class RunScopedArtifactPublisher:
                 )
                 + "\n",
                 encoding="utf-8",
+            )
+            increment_performance_event(
+                "scratch_bytes",
+                amount=int(temporary.stat().st_size),
             )
             payload_hash = sha256_file(temporary)
             metadata = self._metadata_payload(
@@ -1654,6 +1678,10 @@ class RunScopedArtifactPublisher:
                 )
                 + "\n",
                 encoding="utf-8",
+            )
+            increment_performance_event(
+                "scratch_bytes",
+                amount=int(metadata_temporary.stat().st_size),
             )
             expected_metadata_hash = sha256_file(metadata_temporary)
             lock = target.with_name(f".{target.name}.publish.lock")
