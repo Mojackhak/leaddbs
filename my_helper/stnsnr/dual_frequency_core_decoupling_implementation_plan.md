@@ -5502,6 +5502,10 @@ fragment closure and writes
 run ID, segment ID, terminal segment SHA, event-report SHA, every fragment path
 and SHA, and the final source/scratch totals. The final probe sample must match
 this ledger byte for byte at the counter level before performance acceptance.
+The counter-sidecar builder independently reopens every event-report and
+ledger fragment. Their task, process, exact run-relative path, SHA, and byte
+deltas must form the same closure; an external same-byte copy or a
+caller-authored summary cannot substitute for a run-owned attempt fragment.
 `source_bytes` counts bytes read from original configured scientific inputs;
 cache payload reads and run-owned artifacts remain under
 `payload_read_bytes`. `scratch_bytes` counts bytes newly written to temporary
