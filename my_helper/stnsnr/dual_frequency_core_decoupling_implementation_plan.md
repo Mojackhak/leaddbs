@@ -5365,13 +5365,16 @@ Duplicate, missing, silently skipped, or extra keys fail validation.
 
 Every executed row binds one immutable run root, one finished execution
 segment, one performance-probe CSV, one scheduler-window payload, one
-numerical-identity digest, and the exact resolved configuration digest. It
-reports wall and aggregate CPU time, effective cores, peak RSS, swap delta,
-source and scratch bytes, cache verification counts, physical producer counts,
-pool generations, nested executors, metadata work, copies, bytes, reader and
-solver peaks, queue and admission waits, cancellation, timeout and retry
-counts. The validator rejects a row when any required counter is absent; zero
-is data, but an omitted value is not.
+numerical-identity digest, the exact resolved configuration digest, and one
+run-published counter sidecar plus its SHA. Counter values cannot be entered
+directly in the matrix manifest. The sidecar reports source and scratch bytes,
+cache verification counts, physical producer counts, pool generations, nested
+executors, metadata work, copies, bytes, reader and solver peaks, queue and
+admission waits, cancellation, timeout and retry counts. The validator derives
+wall and aggregate CPU time, effective cores, peak RSS, and swap delta from the
+probe; requires source and scratch bytes to agree between the probe and terminal
+counter sidecar; and rejects a row when any required counter is absent. Zero is
+data, but an omitted value is not.
 
 For the 12-worker rows, the validator aligns probe and scheduler samples into
 five-second windows. A window is eligible only when
@@ -5453,9 +5456,11 @@ Performance instrumentation implementation checkpoint on 2026-07-24:
   connectomes, workers 1, 3, 6, and 12, cold and warm non-pPAM rows, injected
   pPAM rows, real warm cache-hit rows, and explicit unauthorized real-cold
   rows;
-- resolved worker configuration, segment, probe, scheduler-window, counter,
+- resolved worker configuration, segment, probe, scheduler-window,
   numerical-identity, RSS, swap, and 12-worker utilization gates are checked
-  from their source evidence; and
+  from their source evidence;
+- counter values are accepted only from a SHA-bound terminal sidecar, never
+  directly from a matrix row; and
 - 44 focused tests and the complete 613-test discovery pass.
 
 This checkpoint closes the missing probe, scheduler-trace, and validator
