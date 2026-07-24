@@ -169,6 +169,10 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                     "minimum_managed_memory_bytes": 48 * 1024**3,
                     "maximum_managed_memory_bytes": 48 * 1024**3,
                     "final_managed_memory_bytes": 48 * 1024**3,
+                    "required_memory_reserve_bytes": 16 * 1024**3,
+                    "connectome_io_slots": max(1, min(2, workers)),
+                    "external_solver_slots": 1,
+                    "blas_threads_per_worker": 1,
                     "pool_generation_count": 1,
                     "scheduler_windows_path": str(scheduler.relative_to(root)),
                     "scheduler_windows_sha256": _sha(scheduler),
@@ -293,6 +297,37 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             if row["status"] == "executed" and row["workers"] == workers:
                 row["probe_sha256"] = digest
         self._write_manifest()
+
+    def _scheduler_fixture(
+        self,
+        workers: int = 3,
+    ) -> tuple[Path, dict[str, object], Path, list[dict[str, object]]]:
+        root = Path(str(self.runs[workers]["root"]))
+        segment_path = root / "execution_segments" / "segment_0001.json"
+        segment = json.loads(segment_path.read_text(encoding="utf-8"))
+        scheduler = root / str(segment["scheduler_windows_path"])
+        probe, _ = validator._read_probe(
+            Path(str(self.runs[workers]["probe"]))
+        )
+        return root, segment, scheduler, probe
+
+    def _validate_scheduler_fixture(
+        self,
+        root: Path,
+        segment: dict[str, object],
+        scheduler: Path,
+        probe: list[dict[str, object]],
+        *,
+        workers: int = 3,
+    ) -> dict[str, object]:
+        segment["scheduler_windows_sha256"] = _sha(scheduler)
+        return validator._scheduler_windows(
+            root,
+            segment,
+            probe,
+            workers,
+            64 * 1024**3,
+        )
 
     def test_complete_matrix_passes_and_report_is_identical(self) -> None:
         report = validator.validate(self.manifest)
@@ -452,6 +487,114 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             "segment ID is invalid",
         ):
             validator.validate(self.manifest)
+
+    def test_segment_schema_mismatch_is_rejected(self) -> None:
+        root = Path(str(self.runs[3]["root"]))
+        path = root / "execution_segments" / "segment_0001.json"
+        segment = json.loads(path.read_text(encoding="utf-8"))
+        segment["schema_version"] = "unexpected"
+        _write_json(path, segment)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "execution segment boundary differs",
+        ):
+            validator.validate(self.manifest)
+
+    def test_scheduler_extra_field_is_rejected(self) -> None:
+        root, segment, scheduler, probe = self._scheduler_fixture()
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["unexpected"] = 1
+        _write_json(scheduler, document)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "fields differ",
+        ):
+            self._validate_scheduler_fixture(
+                root,
+                segment,
+                scheduler,
+                probe,
+            )
+
+    def test_scheduler_noncontiguous_utc_window_is_rejected(self) -> None:
+        root, segment, scheduler, probe = self._scheduler_fixture()
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][1]["start_utc"] = "2026-07-24T00:00:06+00:00"
+        _write_json(scheduler, document)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "time closure differs",
+        ):
+            self._validate_scheduler_fixture(
+                root,
+                segment,
+                scheduler,
+                probe,
+            )
+
+    def test_scheduler_boolean_elapsed_is_rejected(self) -> None:
+        root, segment, scheduler, probe = self._scheduler_fixture()
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["elapsed_seconds"] = True
+        _write_json(scheduler, document)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "field types differ",
+        ):
+            self._validate_scheduler_fixture(
+                root,
+                segment,
+                scheduler,
+                probe,
+            )
+
+    def test_scheduler_solver_reservation_above_ceiling_is_rejected(self) -> None:
+        root, segment, scheduler, probe = self._scheduler_fixture()
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["reserved_external_solver_slots"] = 2
+        _write_json(scheduler, document)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "reservation exceeds",
+        ):
+            self._validate_scheduler_fixture(
+                root,
+                segment,
+                scheduler,
+                probe,
+            )
+
+    def test_scheduler_runnable_derivation_is_rejected(self) -> None:
+        root, segment, scheduler, probe = self._scheduler_fixture()
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["runnable_cpu_slots"] = 2
+        _write_json(scheduler, document)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "reservation exceeds",
+        ):
+            self._validate_scheduler_fixture(
+                root,
+                segment,
+                scheduler,
+                probe,
+            )
+
+    def test_scheduler_storage_classification_is_rejected(self) -> None:
+        root, segment, scheduler, probe = self._scheduler_fixture()
+        document = json.loads(scheduler.read_text(encoding="utf-8"))
+        document["rows"][0]["storage_limited"] = True
+        _write_json(scheduler, document)
+        with self.assertRaisesRegex(
+            validator.PerformanceAcceptanceError,
+            "storage classification differs",
+        ):
+            self._validate_scheduler_fixture(
+                root,
+                segment,
+                scheduler,
+                probe,
+            )
 
     def test_absolute_scheduler_path_is_rejected(self) -> None:
         root = Path(str(self.runs[3]["root"]))

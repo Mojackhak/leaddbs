@@ -5393,6 +5393,19 @@ compute-utilization gate only when the fraction of eligible windows with
 `effective_cores > 6` is `> 0.80`. An executed 12-worker compute-bound row
 without eligible windows fails rather than becoming `not_run`.
 
+Performance acceptance independently validates the complete scheduler sidecar;
+it does not assume that a separate resource-acceptance invocation already
+accepted the benchmark. The scheduler document and every row must have the
+exact repository-owned field closure. Window timestamps are UTC, positive, and
+contiguous. Ready, running, runnable, CPU, managed-memory, reserved-memory,
+connectome-I/O, solver, admission-reason, and storage-limited values are typed
+and bounded by the selected segment's worker and resource declarations.
+`runnable_cpu_slots` is the bounded sum of ready and running tasks, and
+`storage_limited` is true exactly when the connectome-I/O admission count is
+positive. A valid SHA over structurally incomplete or resource-inconsistent
+scheduler rows must fail the performance matrix before utilization is
+calculated.
+
 The validator writes one atomic
 `dual_frequency_task17_performance_acceptance_v1` document containing the
 input manifest SHA, every source-evidence SHA including the exact probe CSV
@@ -8415,6 +8428,21 @@ performance set passed 71 tests; and the complete dual-frequency discovery
 passed 670 tests with warnings treated as errors. These tests establish the
 writer and validator schema boundary only. The future combined production
 segment must still supply the corresponding live evidence.
+
+Independent performance-scheduler closure was completed on 2026-07-24. The
+performance validator now requires the exact scheduler document and row field
+sets, UTC-positive contiguous windows, the declared worker, managed-memory,
+reserve, connectome-I/O, solver, and BLAS boundaries, exact admission-reason
+closure, bounded running/runnable/reservation values, the writer-owned runnable
+derivation, and the writer-owned storage-limited classification before it
+calculates effective cores. Five new negative fixtures reject an added field,
+a UTC gap, a solver reservation above its ceiling, a false runnable value, and
+a false storage classification; a sixth rejects a Boolean elapsed value. The
+seventh rejects a segment schema mismatch. The performance module passes 19
+tests, the joint executor and Task 17 evidence set passes 116 tests, and
+complete dual-frequency discovery passes 677 tests with warnings treated as
+errors.
+The configured 72-row production matrix remains pending.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 

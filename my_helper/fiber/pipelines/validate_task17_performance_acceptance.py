@@ -68,6 +68,29 @@ _NON_WORKER_ADMISSION_REASONS = frozenset(
         "external_solver",
     }
 )
+_ADMISSION_REASONS = frozenset(
+    {
+        "worker_slots",
+        *_NON_WORKER_ADMISSION_REASONS,
+    }
+)
+_SCHEDULER_ROW_FIELDS = frozenset(
+    {
+        "start_utc",
+        "finish_utc",
+        "elapsed_seconds",
+        "ready_task_count",
+        "running_task_count",
+        "runnable_cpu_slots",
+        "reserved_cpu_slots",
+        "managed_memory_bytes",
+        "reserved_memory_bytes",
+        "reserved_connectome_io_slots",
+        "reserved_external_solver_slots",
+        "admission_blocked_task_count_by_reason",
+        "storage_limited",
+    }
+)
 
 
 class PerformanceAcceptanceError(RuntimeError):
@@ -321,11 +344,17 @@ def _scheduler_windows(
         raise PerformanceAcceptanceError("scheduler-window SHA differs")
     document = _read_json(path, "scheduler windows")
     rows = document.get("rows")
+    declared_count = _integer(
+        segment.get("scheduler_window_count"),
+        "scheduler-window count",
+    )
     if (
-        document.get("schema_version") != "dual_frequency_scheduler_windows_v1"
+        set(document) != {"schema_version", "segment_id", "rows"}
+        or document.get("schema_version")
+        != "dual_frequency_scheduler_windows_v1"
         or document.get("segment_id") != segment.get("segment_id")
         or not isinstance(rows, list)
-        or len(rows) != segment.get("scheduler_window_count")
+        or len(rows) != declared_count
         or not rows
     ):
         raise PerformanceAcceptanceError("scheduler-window closure differs")
@@ -354,26 +383,87 @@ def _scheduler_windows(
         or maximum_managed > max_rss_bytes
     ):
         raise PerformanceAcceptanceError("managed-memory closure differs")
+    required_reserve = _integer(
+        segment.get("required_memory_reserve_bytes"),
+        "required memory reserve",
+    )
+    connectome_io_slots = _integer(
+        segment.get("connectome_io_slots"),
+        "connectome I/O slots",
+    )
+    external_solver_slots = _integer(
+        segment.get("external_solver_slots"),
+        "external solver slots",
+    )
+    blas_threads = _integer(
+        segment.get("blas_threads_per_worker"),
+        "BLAS threads per worker",
+    )
+    if (
+        required_reserve < 1
+        or connectome_io_slots != max(1, min(2, workers))
+        or external_solver_slots != 1
+        or blas_threads != 1
+    ):
+        raise PerformanceAcceptanceError(
+            "scheduler resource declarations differ"
+        )
     eligible = 0
     above_six = 0
     windows: list[dict[str, object]] = []
+    prior_finish: datetime | None = None
     for index, raw in enumerate(rows):
-        if not isinstance(raw, Mapping):
-            raise PerformanceAcceptanceError("scheduler window must be an object")
+        if not isinstance(raw, Mapping) or set(raw) != _SCHEDULER_ROW_FIELDS:
+            raise PerformanceAcceptanceError("scheduler window fields differ")
+        if (
+            not isinstance(raw["start_utc"], str)
+            or not isinstance(raw["finish_utc"], str)
+            or type(raw["elapsed_seconds"]) not in (int, float)
+        ):
+            raise PerformanceAcceptanceError(
+                "scheduler-window field types differ"
+            )
         try:
-            start = datetime.fromisoformat(str(raw["start_utc"]))
-            finish = datetime.fromisoformat(str(raw["finish_utc"]))
+            start = datetime.fromisoformat(raw["start_utc"])
+            finish = datetime.fromisoformat(raw["finish_utc"])
         except (KeyError, ValueError) as exc:
             raise PerformanceAcceptanceError("scheduler window timestamp differs") from exc
+        if (
+            start.utcoffset() is None
+            or finish.utcoffset() is None
+            or start.utcoffset().total_seconds() != 0
+            or finish.utcoffset().total_seconds() != 0
+            or finish <= start
+            or (prior_finish is not None and start != prior_finish)
+            or _number(raw["elapsed_seconds"], "scheduler elapsed") <= 0
+        ):
+            raise PerformanceAcceptanceError(
+                "scheduler-window time closure differs"
+            )
         elapsed = (finish - start).total_seconds()
-        if elapsed <= 0:
-            raise PerformanceAcceptanceError("scheduler window is not positive")
         reasons = raw.get("admission_blocked_task_count_by_reason")
-        if not isinstance(reasons, Mapping):
+        if not isinstance(reasons, Mapping) or set(reasons) != _ADMISSION_REASONS:
             raise PerformanceAcceptanceError("scheduler admission reasons differ")
+        reason_counts = {
+            reason: _integer(
+                reasons[reason],
+                f"scheduler reason {reason}",
+            )
+            for reason in _ADMISSION_REASONS
+        }
         non_worker_block = any(
-            _integer(reasons.get(reason), f"scheduler reason {reason}") > 0
+            reason_counts[reason] > 0
             for reason in _NON_WORKER_ADMISSION_REASONS
+        )
+        ready = _integer(raw["ready_task_count"], "scheduler ready tasks")
+        running = _integer(raw["running_task_count"], "scheduler running tasks")
+        runnable = _integer(
+            raw["runnable_cpu_slots"],
+            "scheduler runnable CPU slots",
+        )
+        reserved_cpu = _integer(
+            raw["reserved_cpu_slots"],
+            "scheduler reserved CPU slots",
         )
         managed = _integer(
             raw.get("managed_memory_bytes"),
@@ -383,19 +473,41 @@ def _scheduler_windows(
             raw.get("reserved_memory_bytes"),
             "scheduler reserved memory",
         )
+        reserved_io = _integer(
+            raw["reserved_connectome_io_slots"],
+            "scheduler reserved connectome I/O slots",
+        )
+        reserved_solver = _integer(
+            raw["reserved_external_solver_slots"],
+            "scheduler reserved solver slots",
+        )
         if (
-            managed < minimum_managed
+            running > workers
+            or runnable > workers
+            or runnable != min(workers, ready + running)
+            or reserved_cpu > workers
+            or managed < minimum_managed
             or managed > maximum_managed
             or reserved_memory > managed
+            or reserved_io > connectome_io_slots
+            or reserved_solver > external_solver_slots
         ):
             raise PerformanceAcceptanceError(
-                "scheduler managed-memory reservation differs"
+                "scheduler reservation exceeds its declared boundary"
+            )
+        storage_limited = raw["storage_limited"]
+        if (
+            type(storage_limited) is not bool
+            or storage_limited != (reason_counts["connectome_io"] > 0)
+        ):
+            raise PerformanceAcceptanceError(
+                "scheduler storage classification differs"
             )
         is_eligible = (
             workers == 12
-            and _integer(raw.get("runnable_cpu_slots"), "runnable CPU slots") > 5
+            and runnable > 5
             and not non_worker_block
-            and raw.get("storage_limited") is False
+            and not storage_limited
         )
         effective = (_cpu_at(probe, finish) - _cpu_at(probe, start)) / elapsed
         if effective < 0:
@@ -405,12 +517,26 @@ def _scheduler_windows(
         windows.append(
             {
                 "index": index,
+                "start_utc": str(raw["start_utc"]),
+                "finish_utc": str(raw["finish_utc"]),
                 "effective_cores": effective,
                 "eligible": is_eligible,
+                "ready_task_count": ready,
+                "running_task_count": running,
+                "runnable_cpu_slots": runnable,
+                "reserved_cpu_slots": reserved_cpu,
                 "managed_memory_bytes": managed,
                 "reserved_memory_bytes": reserved_memory,
+                "reserved_connectome_io_slots": reserved_io,
+                "reserved_external_solver_slots": reserved_solver,
+                "admission_blocked_task_count_by_reason": {
+                    reason: reason_counts[reason]
+                    for reason in sorted(reason_counts)
+                },
+                "storage_limited": storage_limited,
             }
         )
+        prior_finish = finish
     return {
         "path": str(path),
         "sha256": expected_sha,
@@ -477,7 +603,10 @@ def _validate_executed_row(
     segment = _read_json(segment_path, "execution segment")
     workers = int(row["workers"])
     if (
-        segment.get("status") != "finished"
+        segment.get("schema_version")
+        != "dual_frequency_execution_segment_v1"
+        or segment.get("segment_id") != segment_id
+        or segment.get("status") != "finished"
         or segment.get("pool_mode") != "spawn_process"
         or segment.get("workers") != workers
         or segment.get("pool_generation_count") != 1
