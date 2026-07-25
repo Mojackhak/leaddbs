@@ -394,6 +394,17 @@ implementation, or unrelated repository path. This proves review scope only;
 the ancestry and changed-path closure must be recomputed immediately before the
 eventual fast-forward merge.
 
+A matching semantic audit confirms that the added fixture descriptor defaults
+to null, ordinary main and sensitivity worker construction never populate it,
+and only benchmark warm-seed and measured-row construction derives it from the
+prevalidated fixture document. Worker initialization retains the ordinary
+provider class and changes only its OSS toolchain when that explicit descriptor
+is present. Four focused tests covering descriptor validation, injected
+toolchain isolation, ordinary production initialization, and accepted-row
+closure passed under Conda `leaddbs` with warnings treated as errors. This
+closes the pre-merge production-path isolation review; it does not replace the
+post-merge complete regression.
+
 The complete isolated dual-frequency test tree was collected read-only on
 2026-07-25 through package-only Python-path links. All 764 tests were discovered
 without an import or collection error. This is runner-readiness evidence only:
