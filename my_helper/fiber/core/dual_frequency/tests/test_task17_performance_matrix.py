@@ -419,6 +419,35 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             ):
                 harness._validate_row_result(root, contract_sha)
 
+    def test_prepare_publishes_and_validates_all_row_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan_identity = "a" * 64
+            rows = harness._row_keys(("ppmi", "mgh", "dtor"))
+            for row in rows:
+                row["slice_id"] = "b" * 64
+                row["planned_status"] = (
+                    "not_run"
+                    if row["solver_mode"] == "real_solver"
+                    else "planned"
+                )
+                row["row_id"] = harness._row_id(plan_identity, row)
+            resolved = {
+                "maximum_task_tree_rss_bytes": 64 * 1024**3,
+                "rows": rows,
+            }
+            closure = harness._row_contract_closure(resolved)
+            self.assertEqual(len(closure), 72)
+            harness._publish_row_contracts(root, resolved, closure)
+            harness._validate_row_contracts(root, resolved, closure)
+            missing = root / closure[0]["relative_path"]
+            missing.unlink()
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "contract differs",
+            ):
+                harness._validate_row_contracts(root, resolved, closure)
+
 
 if __name__ == "__main__":
     unittest.main()

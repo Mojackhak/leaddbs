@@ -156,13 +156,21 @@ def _read_json(path: Path, label: str) -> dict[str, Any]:
     return document
 
 
-def _atomic_json(path: Path, document: Mapping[str, object]) -> None:
-    text = json.dumps(
+def _json_text(document: Mapping[str, object]) -> str:
+    return json.dumps(
         dict(document),
         indent=2,
         sort_keys=True,
         allow_nan=False,
     ) + "\n"
+
+
+def _document_sha256(document: Mapping[str, object]) -> str:
+    return hashlib.sha256(_json_text(document).encode("utf-8")).hexdigest()
+
+
+def _atomic_json(path: Path, document: Mapping[str, object]) -> None:
+    text = _json_text(document)
     if path.exists():
         if not path.is_file() or path.read_text(encoding="utf-8") != text:
             raise PerformanceMatrixHarnessError(
@@ -1009,6 +1017,105 @@ def _validate_row_result(
     return document
 
 
+def _row_contract_closure(
+    resolved_plan: Mapping[str, object],
+) -> list[dict[str, str]]:
+    rows = resolved_plan.get("rows")
+    if not isinstance(rows, list) or len(rows) != 72:
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark row closure differs"
+        )
+    closure: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise PerformanceMatrixHarnessError(
+                "resolved benchmark row must be an object"
+            )
+        contract = _row_contract(resolved_plan, row)
+        row_id = str(contract["row_id"])
+        if row_id in seen:
+            raise PerformanceMatrixHarnessError(
+                "resolved benchmark row ID is duplicated"
+            )
+        seen.add(row_id)
+        closure.append(
+            {
+                "row_id": row_id,
+                "relative_path": f"rows/{row_id}/row_contract.json",
+                "sha256": _document_sha256(contract),
+            }
+        )
+    return sorted(closure, key=lambda item: item["row_id"])
+
+
+def _publish_row_contracts(
+    root: Path,
+    resolved_plan: Mapping[str, object],
+    closure: Sequence[Mapping[str, str]],
+) -> None:
+    root = root.expanduser().resolve()
+    rows = resolved_plan["rows"]
+    row_index = {str(row["row_id"]): row for row in rows}
+    for item in closure:
+        row_id = str(item["row_id"])
+        contract = _row_contract(resolved_plan, row_index[row_id])
+        path, digest = _ensure_row_contract(root / "rows" / row_id, contract)
+        expected = root / str(item["relative_path"])
+        if path != expected or digest != item["sha256"]:
+            raise PerformanceMatrixHarnessError(
+                "published benchmark row contract differs"
+            )
+
+
+def _validate_row_contracts(
+    root: Path,
+    resolved_plan: Mapping[str, object],
+    closure: Sequence[Mapping[str, str]],
+) -> None:
+    root = root.expanduser().resolve()
+    rows_root = root / "rows"
+    expected_ids = {str(item["row_id"]) for item in closure}
+    actual_ids = {
+        path.name
+        for path in rows_root.glob("row_*")
+        if path.is_dir()
+    }
+    if actual_ids != expected_ids:
+        raise PerformanceMatrixHarnessError(
+            "prepared benchmark row-directory closure differs"
+        )
+    row_index = {
+        str(row["row_id"]): row for row in resolved_plan["rows"]
+    }
+    for item in closure:
+        row_id = str(item["row_id"])
+        relative = Path(str(item["relative_path"]))
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or relative
+            != Path("rows") / row_id / "row_contract.json"
+        ):
+            raise PerformanceMatrixHarnessError(
+                "prepared benchmark row-contract path differs"
+            )
+        path = root / relative
+        expected_contract = _row_contract(
+            resolved_plan,
+            row_index[row_id],
+        )
+        if (
+            not path.is_file()
+            or _sha256_file(path) != item["sha256"]
+            or _read_json(path, "benchmark row contract")
+            != expected_contract
+        ):
+            raise PerformanceMatrixHarnessError(
+                "prepared benchmark row contract differs"
+            )
+
+
 def _authorization(
     raw: object,
 ) -> dict[str, object]:
@@ -1345,11 +1452,13 @@ def _prepare_document(
         "slices": [slices[key] for key in sorted(slices)],
         "rows": rows,
     }
+    row_contracts = _row_contract_closure(resolved)
     marker = {
         "schema_version": _MARKER_SCHEMA,
         "plan_id": request["plan_id"],
         "request_sha256": request_sha,
         "resolved_plan_sha256": _canonical_sha256(resolved),
+        "row_contracts": row_contracts,
         "benchmark_root": str(root),
     }
     return resolved, marker
@@ -1361,8 +1470,38 @@ def prepare(request_path: Path, benchmark_root: Path) -> dict[str, object]:
     resolved, marker = _prepare_document(request_path, benchmark_root)
     root = Path(str(marker["benchmark_root"]))
     root.mkdir(parents=True, exist_ok=True)
+    marker_path = root / "benchmark_root.json"
+    if marker_path.exists():
+        stored_plan = _read_json(
+            root / "benchmark_plan_resolved.json",
+            "resolved benchmark plan",
+        )
+        stored_marker = _read_json(
+            marker_path,
+            "benchmark root marker",
+        )
+        if stored_plan != resolved or stored_marker != marker:
+            raise PerformanceMatrixHarnessError(
+                "prepared benchmark plan differs from current authority"
+            )
+        _validate_row_contracts(
+            root,
+            resolved,
+            marker["row_contracts"],
+        )
+        return {
+            "status": "prepared",
+            "benchmark_root": str(root),
+            "resolved_plan_sha256": marker["resolved_plan_sha256"],
+            "row_count": len(resolved["rows"]),
+        }
     _atomic_json(root / "benchmark_plan_resolved.json", resolved)
-    _atomic_json(root / "benchmark_root.json", marker)
+    _publish_row_contracts(
+        root,
+        resolved,
+        marker["row_contracts"],
+    )
+    _atomic_json(marker_path, marker)
     return {
         "status": "prepared",
         "benchmark_root": str(root),
@@ -1391,6 +1530,11 @@ def validate_existing(
         raise PerformanceMatrixHarnessError(
             "prepared benchmark plan differs from current authority"
         )
+    _validate_row_contracts(
+        root,
+        resolved,
+        marker["row_contracts"],
+    )
     return {
         "status": "validated",
         "benchmark_root": str(root),
