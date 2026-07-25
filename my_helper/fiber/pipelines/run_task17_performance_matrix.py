@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import time
@@ -709,6 +710,156 @@ def _accepted_oss_cache_closure(
     return {
         **closure,
         "closure_sha256": _canonical_sha256(closure),
+    }
+
+
+def _accepted_oss_cache_entry_descriptors(
+    closure: Mapping[str, object],
+) -> tuple[dict[str, str], ...]:
+    """Return the exact deduplicated decision and row entries in one closure."""
+
+    groups = closure.get("groups")
+    rows = closure.get("rows")
+    if not isinstance(groups, list) or not isinstance(rows, list):
+        raise PerformanceMatrixHarnessError(
+            "accepted OSS cache closure is incomplete"
+        )
+    output: dict[tuple[str, str], dict[str, str]] = {}
+    for item in rows:
+        if not isinstance(item, Mapping):
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS row descriptor is invalid"
+            )
+        descriptor = {
+            "kind": "oss_rows",
+            "scientific_identity": str(item.get("scientific_identity", "")),
+            "manifest_sha256": str(item.get("manifest_sha256", "")),
+        }
+        output[
+            (descriptor["kind"], descriptor["scientific_identity"])
+        ] = descriptor
+    for group in groups:
+        decisions = group.get("decisions") if isinstance(group, Mapping) else None
+        if not isinstance(decisions, list):
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS decision descriptor is invalid"
+            )
+        for item in decisions:
+            if not isinstance(item, Mapping):
+                raise PerformanceMatrixHarnessError(
+                    "accepted OSS decision descriptor is invalid"
+                )
+            descriptor = {
+                "kind": "oss_axis_equivalence",
+                "scientific_identity": str(item.get("decision_id", "")),
+                "manifest_sha256": str(item.get("manifest_sha256", "")),
+            }
+            output[
+                (descriptor["kind"], descriptor["scientific_identity"])
+            ] = descriptor
+    descriptors = tuple(output[key] for key in sorted(output))
+    if not descriptors:
+        raise PerformanceMatrixHarnessError(
+            "accepted OSS cache closure contains no entries"
+        )
+    for descriptor in descriptors:
+        for field in ("scientific_identity", "manifest_sha256"):
+            value = descriptor[field]
+            if (
+                len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "accepted OSS cache descriptor identity is invalid"
+                )
+    return descriptors
+
+
+def _copy_verified_cache_entries(
+    *,
+    source_cache_root: Path,
+    destination_cache_root: Path,
+    entries: Sequence[Mapping[str, str]],
+) -> dict[str, object]:
+    """Copy exact accepted entries into one empty cache and revalidate them."""
+
+    source_root = source_cache_root.expanduser().resolve()
+    destination_root = destination_cache_root.expanduser().resolve()
+    if (
+        source_root == destination_root
+        or source_root in destination_root.parents
+        or destination_root in source_root.parents
+    ):
+        raise PerformanceMatrixHarnessError(
+            "cache seed source and destination overlap"
+        )
+    if destination_root.exists() and any(destination_root.iterdir()):
+        raise PerformanceMatrixHarnessError(
+            "cache seed destination must be empty"
+        )
+    destination_root.mkdir(parents=True, exist_ok=True)
+    source = ContentAddressedCache(source_root)
+    destination = ContentAddressedCache(destination_root)
+    copied: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw in entries:
+        if set(raw) != {"kind", "scientific_identity", "manifest_sha256"}:
+            raise PerformanceMatrixHarnessError(
+                "cache seed entry fields differ"
+            )
+        kind = str(raw["kind"])
+        identity = str(raw["scientific_identity"])
+        manifest_sha256 = str(raw["manifest_sha256"])
+        key = (kind, identity)
+        if key in seen:
+            raise PerformanceMatrixHarnessError(
+                "cache seed entry identity is duplicated"
+            )
+        seen.add(key)
+        entry = source.resolve_identity(kind, identity)
+        if (
+            entry is None
+            or _sha256_file(entry.manifest_path) != manifest_sha256
+        ):
+            raise PerformanceMatrixHarnessError(
+                "cache seed source entry differs from its accepted manifest"
+            )
+        destination_path = destination.entry_path(entry.key)
+        if destination_path.exists():
+            raise PerformanceMatrixHarnessError(
+                "cache seed destination entry already exists"
+            )
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(
+            entry.path,
+            destination_path,
+            symlinks=False,
+            copy_function=shutil.copy2,
+        )
+        copied_entry = destination.resolve_identity(kind, identity)
+        if (
+            copied_entry is None
+            or _sha256_file(copied_entry.manifest_path) != manifest_sha256
+        ):
+            raise PerformanceMatrixHarnessError(
+                "copied cache seed entry failed full verification"
+            )
+        copied.append(
+            {
+                "kind": kind,
+                "scientific_identity": identity,
+                "manifest_sha256": manifest_sha256,
+            }
+        )
+    document = {
+        "schema_version": "dual_frequency_task17_cache_seed_v1",
+        "source_cache_root": str(source_root),
+        "destination_cache_root": str(destination_root),
+        "entries": copied,
+    }
+    return {
+        **document,
+        "seed_sha256": _canonical_sha256(document),
     }
 
 

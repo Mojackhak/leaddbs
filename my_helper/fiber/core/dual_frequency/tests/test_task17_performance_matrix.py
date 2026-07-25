@@ -250,6 +250,31 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 closure["groups"][0]["decision_ids"],
                 [decision_key.digest],
             )
+            descriptors = harness._accepted_oss_cache_entry_descriptors(
+                closure
+            )
+            seed = harness._copy_verified_cache_entries(
+                source_cache_root=cache.root,
+                destination_cache_root=root / "row-cache",
+                entries=descriptors,
+            )
+            self.assertEqual(len(seed["entries"]), 3)
+            copied_cache = ContentAddressedCache(root / "row-cache")
+            self.assertIsNotNone(
+                copied_cache.resolve_identity(
+                    "oss_axis_equivalence",
+                    decision_key.digest,
+                )
+            )
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "destination must be empty",
+            ):
+                harness._copy_verified_cache_entries(
+                    source_cache_root=cache.root,
+                    destination_cache_root=root / "row-cache",
+                    entries=descriptors,
+                )
 
     def test_exact_three_connectome_key_closure_has_72_rows(self) -> None:
         rows = harness._row_keys(("ppmi", "mgh", "dtor"))
