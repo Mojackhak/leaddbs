@@ -144,6 +144,12 @@ ordinary warm seeds may enumerate only their initially empty benchmark-local
 cache, fully validate each resulting entry, publish a slice-bound nonempty
 entry closure, and direct-copy that exact closure into an empty measured-row
 cache. Changed slice IDs, manifests, or entry sets fail before measurement.
+The row-cache dispatcher now materializes each frozen condition explicitly:
+ordinary and real-solver cold use a proven-empty cache; ordinary and injected
+warm use the slice-bound unmeasured seed; injected rows also receive their
+separate accepted-row fixture; and real-cache-hit warm receives the verified
+independent OSS row/decision closure. Invalid cold real-cache-hit combinations
+fail before runner startup.
 
 ## Final Closure Rule
 
