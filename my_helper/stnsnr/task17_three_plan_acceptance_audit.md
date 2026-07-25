@@ -248,6 +248,14 @@ isolated worktree. Merge and complete regression remain intentionally deferred
 until independent OSS releases the production checkout and its memory
 reservation.
 
+The isolated handoff is frozen as two ordered commits on top of main baseline
+`f08658f0d`: implementation commit `186b36d6f` and request commit
+`ae0b60486`. The frozen request SHA-256 is
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+The terminal merge sequence must preserve this order and revalidate the request
+digest before `prepare`; neither commit authorizes benchmark execution while the
+independent OSS lineage remains active.
+
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
 It references only the parent-run input copies, declares the 64-GiB ceiling,
