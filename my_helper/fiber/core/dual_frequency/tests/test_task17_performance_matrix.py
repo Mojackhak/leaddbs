@@ -690,6 +690,23 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 attempt_plan["selected_task_ids"],
                 [selected.task_id],
             )
+            (
+                reopened_attempt_plan,
+                reopened_states,
+                reopened_cache_state,
+                reopened_descriptor,
+                reopened_execution_plan,
+            ) = harness._open_row_attempt_inputs(
+                resolved=resolved,
+                row=row,
+                benchmark_root=root / "benchmark",
+                attempt_root=attempt,
+            )
+            self.assertEqual(reopened_attempt_plan, attempt_plan)
+            self.assertEqual(reopened_states, states)
+            self.assertEqual(reopened_cache_state["cache_source"], "empty")
+            self.assertEqual(reopened_descriptor, descriptor)
+            self.assertEqual(reopened_execution_plan, sliced)
 
     def test_execution_slice_replaces_only_direct_parents_with_checkpoints(
         self,

@@ -2426,6 +2426,277 @@ def _prepare_row_attempt(
     return attempt_root, attempt_plan
 
 
+def _open_row_attempt_inputs(
+    *,
+    resolved: Mapping[str, object],
+    row: Mapping[str, object],
+    benchmark_root: Path,
+    attempt_root: Path,
+) -> tuple[
+    dict[str, object],
+    tuple[dict[str, object], ...],
+    dict[str, object],
+    dict[str, object],
+    ExecutionPlan,
+]:
+    """Revalidate one committed attempt before opening its runner RunStore."""
+
+    row_id = row.get("row_id")
+    if type(row_id) is not str:
+        raise PerformanceMatrixHarnessError(
+            "benchmark attempt row identity is invalid"
+        )
+    expected_parent = (
+        benchmark_root.expanduser().resolve()
+        / "rows"
+        / row_id
+        / "attempts"
+    )
+    root = attempt_root.expanduser().resolve()
+    if root.parent != expected_parent or root.is_symlink():
+        raise PerformanceMatrixHarnessError(
+            "benchmark attempt path differs from its row"
+        )
+    plan_path = root / "attempt_plan.json"
+    attempt_plan = _read_json(plan_path, "benchmark attempt plan")
+    expected_plan_fields = {
+        "schema_version",
+        "row_id",
+        "attempt",
+        "row_contract_sha256",
+        "slice_id",
+        "segment_plan_sha256",
+        "selected_task_ids",
+        "imported_parent_task_ids",
+        "imported_oss_task_ids",
+        "checkpoint_closure",
+        "row_cache_state",
+        "attempt_plan_sha256",
+    }
+    unsigned_plan = {
+        key: value
+        for key, value in attempt_plan.items()
+        if key != "attempt_plan_sha256"
+    }
+    descriptor, execution_plan = _resolved_slice(resolved, row)
+    contract_path = root.parents[1] / "row_contract.json"
+    if (
+        set(attempt_plan) != expected_plan_fields
+        or attempt_plan.get("schema_version")
+        != "dual_frequency_task17_row_attempt_v1"
+        or attempt_plan.get("row_id") != row_id
+        or type(attempt_plan.get("attempt")) is not int
+        or attempt_plan["attempt"] < 1
+        or root.name != f"attempt_{attempt_plan['attempt']:04d}"
+        or attempt_plan.get("attempt_plan_sha256")
+        != _canonical_sha256(unsigned_plan)
+        or not contract_path.is_file()
+        or attempt_plan.get("row_contract_sha256")
+        != _sha256_file(contract_path)
+        or attempt_plan.get("slice_id") != descriptor["slice_id"]
+        or attempt_plan.get("segment_plan_sha256")
+        != descriptor["plan_hash"]
+        or attempt_plan.get("selected_task_ids")
+        != descriptor["selected_task_ids"]
+        or attempt_plan.get("imported_parent_task_ids")
+        != descriptor["imported_parent_task_ids"]
+        or attempt_plan.get("imported_oss_task_ids")
+        != descriptor["imported_oss_task_ids"]
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark attempt plan identity differs"
+        )
+
+    def referenced_document(field: str, label: str) -> dict[str, object]:
+        raw = attempt_plan.get(field)
+        if (
+            not isinstance(raw, Mapping)
+            or set(raw) != {"relative_path", "sha256"}
+        ):
+            raise PerformanceMatrixHarnessError(
+                f"{label} reference is invalid"
+            )
+        path = (root / str(raw["relative_path"])).resolve()
+        if (
+            root not in path.parents
+            or not path.is_file()
+            or _sha256_file(path) != raw["sha256"]
+        ):
+            raise PerformanceMatrixHarnessError(
+                f"{label} reference SHA differs"
+            )
+        return _read_json(path, label)
+
+    checkpoint = referenced_document(
+        "checkpoint_closure",
+        "benchmark checkpoint inputs",
+    )
+    if (
+        set(checkpoint)
+        != {
+            "schema_version",
+            "source_closure",
+            "task_states",
+            "document_sha256",
+        }
+        or checkpoint.get("schema_version")
+        != "dual_frequency_task17_attempt_checkpoint_inputs_v1"
+        or checkpoint.get("document_sha256")
+        != _canonical_sha256(
+            {
+                key: value
+                for key, value in checkpoint.items()
+                if key != "document_sha256"
+            }
+        )
+        or not isinstance(checkpoint.get("task_states"), list)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark checkpoint input document differs"
+        )
+    states = tuple(dict(value) for value in checkpoint["task_states"])
+    planned_types = {
+        task.task_id: task.output_record_type
+        for task in execution_plan.tasks
+        if task.checkpoint_only
+    }
+    if {str(state.get("task_id")) for state in states} != set(planned_types):
+        raise PerformanceMatrixHarnessError(
+            "benchmark checkpoint task closure differs"
+        )
+    for state in states:
+        result_payload = state.get("result")
+        if (
+            state.get("status") != "completed"
+            or not isinstance(result_payload, Mapping)
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark checkpoint task state differs"
+            )
+        result = ServiceResult.from_dict(result_payload)
+        result.decode_record()
+        if result.output_record_type != planned_types[state["task_id"]]:
+            raise PerformanceMatrixHarnessError(
+                "benchmark checkpoint task result type differs"
+            )
+
+    cache_state = referenced_document(
+        "row_cache_state",
+        "benchmark row cache state",
+    )
+    if (
+        set(cache_state)
+        != {
+            "schema_version",
+            "cache_state",
+            "solver_mode",
+            "slice_id",
+            "scientific_cache_root",
+            "cache_source",
+            "cache_evidence",
+            "injected_fixture",
+            "state_sha256",
+        }
+        or cache_state.get("schema_version")
+        != "dual_frequency_task17_row_cache_state_v1"
+        or cache_state.get("cache_state") != row.get("cache_state")
+        or cache_state.get("solver_mode") != row.get("solver_mode")
+        or cache_state.get("slice_id") != row.get("slice_id")
+        or cache_state.get("state_sha256")
+        != _canonical_sha256(
+            {
+                key: value
+                for key, value in cache_state.items()
+                if key != "state_sha256"
+            }
+        )
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark row cache state identity differs"
+        )
+    cache_root = Path(
+        str(cache_state.get("scientific_cache_root", ""))
+    ).expanduser().resolve()
+    if root not in cache_root.parents or not cache_root.is_dir():
+        raise PerformanceMatrixHarnessError(
+            "benchmark row scientific cache path differs"
+        )
+    actual_entries = _isolated_cache_entry_descriptors(cache_root)
+    if cache_state.get("cache_source") == "empty":
+        expected_entries: list[dict[str, str]] = []
+    else:
+        cache_evidence = cache_state.get("cache_evidence")
+        if (
+            not isinstance(cache_evidence, Mapping)
+            or not isinstance(cache_evidence.get("entries"), list)
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark row cache evidence is invalid"
+            )
+        expected_entries = cache_evidence["entries"]
+    if list(actual_entries) != expected_entries:
+        raise PerformanceMatrixHarnessError(
+            "benchmark row cache entry closure differs"
+        )
+    fixture = cache_state.get("injected_fixture")
+    if row.get("solver_mode") == "injected":
+        accepted = resolved.get("accepted_oss_cache")
+        expected_closure_sha = (
+            accepted.get("closure_sha256")
+            if isinstance(accepted, Mapping)
+            else None
+        )
+        expected_fixture_fields = {
+            "schema_version",
+            "accepted_closure_sha256",
+            "fixture_cache_root",
+            "permitted_row_identities",
+            "seed_sha256",
+            "fixture_sha256",
+        }
+        if (
+            not isinstance(fixture, Mapping)
+            or set(fixture) != expected_fixture_fields
+            or fixture.get("schema_version")
+            != "dual_frequency_task17_injected_oss_fixture_v1"
+            or fixture.get("accepted_closure_sha256")
+            != expected_closure_sha
+            or fixture.get("fixture_sha256")
+            != _canonical_sha256(
+                {
+                    key: value
+                    for key, value in fixture.items()
+                    if key != "fixture_sha256"
+                }
+            )
+            or not isinstance(fixture.get("permitted_row_identities"), list)
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark injected OSS fixture identity differs"
+            )
+        fixture_root = Path(
+            str(fixture["fixture_cache_root"])
+        ).expanduser().resolve()
+        if root not in fixture_root.parents:
+            raise PerformanceMatrixHarnessError(
+                "benchmark injected OSS fixture path differs"
+            )
+        fixture_entries = _isolated_cache_entry_descriptors(fixture_root)
+        if (
+            any(item["kind"] != "oss_rows" for item in fixture_entries)
+            or [item["scientific_identity"] for item in fixture_entries]
+            != fixture["permitted_row_identities"]
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark injected OSS fixture row closure differs"
+            )
+    elif fixture is not None:
+        raise PerformanceMatrixHarnessError(
+            "non-injected benchmark row contains an OSS fixture"
+        )
+    return attempt_plan, states, cache_state, descriptor, execution_plan
+
+
 def _authorization(
     raw: object,
 ) -> dict[str, object]:
