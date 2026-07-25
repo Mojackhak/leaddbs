@@ -584,12 +584,24 @@ The complete isolated dual-frequency test tree was collected read-only on
 `dual_frequency` and `seed_target_connectivity` from the isolated worktree,
 while the worktree root exposes `my_helper`; it does not expose the entire
 `my_helper/fiber/core` directory. All 764 tests were discovered without an
-import or collection error. The same bridge now passes all seven synthetic
+import or collection error. The same bridge passes all seven synthetic
 end-to-end tests, including four-family main execution, selective resume,
 independent jitter and OSS extensions, missing-parent rebuild, and guarded
-cleanup. This is runner-readiness evidence only: it does not claim that the
-complete regression executed, and the post-merge full run remains mandatory
-after the active OSS resource reservation ends.
+cleanup.
+
+The complete isolated tree was then executed in one invocation with warnings
+treated as errors. It produced 751 passes, four explicit skips, and 314 passing
+subtests. The remaining nine items failed only because the sparse performance
+worktree deliberately lacks the repository-owned acceptance allowlist, frozen
+evidence tree, and MNI template segmask. Five frozen or allowlist items passed
+when invoked from the authoritative main-checkout fixture paths while retaining
+the isolated implementation bridge. The four segmask-dependent input-provider
+items passed against the main-checkout module and template; that module is
+byte-identical across the two heads and is outside the eight-path isolated
+change closure. This closes every collected item without copying fixtures into
+or dirtying the isolated worktree. It remains pre-merge evidence rather than a
+substitute for the required single all-green post-merge regression after the
+active OSS resource reservation ends.
 
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
