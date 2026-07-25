@@ -116,6 +116,13 @@ selected tests. This revalidates the offline implementation boundary but does
 not replace canonical publication, the 112-endpoint render, identical resume,
 or visual review.
 
+The frozen formal postprocess request was also audited read-only. Its SHA-256 is
+`144ad7a1e775c1bf01f5d99df285a87b31bae7075aa3692d714201f1953e6ab0`.
+It names exactly the canonical direct-voxel and normative-fiber main and
+final-in-sample publications, contains no `.runs` path, selects all available
+scales, and requests paired-fit, voxel 2-D, and fiber 2-D components. The
+configured output root remains absent until its production execution gate.
+
 The same isolated checkpoint repeated the fault-acceptance, resource-guard,
 strict and pre-instrumentation resource-validation, artifact/static audit,
 performance-acceptance, byte-ledger, counter, and probe suites. All 99 tests and
