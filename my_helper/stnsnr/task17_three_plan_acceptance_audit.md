@@ -110,7 +110,7 @@ exact deduplicated entry list, requires an empty and disjoint row-local cache,
 copies only the bound row and decision identities, and reopens every copied
 entry through the ordinary full cache validator before returning one canonical
 seed SHA. Reuse of a nonempty destination fails instead of merging state. The
-focused performance-harness suite now has 21 passing tests. It covers the
+focused performance-harness suite now has 22 passing tests. It covers the
 required reference/add-on gate-family closure as well as extending the accepted
 cache-closure fixture with seed-copy assertions.
 
@@ -128,6 +128,9 @@ or changed row/slice bindings fail before any runner child is launched.
 It can also open the marker-complete benchmark root without repair, bind the
 original minimal request SHA and plan ID, rederive the resolved-plan SHA, and
 revalidate all 72 immutable row contracts before selecting work.
+Checkpoint-root loading now requires the exact persisted parent/OSS task IDs,
+completed result envelopes, planned output-record types, source-file SHAs, and
+full slice closure; overlap with any selected task fails before import.
 
 ## Final Closure Rule
 
