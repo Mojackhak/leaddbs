@@ -8590,6 +8590,22 @@ tests plus 326 subtests with warnings treated as errors. The new production
 resume is therefore authorized, but its cache-reuse and first-solver-call
 evidence remain open until the guarded segment runs.
 
+Guarded `segment_0017` supplied the first production evidence. Reference
+historical promotion reached a terminal accepted group with 34 decisions and
+68 rows and no reference solver call. The add-on gate reused its completed
+cache and reached only missing producer work. A later MATLAB preprocessing
+launch returned code 1 with empty logs, so the segment finished with 393
+completed tasks, one failed add-on gate, and 196 dependency skips. The guard
+recorded a 20272988160-byte task-tree RSS peak, swap growth `< 1` byte, and no
+stop event other than normal runner exit.
+
+The same MATLAB batch executable passed a bounded readiness command immediately
+after diagnosis. No code, scientific identity, cache identity, or resource
+setting changes are justified by this isolated external startup failure.
+Resume the same lineage under a fresh segment and guard. It must restore the
+stable reference gate, reuse every complete add-on cache, and retry only the
+failed add-on gate and its dependency-derived descendants.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after

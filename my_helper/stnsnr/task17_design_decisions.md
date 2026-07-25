@@ -1315,3 +1315,20 @@ warnings treated as errors. The new fixtures prove the 512-MiB cache-only
 grant, zero cache-only I/O and solver tokens, immediate structural rejection,
 and recovery from a low-memory idle interval into an authorized 48-GiB solver
 grant. Production evidence remains required.
+
+Production `segment_0017` accepted the Decision 40 admission repair. It
+promoted and committed the terminal reference group as 34 decisions and 68
+rows without a reference solver call. The add-on gate retained its three pass
+decisions and six complete historical rows, entered only its missing producer
+work, and then failed when a later MATLAB preprocessing command returned code
+1 with empty standard-output and standard-error logs. The segment closed with
+393 completed tasks, one failed add-on gate, and 196 dependency-derived skips.
+Its complete task-tree RSS peak was 20272988160 bytes, which was `< 64 GiB`;
+swap growth was `< 1` byte and the guard emitted only `runner_exit`.
+
+A bounded post-failure MATLAB batch printed `TASK17_BATCH_READY` and returned
+success in about 14 seconds. This supports a transient MATLAB batch-start
+classification rather than a cache, OSS numerical, or resource-contract
+failure. The failed workspace and every published cache remain preserved.
+Resume may retry the failed add-on gate in a new guarded segment without
+replaying the now-stable reference group or any completed add-on cache.
