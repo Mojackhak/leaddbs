@@ -110,7 +110,7 @@ exact deduplicated entry list, requires an empty and disjoint row-local cache,
 copies only the bound row and decision identities, and reopens every copied
 entry through the ordinary full cache validator before returning one canonical
 seed SHA. Reuse of a nonempty destination fails instead of merging state. The
-focused performance-harness suite now has 27 passing tests. It covers the
+focused performance-harness suite now has 28 passing tests. It covers the
 required reference/add-on gate-family closure as well as extending the accepted
 cache-closure fixture with seed-copy assertions.
 
@@ -185,9 +185,9 @@ segment and one terminal `runner_exit`, builds the byte ledger, requires the
 probe and ledger byte totals to match, runs the artifact/static audit and
 counter builder, and publishes a SHA-closed terminal row only after all
 evidence succeeds. Failures retain a partial monotonic attempt and terminate
-only the two harness-owned process groups. Unmeasured ordinary warm-seed
-execution, injected spawned-worker support, matrix-level manifest/acceptance,
-and the public `run` operation remain pending.
+only the two harness-owned process groups. Injected spawned-worker support,
+matrix-level manifest/acceptance, and the public `run` operation remain
+pending.
 
 Configured candidate-parity generation is no longer an implementation gap.
 The harness now requires the exact 224 prepared-endpoint closure and pairs it
@@ -202,6 +202,16 @@ parent produced 224 rows, all four model families, 8 unique physical parent
 exposures, and 8 unique selected-ID payloads. The production-scale report scan
 has not run because the independent OSS process still owns the active VAL
 workload; parity acceptance therefore remains pending.
+
+The ordinary unmeasured warm-seed executor is implemented. It derives 7
+ordinary seed slices plus one injected slice, runs each ordinary slice once
+against a proven-empty isolated cache, binds its exact imported checkpoints,
+rejects restored selected tasks, fully verifies the resulting cache, and
+publishes the seed manifest last. Existing seeds must remain below their own
+transaction root and revalidate byte-for-byte. Real-cache-hit pPAM continues
+to use the independent OSS closure directly. The injected seed remains
+fail-closed until the spawned-worker fixture is installed after independent
+OSS terminates.
 
 ## Final Closure Rule
 

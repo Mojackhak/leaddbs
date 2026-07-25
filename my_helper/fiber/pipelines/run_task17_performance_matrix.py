@@ -3817,6 +3817,280 @@ def _workflow_bundle_from_resolved(
     return service, bundle
 
 
+def _warm_seed_rows(
+    resolved: Mapping[str, object],
+) -> tuple[dict[str, object], ...]:
+    """Select one canonical unmeasured producer row for every warm seed."""
+
+    raw_rows = resolved.get("rows")
+    if not isinstance(raw_rows, list):
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark rows are missing"
+        )
+    selected: dict[str, dict[str, object]] = {}
+    for raw in raw_rows:
+        if not isinstance(raw, Mapping):
+            raise PerformanceMatrixHarnessError(
+                "resolved benchmark row is invalid"
+            )
+        if (
+            raw.get("cache_state") != "warm"
+            or raw.get("solver_mode") == "real_cache_hit"
+        ):
+            continue
+        slice_id = str(raw.get("slice_id", ""))
+        if len(slice_id) != 64:
+            raise PerformanceMatrixHarnessError(
+                "warm-seed slice identity differs"
+            )
+        current = selected.get(slice_id)
+        candidate = dict(raw)
+        if current is None or (
+            int(candidate["workers"]),
+            str(candidate["row_id"]),
+        ) < (
+            int(current["workers"]),
+            str(current["row_id"]),
+        ):
+            selected[slice_id] = candidate
+    rows = tuple(selected[key] for key in sorted(selected))
+    if (
+        len(rows) != 8
+        or sum(row.get("solver_mode") == "injected" for row in rows) != 1
+        or any(row.get("planned_status") != "planned" for row in rows)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "warm-seed row closure differs"
+        )
+    return rows
+
+
+def _execute_unmeasured_warm_seed(
+    *,
+    resolved: Mapping[str, object],
+    row: Mapping[str, object],
+    benchmark_root: Path,
+) -> dict[str, object]:
+    """Execute one ordinary slice in an empty cache and freeze its seed."""
+
+    slice_id = str(row.get("slice_id", ""))
+    if (
+        row.get("cache_state") != "warm"
+        or row.get("solver_mode") not in {"none", "injected"}
+        or len(slice_id) != 64
+    ):
+        raise PerformanceMatrixHarnessError(
+            "unmeasured warm-seed row identity differs"
+        )
+    if row.get("solver_mode") == "injected":
+        raise PerformanceMatrixHarnessError(
+            "spawned injected OSS warm-seed mode is not installed"
+        )
+    root = (
+        benchmark_root.expanduser().resolve()
+        / "warm_seeds"
+        / slice_id
+    )
+    manifest_path = root / "warm_seed.json"
+    if manifest_path.is_file():
+        manifest = _read_json(
+            manifest_path,
+            "benchmark warm seed manifest",
+        )
+        cache_root = Path(
+            str(manifest.get("cache_root", ""))
+        ).expanduser().resolve()
+        if root not in cache_root.parents:
+            raise PerformanceMatrixHarnessError(
+                "benchmark warm seed cache path differs"
+            )
+        return _publish_warm_seed_manifest(
+            manifest_path,
+            cache_root=cache_root,
+            slice_id=slice_id,
+        )
+    descriptor, execution_plan = _resolved_slice(resolved, row)
+    parent = resolved.get("accepted_parent")
+    oss = resolved.get("accepted_independent_oss")
+    if not isinstance(parent, Mapping) or not isinstance(oss, Mapping):
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark accepted roots are invalid"
+        )
+    parent_root = Path(str(parent.get("root", ""))).expanduser().resolve()
+    oss_root = Path(str(oss.get("root", ""))).expanduser().resolve()
+    states, checkpoint_closure = _imported_checkpoint_states(
+        descriptor,
+        parent_root=parent_root,
+        oss_root=oss_root,
+    )
+    attempt_root, attempt_number = _next_attempt(root)
+    cache_root = attempt_root / "scientific_cache"
+    empty_cache = _empty_cache_proof(cache_root)
+    seed_plan = {
+        "schema_version": "dual_frequency_task17_warm_seed_attempt_v1",
+        "slice_id": slice_id,
+        "attempt": attempt_number,
+        "resolved_plan_sha256": _canonical_sha256(resolved),
+        "segment_plan_sha256": descriptor["plan_hash"],
+        "selected_task_ids": descriptor["selected_task_ids"],
+        "imported_parent_task_ids": descriptor[
+            "imported_parent_task_ids"
+        ],
+        "imported_oss_task_ids": descriptor["imported_oss_task_ids"],
+        "checkpoint_closure": checkpoint_closure,
+        "empty_cache_proof": empty_cache,
+        "workers": int(row["workers"]),
+    }
+    seed_plan["seed_plan_sha256"] = _canonical_sha256(seed_plan)
+    _atomic_json(attempt_root / "seed_attempt_plan.json", seed_plan)
+    service, bundle = _workflow_bundle_from_resolved(resolved)
+    validated = bundle.validated
+    configuration = validated.configuration
+    output_root = configuration.direct_voxel.output.root.expanduser().resolve()
+    run_root = attempt_root / "run"
+    run_id = (
+        f"task17-warm-seed-{slice_id[:20]}-"
+        f"attempt-{attempt_number:04d}"
+    )
+    identity = RunIdentity(
+        study_id=validated.study.study_id,
+        run_id=run_id,
+        study_base_sha256=validated.study.source_sha256,
+        code_identity=service._code_identity(),
+        configuration_hash=configuration.configuration_hash,
+        scientific_configuration_hash=(
+            configuration.scientific_configuration_hash
+        ),
+        plan_hash=plan_hash(execution_plan),
+        parent_run_id=str(parent["run_id"]),
+    )
+    store = RunStore.open(
+        run_root,
+        identity,
+        resolved_configuration=service._resolved_snapshot(validated),
+        configuration_sources=service._configuration_sources(validated),
+        allowed_artifact_roots=(
+            parent_root,
+            oss_root,
+            output_root,
+            cache_root,
+        ),
+        resume=False,
+    )
+    store.annotate_manifest(
+        {
+            "run_type": "task17_performance_warm_seed",
+            "benchmark_slice_id": slice_id,
+            "benchmark_seed_attempt": attempt_number,
+            "resource_settings": {"workers": int(row["workers"])},
+        }
+    )
+    service._publish_input_bundle(store.root, validated)
+    installed = _install_imported_checkpoint_states(store, states)
+    if set(installed) != {
+        *descriptor["imported_parent_task_ids"],
+        *descriptor["imported_oss_task_ids"],
+    }:
+        raise PerformanceMatrixHarnessError(
+            "warm-seed installed checkpoint closure differs"
+        )
+    artifact_roots = (
+        store.root,
+        parent_root,
+        oss_root,
+        output_root,
+        cache_root,
+    )
+    artifact_store = ArtifactStore(artifact_roots)
+    scientific_cache = ContentAddressedCache(cache_root)
+    provider = service._default_provider(
+        validated,
+        work_root=store.root / "runtime_work",
+        artifact_store=artifact_store,
+        scientific_cache=scientific_cache,
+    )
+    endpoint_facts = {
+        endpoint.endpoint_id: {
+            "catalog_data_available": endpoint.status
+            == CatalogStatus.DATA_AVAILABLE,
+        }
+        for endpoint in validated.catalog
+    }
+    context = ExecutionContext(
+        run_store=store,
+        registry=service._default_registry(),
+        provider=provider,
+        endpoint_facts=endpoint_facts,
+        allow_expensive_producers=True,
+        continue_on_endpoint_failure=(
+            configuration.workflow.execution.continue_on_endpoint_failure
+        ),
+        workers=int(row["workers"]),
+        artifact_store=artifact_store,
+        scientific_cache=scientific_cache,
+        resume=True,
+        spawn_worker_spec=SpawnWorkerSpec(
+            study=validated.study,
+            configuration=configuration,
+            catalog=validated.catalog,
+            work_root=store.root / "runtime_work",
+            artifact_roots=artifact_roots,
+            cache_root=cache_root,
+        ),
+    )
+    result = None
+    failure: BaseException | None = None
+    final_status = "failed"
+    try:
+        result = execute_plan(execution_plan, context)
+        final_status = "completed" if result.exit_code == 0 else "failed"
+    except BaseException as exc:
+        failure = exc
+    try:
+        store.finalize(final_status)
+    except BaseException as exc:
+        if failure is None:
+            failure = exc
+    if failure is not None:
+        raise failure
+    if result is None or result.exit_code != 0:
+        raise PerformanceMatrixHarnessError(
+            "benchmark warm-seed execution did not complete"
+        )
+    outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
+    selected_ids = tuple(str(value) for value in descriptor["selected_task_ids"])
+    if any(
+        task_id not in outcomes
+        or outcomes[task_id].status != "completed"
+        or outcomes[task_id].reason == "restored_completed_result"
+        for task_id in selected_ids
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark warm-seed selected task closure differs"
+        )
+    execution_result = {
+        "schema_version": "dual_frequency_task17_warm_seed_result_v1",
+        "slice_id": slice_id,
+        "attempt": attempt_number,
+        "run_root": str(store.root),
+        "run_manifest_sha256": _sha256_file(
+            store.root / "run_manifest.json"
+        ),
+        "selected_task_ids": list(selected_ids),
+        "restored_task_ids": sorted(installed),
+    }
+    execution_result["result_sha256"] = _canonical_sha256(execution_result)
+    _atomic_json(
+        attempt_root / "seed_attempt_result.json",
+        execution_result,
+    )
+    return _publish_warm_seed_manifest(
+        manifest_path,
+        cache_root=cache_root,
+        slice_id=slice_id,
+    )
+
+
 def _execute_row_child(
     *,
     request_path: Path,

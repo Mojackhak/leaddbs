@@ -1099,6 +1099,43 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             harness._row_id("a" * 64, second),
         )
 
+    def test_warm_seed_rows_cover_seven_ordinary_and_one_injected_slice(
+        self,
+    ) -> None:
+        rows = harness._row_keys(("ppmi", "mgh", "dtor"))
+        slice_tokens: dict[tuple[str, object, str], str] = {}
+        for index, row in enumerate(rows):
+            key = (
+                str(row["benchmark_class"]),
+                row["connectome_id"],
+                str(row["solver_mode"]),
+            )
+            token = slice_tokens.setdefault(
+                key,
+                f"{len(slice_tokens) + 1:064x}",
+            )
+            row["slice_id"] = token
+            row["row_id"] = f"row_{index:04d}"
+            row["planned_status"] = (
+                "not_run"
+                if row["solver_mode"] == "real_solver"
+                else "planned"
+            )
+        selected = harness._warm_seed_rows({"rows": rows})
+        self.assertEqual(len(selected), 8)
+        self.assertEqual(
+            sum(row["solver_mode"] == "injected" for row in selected),
+            1,
+        )
+        self.assertEqual(
+            {int(row["workers"]) for row in selected},
+            {1},
+        )
+        self.assertNotIn(
+            "real_cache_hit",
+            {row["solver_mode"] for row in selected},
+        )
+
     def test_row_contract_is_immutable_and_attempts_are_monotonic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
