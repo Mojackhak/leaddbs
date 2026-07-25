@@ -9040,6 +9040,36 @@ production memory reservation makes the system-derived executor admission test
 fail in both the unchanged main checkout and this isolated worktree; ignored
 template and frozen-acceptance data are also absent from the worktree.
 
+The formal configured benchmark request is frozen at
+`config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
+It binds the completed v8 parent, the independent OSS lineage, the exact four
+input copies retained by the parent run, Conda `leaddbs`, the repository
+working directory, a 64-GiB RSS ceiling, and no real-cold solver
+authorization. Its separate benchmark root is
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725`.
+Only after independent OSS is terminal, the isolated implementation is merged,
+and the complete regression passes, execute:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_performance_matrix.py prepare \
+  --request my_helper/stnsnr/config/four_model_v1/acceptance/task17_performance_benchmark_request.json \
+  --benchmark-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_performance_matrix.py run \
+  --request my_helper/stnsnr/config/four_model_v1/acceptance/task17_performance_benchmark_request.json \
+  --benchmark-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_performance_matrix.py validate \
+  --request my_helper/stnsnr/config/four_model_v1/acceptance/task17_performance_benchmark_request.json \
+  --benchmark-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725
+```
+
+`prepare` is forbidden while the OSS source is nonterminal. `run` resumes only
+the immutable prepared root, and `validate` performs no repair.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after

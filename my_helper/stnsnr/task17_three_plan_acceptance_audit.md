@@ -248,6 +248,14 @@ isolated worktree. Merge and complete regression remain intentionally deferred
 until independent OSS releases the production checkout and its memory
 reservation.
 
+The formal request is frozen at
+`config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
+It references only the parent-run input copies, declares the 64-GiB ceiling,
+and leaves real-cold solver authorization null. The configured benchmark root
+is separate under `summary/spot/acceptance`. Preparing or executing it remains
+pending until independent OSS is terminal and the isolated implementation has
+passed complete regression in the production checkout.
+
 ## Final Closure Rule
 
 The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
