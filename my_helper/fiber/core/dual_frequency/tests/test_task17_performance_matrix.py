@@ -196,6 +196,39 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 label="formal_permutation",
             )
 
+    def test_execution_slice_replaces_only_direct_parents_with_checkpoints(
+        self,
+    ) -> None:
+        parent = _task(
+            endpoint_id="endpoint_a",
+            stage="parent",
+            service_id="realize_reference_final",
+        )
+        first = _task(
+            endpoint_id="endpoint_a",
+            stage="first",
+            service_id="prepare_formal_operator_workspace",
+            dependencies=(parent.task_id,),
+        )
+        second = _task(
+            endpoint_id="endpoint_a",
+            stage="second",
+            service_id="run_formal_permutation_block",
+            dependencies=(first.task_id,),
+        )
+        source = ExecutionPlan(
+            configuration_hash="b" * 64,
+            scientific_configuration_hash="c" * 64,
+            through="formal",
+            tasks=(parent, first, second),
+        )
+        sliced = harness._execution_slice_plan(source, (first, second))
+        self.assertEqual(len(sliced.tasks), 3)
+        self.assertTrue(sliced.tasks[0].checkpoint_only)
+        self.assertEqual(sliced.tasks[0].task_id, parent.task_id)
+        self.assertFalse(sliced.tasks[1].checkpoint_only)
+        self.assertEqual(sliced.tasks[2].dependencies, (first.task_id,))
+
     def test_request_rejects_an_operator_authored_row_field(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -578,6 +611,10 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
         self.assertEqual(
             descriptor["imported_oss_task_ids"],
             [gate.task_id],
+        )
+        self.assertEqual(
+            len(descriptor["execution_plan"]["tasks"]),
+            len(plan.tasks),
         )
 
 

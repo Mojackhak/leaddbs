@@ -689,6 +689,58 @@ def _selected_tasks(
     return selected
 
 
+def _execution_slice_plan(
+    source_plan: ExecutionPlan,
+    selected: Sequence[TaskSpec],
+) -> ExecutionPlan:
+    """Close one selected task set with checkpoint-only direct parents."""
+
+    selected_by_id = {task.task_id: task for task in selected}
+    if len(selected_by_id) != len(selected) or not selected_by_id:
+        raise PerformanceMatrixHarnessError(
+            "benchmark selected task identities differ"
+        )
+    source_by_id = {task.task_id: task for task in source_plan.tasks}
+    if not set(selected_by_id) <= set(source_by_id):
+        raise PerformanceMatrixHarnessError(
+            "benchmark selected tasks escape the source plan"
+        )
+    imported_ids = {
+        dependency
+        for task in selected
+        for dependency in task.dependencies
+        if dependency not in selected_by_id
+    }
+    missing = sorted(imported_ids - set(source_by_id))
+    if missing:
+        raise PerformanceMatrixHarnessError(
+            "benchmark task slice has unknown dependencies: "
+            + ",".join(missing)
+        )
+    roots = tuple(
+        replace(
+            source_by_id[task_id],
+            dependencies=(),
+            gates=(),
+            checkpoint_only=True,
+        )
+        for task_id in sorted(imported_ids)
+    )
+    ordered_selected = tuple(
+        task
+        for task in source_plan.tasks
+        if task.task_id in selected_by_id
+    )
+    return ExecutionPlan(
+        configuration_hash=source_plan.configuration_hash,
+        scientific_configuration_hash=(
+            source_plan.scientific_configuration_hash
+        ),
+        through=source_plan.through,
+        tasks=(*roots, *ordered_selected),
+    )
+
+
 def _combined_extension_slice_plan(
     full_plan: ExecutionPlan,
     extension_plan: ExecutionPlan,
@@ -836,6 +888,7 @@ def _slice_descriptor(
         ),
         "label": label,
         "plan_hash": plan_hash(plan),
+        "execution_plan": _plain(plan),
         "selected_task_ids": ordered_selected,
         "selected_tasks": [
             {
@@ -1387,9 +1440,13 @@ def _prepare_document(
         bundle.plan,
         service_ids=_MAIN_SLICE_SERVICES["direct_voxel"],
     )
+    direct_slice_plan = _execution_slice_plan(
+        bundle.plan,
+        direct_tasks,
+    )
     slices: dict[str, dict[str, object]] = {
         "direct_voxel": _slice_descriptor(
-            bundle.plan,
+            direct_slice_plan,
             direct_tasks,
             parent_completed=parent_completed,
             oss_completed=oss_completed,
@@ -1419,8 +1476,9 @@ def _prepare_document(
             service_ids=_MAIN_SLICE_SERVICES["fiber_connectome"],
             connectome_endpoint_ids=endpoint_ids,
         )
+        slice_plan = _execution_slice_plan(bundle.plan, tasks)
         slices[f"fiber_connectome:{connectome}"] = _slice_descriptor(
-            bundle.plan,
+            slice_plan,
             tasks,
             parent_completed=parent_completed,
             oss_completed=oss_completed,
@@ -1463,8 +1521,9 @@ def _prepare_document(
             },
             endpoint_id=str(base["endpoint_id"]),
         )
+        slice_plan = _execution_slice_plan(bundle.plan, tasks)
         slices[kind] = _slice_descriptor(
-            bundle.plan,
+            slice_plan,
             tasks,
             parent_completed=parent_completed,
             oss_completed=oss_completed,
