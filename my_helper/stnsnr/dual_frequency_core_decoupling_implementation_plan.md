@@ -5473,16 +5473,21 @@ The measured slices are:
 - one fiber connectome: every `prepare_reference_fiber_sidecar` and
   `prepare_addon_fiber_sidecars` task in the selected complete physical-row
   closure for that connectome;
-- formal permutation: the selected endpoint's
+- formal permutation: the selected endpoint's model-family-specific
+  `prepare_exposure` task,
   `prepare_formal_operator_workspace`,
   `prepare_formal_permutation_schedule`, every
   `run_formal_permutation_block`, and `aggregate_formal_permutation` task;
-- bootstrap: the selected endpoint's `prepare_formal_operator_workspace`,
+- bootstrap: the selected endpoint's model-family-specific `prepare_exposure`
+  task, `prepare_formal_operator_workspace`,
   `prepare_formal_bootstrap_schedule`, every `run_formal_bootstrap_block`, and
   `aggregate_formal_bootstrap` task;
-- spatial jitter: every `prepare_jitter_exposure_block` task for the selected
-  physical group plus the selected endpoint's matching jitter consumer; and
-- pPAM: the selected endpoint's `prepare_ppam_observed_workspace`,
+- spatial jitter: the selected endpoint's model-family-specific
+  `prepare_exposure` task, every `prepare_jitter_exposure_block` task for the
+  selected physical group, plus the selected endpoint's matching jitter
+  consumer; and
+- pPAM: the selected fiber endpoint's `prepare_exposure` task,
+  `prepare_ppam_observed_workspace`,
   `prepare_ppam_permutation_schedule`, every `run_ppam_permutation_block`, and
   `aggregate_ppam_activation` task, with its accepted OSS axis-equivalence
   decision treated as a verified ancestor.
@@ -5496,6 +5501,13 @@ row transaction records the prepared task IDs, imported ancestor IDs and SHAs,
 executed task IDs, restored task IDs, and terminal scientific payload closure.
 Any selected task in the restored set or any imported ancestor in the executed
 set fails the row.
+
+The included `prepare_exposure` task is the only allowed producer of the
+selected endpoint's required base shared-cache closure. It executes in both
+cold and warm rows: cold must publish the missing closure once, while warm must
+resolve the verified seed without publishing a producer. Statistical tasks
+cannot read a production-cache path directly or receive a copied selected-task
+result.
 
 Each measured row uses one harness parent, one isolated runner child, and one
 probe process. The child creates its immutable RunStore, imports and validates
