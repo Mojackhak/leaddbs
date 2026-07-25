@@ -413,6 +413,17 @@ implementation, or unrelated repository path. This proves review scope only;
 the ancestry and changed-path closure must be recomputed immediately before the
 eventual fast-forward merge.
 
+A later 2026-07-25 scope audit at reviewed head `bfdcd0165` confirms that
+baseline `f08658f0d` remains an ancestor. That closed range contains 31 commits
+and exactly eight changed paths. The only path added to the earlier seven-path
+closure is `tests/test_executor.py`, where the synthetic historical-OSS resume
+fixture now supplies an isolated memory state so its 48-GiB admission grant
+cannot depend on live production memory pressure. The remaining seven paths
+are unchanged in scope. Both worktrees were clean during this audit. The final
+ancestry, commit count, path list, and request digest still must be recomputed
+after the independent OSS writer exits and immediately before the
+fast-forward-only merge.
+
 A matching semantic audit confirms that the added fixture descriptor defaults
 to null, ordinary main and sensitivity worker construction never populate it,
 and only benchmark warm-seed and measured-row construction derives it from the
