@@ -5569,6 +5569,12 @@ authorization preflight. Runner, probe, evidence-builder, cache-state, or
 scientific failures remain failed or partial attempts and never become
 `not_run`.
 
+`prepare` writes the resolved plan first, then all 72 immutable row contracts,
+and commits `benchmark_root.json` last with the complete row-ID and contract-SHA
+closure. The marker is absent while any contract is missing. Read-only
+`validate` recomputes the plan, checks the marker, and reopens every contract;
+it never creates a missing row or repairs a changed file.
+
 The required classes are direct voxel, each configured fiber connectome,
 formal permutation, bootstrap, spatial jitter, and pPAM. Workers are exactly
 1, 3, 6, and 12. Every non-pPAM class has cold and warm rows. pPAM has injected
