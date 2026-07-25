@@ -134,6 +134,9 @@ full slice closure; overlap with any selected task fails before import.
 Row-local installation removes the source-only task ID field before using the
 RunStore API, then reads every state back and requires exact equality with the
 validated source envelope before readiness can be published.
+The prepared plan now persists a path-safe Conda environment token and
+canonical existing working directory as its immutable child execution
+environment; neither can be supplied again by a later `run` invocation.
 
 ## Final Closure Rule
 
