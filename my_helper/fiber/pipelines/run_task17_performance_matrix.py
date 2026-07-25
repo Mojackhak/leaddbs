@@ -2004,6 +2004,94 @@ def _resolved_slice(
     return descriptor, plan
 
 
+def _imported_checkpoint_states(
+    descriptor: Mapping[str, object],
+    *,
+    parent_root: Path,
+    oss_root: Path,
+) -> tuple[tuple[dict[str, object], ...], dict[str, object]]:
+    """Load and decode the exact parent/OSS checkpoint roots for one slice."""
+
+    selected = descriptor.get("selected_task_ids")
+    parent_ids = descriptor.get("imported_parent_task_ids")
+    oss_ids = descriptor.get("imported_oss_task_ids")
+    if not all(
+        isinstance(value, list)
+        for value in (selected, parent_ids, oss_ids)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark slice import closure is invalid"
+        )
+    selected_set = {str(value) for value in selected}
+    plan_payload = descriptor.get("execution_plan")
+    plan = _execution_plan_from_payload(plan_payload)
+    plan_index = {task.task_id: task for task in plan.tasks}
+    sources = (
+        ("parent", parent_root.expanduser().resolve(), parent_ids),
+        ("oss", oss_root.expanduser().resolve(), oss_ids),
+    )
+    imported: list[dict[str, object]] = []
+    evidence: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for role, root, task_ids in sources:
+        for task_id in sorted(str(value) for value in task_ids):
+            if task_id in selected_set or task_id in seen:
+                raise PerformanceMatrixHarnessError(
+                    "benchmark imported and selected task closures overlap"
+                )
+            seen.add(task_id)
+            path = root / "tasks" / f"{task_id}.json"
+            state = _read_json(path, f"imported {role} task state")
+            result_payload = state.get("result")
+            if (
+                state.get("task_id") != task_id
+                or state.get("status") != "completed"
+                or not isinstance(result_payload, Mapping)
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "benchmark imported task is not a complete checkpoint"
+                )
+            try:
+                result = ServiceResult.from_dict(result_payload)
+                result.decode_record()
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                raise PerformanceMatrixHarnessError(
+                    "benchmark imported task record is invalid"
+                ) from exc
+            expected_task = plan_index.get(task_id)
+            if (
+                expected_task is None
+                or result.output_record_type
+                != expected_task.output_record_type
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "benchmark imported task record type differs from its plan"
+                )
+            imported.append(state)
+            evidence.append(
+                {
+                    "source": role,
+                    "task_id": task_id,
+                    "sha256": _sha256_file(path),
+                }
+            )
+    expected = selected_set | seen
+    if {task.task_id for task in plan.tasks} != expected:
+        raise PerformanceMatrixHarnessError(
+            "benchmark imported task closure differs from the executable plan"
+        )
+    closure = {
+        "schema_version": (
+            "dual_frequency_task17_imported_checkpoint_closure_v1"
+        ),
+        "entries": evidence,
+    }
+    return tuple(imported), {
+        **closure,
+        "closure_sha256": _canonical_sha256(closure),
+    }
+
+
 def _authorization(
     raw: object,
 ) -> dict[str, object]:

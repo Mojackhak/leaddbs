@@ -45,6 +45,7 @@ def _task(
     stage: str,
     service_id: str,
     dependencies: tuple[str, ...] = (),
+    output_record_type: str = "SyntheticRecord",
 ) -> TaskSpec:
     return TaskSpec(
         key=TaskKey(
@@ -61,7 +62,7 @@ def _task(
         service_id=service_id,
         dependencies=dependencies,
         gates=(),
-        output_record_type="SyntheticRecord",
+        output_record_type=output_record_type,
     )
 
 
@@ -486,6 +487,78 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 parent_completed=set(),
                 oss_completed=set(),
                 label="formal_permutation",
+            )
+
+    def test_imported_checkpoint_states_decode_the_exact_slice_roots(
+        self,
+    ) -> None:
+        axis = AxisRef("fiber-axis", 2, "1" * 64)
+        record = OSSAxisEquivalenceGroupRecord(
+            group_id="checkpoint-group",
+            model_family="reference_fiber",
+            gate_status="accepted_omega_max",
+            final_feature_axis=axis,
+            omega_feature_axis=axis,
+            omega_cache_kind="fiber_exposures",
+            omega_cache_semantic_sha256="2" * 64,
+            endpoint_ids=("endpoint_a",),
+            row_decision_ids=("decision-a",),
+        )
+        parent = _task(
+            endpoint_id="endpoint_a",
+            stage="parent",
+            service_id="establish_oss_axis_equivalence",
+            output_record_type="OSSAxisEquivalenceGroupRecord",
+        )
+        selected = _task(
+            endpoint_id="endpoint_a",
+            stage="selected",
+            service_id="prepare_ppam_observed_workspace",
+            dependencies=(parent.task_id,),
+        )
+        full = ExecutionPlan(
+            configuration_hash="b" * 64,
+            scientific_configuration_hash="c" * 64,
+            through="sensitivity",
+            tasks=(parent, selected),
+        )
+        sliced = harness._execution_slice_plan(full, (selected,))
+        descriptor = harness._slice_descriptor(
+            sliced,
+            (selected,),
+            parent_completed={parent.task_id},
+            oss_completed=set(),
+            label="ppam",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            parent_root = root / "parent"
+            oss_root = root / "oss"
+            (parent_root / "tasks").mkdir(parents=True)
+            (oss_root / "tasks").mkdir(parents=True)
+            state = {
+                "task_id": parent.task_id,
+                "endpoint_id": parent.endpoint_id,
+                "service_id": parent.service_id,
+                "status": "completed",
+                "reason": "completed",
+                "started_at": None,
+                "finished_at": None,
+                "result": ServiceResult.from_record(record).as_dict(),
+            }
+            (parent_root / "tasks" / f"{parent.task_id}.json").write_text(
+                json.dumps(state),
+                encoding="utf-8",
+            )
+            states, closure = harness._imported_checkpoint_states(
+                descriptor,
+                parent_root=parent_root,
+                oss_root=oss_root,
+            )
+            self.assertEqual(states, (state,))
+            self.assertEqual(
+                closure["entries"][0]["task_id"],
+                parent.task_id,
             )
 
     def test_execution_slice_replaces_only_direct_parents_with_checkpoints(
