@@ -162,6 +162,10 @@ and any injected fixture closure. It rejects path aliases, changed document
 SHAs, selected/imported drift, nonempty cold caches, injected fixtures on
 ordinary rows, and injected row identities outside the accepted closure before
 creating a RunStore.
+The child can now reopen all four bound source files, verify their SHAs,
+reconstruct the parent resolved selection, compile the ordinary production DAG,
+and require both the scientific-configuration hash and full-plan hash to match
+the immutable benchmark plan before using its selected slice.
 
 ## Final Closure Rule
 
