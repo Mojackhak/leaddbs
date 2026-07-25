@@ -1,0 +1,245 @@
+"""Tests for immutable Task 17 performance benchmark preparation."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from dual_frequency.contracts import TaskKey
+from dual_frequency.workflow import ExecutionPlan, TaskSpec
+from my_helper.fiber.pipelines import run_task17_performance_matrix as harness
+
+
+def _task(
+    *,
+    endpoint_id: str,
+    stage: str,
+    service_id: str,
+    dependencies: tuple[str, ...] = (),
+) -> TaskSpec:
+    return TaskSpec(
+        key=TaskKey(
+            endpoint_id=endpoint_id,
+            stage=stage,
+            parameter_identity="a" * 64,
+        ),
+        endpoint_id=endpoint_id,
+        model_family="reference_fiber",
+        connectome_role="formal",
+        stage=stage,
+        round_id=f"round_{stage}",
+        phase="formal",
+        service_id=service_id,
+        dependencies=dependencies,
+        gates=(),
+        output_record_type="SyntheticRecord",
+    )
+
+
+class Task17PerformanceMatrixTest(unittest.TestCase):
+    def test_exact_three_connectome_key_closure_has_72_rows(self) -> None:
+        rows = harness._row_keys(("ppmi", "mgh", "dtor"))
+        self.assertEqual(len(rows), 72)
+        keys = {
+            (
+                row["benchmark_class"],
+                row["connectome_id"],
+                row["cache_state"],
+                row["solver_mode"],
+                row["workers"],
+            )
+            for row in rows
+        }
+        self.assertEqual(len(keys), 72)
+        self.assertEqual(
+            sum(row["benchmark_class"] == "fiber_connectome" for row in rows),
+            24,
+        )
+        self.assertEqual(
+            sum(row["solver_mode"] == "real_solver" for row in rows),
+            4,
+        )
+
+    def test_maximum_burden_uses_each_model_domains_replicates(self) -> None:
+        bases = (
+            {
+                "endpoint_id": "endpoint_voxel",
+                "model_family": "reference_voxel",
+                "subject_axis": {"count": 20},
+                "feature_axis": {"count": 100},
+                "omega_max": None,
+            },
+            {
+                "endpoint_id": "endpoint_fiber",
+                "model_family": "reference_fiber",
+                "subject_axis": {"count": 20},
+                "feature_axis": {"count": 90},
+                "omega_max": {"axis_count": 90},
+            },
+        )
+        selected, evidence = harness._maximum_base(
+            bases,
+            kind="formal_permutation",
+            replicates_by_domain={
+                "direct_voxel": 100,
+                "normative_fiber": 200,
+            },
+        )
+        self.assertEqual(selected["endpoint_id"], "endpoint_fiber")
+        self.assertEqual(evidence["selected"]["burden"], 360000)
+        self.assertEqual(evidence["selected"]["replicates"], 200)
+
+    def test_maximum_burden_uses_endpoint_id_as_final_tie_break(self) -> None:
+        bases = (
+            {
+                "endpoint_id": "endpoint_b",
+                "model_family": "reference_voxel",
+                "subject_axis": {"count": 20},
+                "feature_axis": {"count": 100},
+            },
+            {
+                "endpoint_id": "endpoint_a",
+                "model_family": "addon_voxel",
+                "subject_axis": {"count": 20},
+                "feature_axis": {"count": 100},
+            },
+        )
+        selected, _evidence = harness._maximum_base(
+            bases,
+            kind="bootstrap",
+            replicates_by_domain={"direct_voxel": 100},
+        )
+        self.assertEqual(selected["endpoint_id"], "endpoint_a")
+
+    def test_slice_separates_parent_and_oss_imports(self) -> None:
+        parent = _task(
+            endpoint_id="endpoint_a",
+            stage="parent",
+            service_id="realize_reference_final",
+        )
+        gate = _task(
+            endpoint_id="endpoint_a",
+            stage="gate",
+            service_id="establish_oss_axis_equivalence",
+            dependencies=(parent.task_id,),
+        )
+        measured = _task(
+            endpoint_id="endpoint_a",
+            stage="measured",
+            service_id="prepare_ppam_observed_workspace",
+            dependencies=(parent.task_id, gate.task_id),
+        )
+        plan = ExecutionPlan(
+            configuration_hash="b" * 64,
+            scientific_configuration_hash="c" * 64,
+            through="formal",
+            tasks=(parent, gate, measured),
+        )
+        descriptor = harness._slice_descriptor(
+            plan,
+            (measured,),
+            parent_completed={parent.task_id},
+            oss_completed={gate.task_id},
+            label="ppam",
+        )
+        self.assertEqual(
+            descriptor["imported_parent_task_ids"],
+            [parent.task_id],
+        )
+        self.assertEqual(
+            descriptor["imported_oss_task_ids"],
+            [gate.task_id],
+        )
+        self.assertEqual(
+            descriptor["selected_task_ids"],
+            [measured.task_id],
+        )
+
+    def test_slice_rejects_missing_imported_dependency(self) -> None:
+        parent = _task(
+            endpoint_id="endpoint_a",
+            stage="parent",
+            service_id="realize_reference_final",
+        )
+        measured = _task(
+            endpoint_id="endpoint_a",
+            stage="measured",
+            service_id="prepare_formal_operator_workspace",
+            dependencies=(parent.task_id,),
+        )
+        plan = ExecutionPlan(
+            configuration_hash="b" * 64,
+            scientific_configuration_hash="c" * 64,
+            through="formal",
+            tasks=(parent, measured),
+        )
+        with self.assertRaisesRegex(
+            harness.PerformanceMatrixHarnessError,
+            "lacks completed imported dependency",
+        ):
+            harness._slice_descriptor(
+                plan,
+                (measured,),
+                parent_completed=set(),
+                oss_completed=set(),
+                label="formal_permutation",
+            )
+
+    def test_request_rejects_an_operator_authored_row_field(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in (
+                "parent",
+                "oss",
+                "work",
+            ):
+                (root / name).mkdir()
+            for name in (
+                "study.json",
+                "direct.yaml",
+                "fiber.yaml",
+                "workflow.yaml",
+            ):
+                (root / name).write_text("{}\n", encoding="utf-8")
+            request = {
+                "schema_version": harness._REQUEST_SCHEMA,
+                "plan_id": "plan",
+                "accepted_parent_root": str(root / "parent"),
+                "accepted_independent_oss_root": str(root / "oss"),
+                "study_base": str(root / "study.json"),
+                "direct_voxel_model": str(root / "direct.yaml"),
+                "normative_fiber_model": str(root / "fiber.yaml"),
+                "workflow_profile": str(root / "workflow.yaml"),
+                "conda_environment": "leaddbs",
+                "working_directory": str(root / "work"),
+                "maximum_task_tree_rss_bytes": 64 * 1024**3,
+                "real_cold_solver_authorization": None,
+                "benchmark_class": "direct_voxel",
+            }
+            path = root / "request.json"
+            path.write_text(json.dumps(request), encoding="utf-8")
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "fields differ",
+            ):
+                harness._load_request(path)
+
+    def test_benchmark_root_rejects_a_protected_ancestor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            protected = root / "production" / "cache"
+            protected.mkdir(parents=True)
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "overlaps",
+            ):
+                harness._benchmark_root(
+                    root / "production",
+                    protected=(protected,),
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()
