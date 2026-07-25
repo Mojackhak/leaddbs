@@ -322,6 +322,55 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     destination_cache_root=root / "wrong-slice-cache",
                     expected_slice_id="slice-b",
                 )
+            resolved = {"accepted_oss_cache": closure}
+            injected_state = harness._prepare_row_cache_state(
+                resolved=resolved,
+                row={
+                    "cache_state": "cold",
+                    "solver_mode": "injected",
+                    "slice_id": "slice-a",
+                },
+                benchmark_root=root,
+                attempt_root=root / "attempt-injected",
+            )
+            self.assertEqual(injected_state["cache_source"], "empty")
+            self.assertIsNotNone(injected_state["injected_fixture"])
+            real_cache_hit_state = harness._prepare_row_cache_state(
+                resolved=resolved,
+                row={
+                    "cache_state": "warm",
+                    "solver_mode": "real_cache_hit",
+                    "slice_id": "slice-a",
+                },
+                benchmark_root=root,
+                attempt_root=root / "attempt-real-cache-hit",
+            )
+            self.assertEqual(
+                real_cache_hit_state["cache_source"],
+                "accepted_independent_oss",
+            )
+            expected_warm_manifest = (
+                root / "warm_seeds" / "slice-a" / "warm_seed.json"
+            )
+            harness._publish_warm_seed_manifest(
+                expected_warm_manifest,
+                cache_root=cache.root,
+                slice_id="slice-a",
+            )
+            ordinary_warm_state = harness._prepare_row_cache_state(
+                resolved=resolved,
+                row={
+                    "cache_state": "warm",
+                    "solver_mode": "none",
+                    "slice_id": "slice-a",
+                },
+                benchmark_root=root,
+                attempt_root=root / "attempt-ordinary-warm",
+            )
+            self.assertEqual(
+                ordinary_warm_state["cache_source"],
+                "unmeasured_warm_seed",
+            )
             with self.assertRaisesRegex(
                 harness.PerformanceMatrixHarnessError,
                 "destination must be empty",

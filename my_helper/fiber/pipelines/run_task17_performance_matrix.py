@@ -1048,6 +1048,84 @@ def _copy_warm_seed(
     )
 
 
+def _prepare_row_cache_state(
+    *,
+    resolved: Mapping[str, object],
+    row: Mapping[str, object],
+    benchmark_root: Path,
+    attempt_root: Path,
+) -> dict[str, object]:
+    """Prepare the exact cold, warm, injected, or real-cache-hit row state."""
+
+    cache_state = row.get("cache_state")
+    solver_mode = row.get("solver_mode")
+    slice_id = row.get("slice_id")
+    if (
+        cache_state not in {"cold", "warm"}
+        or solver_mode
+        not in {"none", "injected", "real_cache_hit", "real_solver"}
+        or type(slice_id) is not str
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark row cache condition is invalid"
+        )
+    accepted = resolved.get("accepted_oss_cache")
+    if not isinstance(accepted, Mapping):
+        raise PerformanceMatrixHarnessError(
+            "resolved accepted OSS cache closure is missing"
+        )
+    root = attempt_root.expanduser().resolve()
+    scientific_cache_root = root / "scientific_cache"
+    fixture: dict[str, object] | None = None
+    if solver_mode == "injected":
+        fixture = _prepare_injected_oss_fixture(
+            accepted_closure=accepted,
+            destination_cache_root=root / "injected_fixture_cache",
+        )
+    if cache_state == "cold":
+        if solver_mode == "real_cache_hit":
+            raise PerformanceMatrixHarnessError(
+                "real-cache-hit benchmark rows must be warm"
+            )
+        cache_evidence = _empty_cache_proof(scientific_cache_root)
+        cache_source = "empty"
+    elif solver_mode == "real_cache_hit":
+        descriptors = _accepted_oss_cache_entry_descriptors(accepted)
+        cache_evidence = _copy_verified_cache_entries(
+            source_cache_root=Path(str(accepted["cache_root"])),
+            destination_cache_root=scientific_cache_root,
+            entries=descriptors,
+        )
+        cache_source = "accepted_independent_oss"
+    else:
+        seed_manifest = (
+            benchmark_root.expanduser().resolve()
+            / "warm_seeds"
+            / slice_id
+            / "warm_seed.json"
+        )
+        cache_evidence = _copy_warm_seed(
+            seed_manifest,
+            destination_cache_root=scientific_cache_root,
+            expected_slice_id=slice_id,
+        )
+        cache_source = "unmeasured_warm_seed"
+    document = {
+        "schema_version": "dual_frequency_task17_row_cache_state_v1",
+        "cache_state": cache_state,
+        "solver_mode": solver_mode,
+        "slice_id": slice_id,
+        "scientific_cache_root": str(scientific_cache_root),
+        "cache_source": cache_source,
+        "cache_evidence": cache_evidence,
+        "injected_fixture": fixture,
+    }
+    return {
+        **document,
+        "state_sha256": _canonical_sha256(document),
+    }
+
+
 def _validate_oss_parent(
     parent_root: Path,
     parent_manifest: Mapping[str, object],
