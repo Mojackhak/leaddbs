@@ -546,6 +546,16 @@ Both worktrees were clean. This is current merge-readiness evidence only; the
 same ancestry, path, and digest closure must still be recomputed after the OSS
 writer exits immediately before the fast-forward-only merge.
 
+A subsequent read-only scope audit at reviewed head `eaaec7d8b` again confirms
+that main head `f08658f0d` is an ancestor. The closed range contains 46 commits
+and the same eight changed paths: two focused test files, two workflow files,
+the performance runner, the frozen benchmark request, the implementation plan,
+and this acceptance ledger. Both worktrees were clean, and the benchmark
+request SHA-256 remained
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+This is another pre-merge checkpoint only; the terminal audit after the OSS
+writer exits remains authoritative.
+
 A matching semantic audit confirms that the added fixture descriptor defaults
 to null, ordinary main and sensitivity worker construction never populate it,
 and only benchmark warm-seed and measured-row construction derives it from the
