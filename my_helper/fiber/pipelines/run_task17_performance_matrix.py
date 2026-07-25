@@ -11,8 +11,9 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 
@@ -43,6 +44,10 @@ from dual_frequency.workflow import (  # noqa: E402
 _REQUEST_SCHEMA = "dual_frequency_task17_performance_benchmark_plan_v1"
 _RESOLVED_SCHEMA = "dual_frequency_task17_performance_benchmark_resolved_v1"
 _MARKER_SCHEMA = "dual_frequency_task17_performance_benchmark_root_v1"
+_RUNNER_READY_SCHEMA = "dual_frequency_task17_performance_runner_ready_v1"
+_MEASUREMENT_START_SCHEMA = (
+    "dual_frequency_task17_performance_measurement_start_v1"
+)
 _WORKERS = (1, 3, 6, 12)
 _REQUEST_FIELDS = {
     "schema_version",
@@ -97,6 +102,11 @@ _PPAM_SERVICES = {
 
 class PerformanceMatrixHarnessError(RuntimeError):
     """Raised when benchmark preparation is incomplete or unsafe."""
+
+
+class _PollableProcess(Protocol):
+    def poll(self) -> int | None:
+        """Return the child exit code or None while it remains alive."""
 
 
 def _plain(value: Any) -> Any:
@@ -172,6 +182,153 @@ def _atomic_json(path: Path, document: Mapping[str, object]) -> None:
     finally:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
+
+
+def _runner_ready(
+    process: _PollableProcess,
+    path: Path,
+    *,
+    row_id: str,
+    timeout_seconds: float = 300.0,
+    monotonic_reader: Any = time.monotonic,
+    sleeper: Any = time.sleep,
+) -> dict[str, object]:
+    """Wait for one exact child readiness record before measurement starts."""
+
+    if timeout_seconds <= 0:
+        raise PerformanceMatrixHarnessError(
+            "runner readiness timeout must be positive"
+        )
+    started = float(monotonic_reader())
+    destination = path.expanduser().resolve()
+    while True:
+        if destination.is_file():
+            document = _read_json(destination, "runner readiness")
+            expected = {
+                "schema_version",
+                "row_id",
+                "runner_pid",
+                "run_root",
+                "segment_plan_sha256",
+                "imported_parent_task_ids",
+                "imported_oss_task_ids",
+            }
+            if set(document) != expected:
+                raise PerformanceMatrixHarnessError(
+                    "runner readiness fields differ"
+                )
+            if (
+                document["schema_version"] != _RUNNER_READY_SCHEMA
+                or document["row_id"] != row_id
+                or type(document["runner_pid"]) is not int
+                or document["runner_pid"] < 2
+                or not isinstance(document["imported_parent_task_ids"], list)
+                or not isinstance(document["imported_oss_task_ids"], list)
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "runner readiness identity differs"
+                )
+            run_root = Path(str(document["run_root"])).expanduser().resolve()
+            if not run_root.is_dir():
+                raise PerformanceMatrixHarnessError(
+                    "runner readiness run root is missing"
+                )
+            segment_plan = str(document["segment_plan_sha256"]).strip().lower()
+            if len(segment_plan) != 64 or any(
+                character not in "0123456789abcdef"
+                for character in segment_plan
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "runner readiness plan SHA differs"
+                )
+            return document
+        exit_code = process.poll()
+        if exit_code is not None:
+            raise PerformanceMatrixHarnessError(
+                "runner exited before publishing readiness"
+            )
+        if float(monotonic_reader()) - started > timeout_seconds:
+            raise PerformanceMatrixHarnessError(
+                "runner readiness timed out"
+            )
+        sleeper(0.1)
+
+
+def _measurement_start(
+    path: Path,
+    *,
+    row_id: str,
+    runner_pid: int,
+    byte_ledger_index: Path,
+) -> dict[str, object]:
+    """Publish the immutable token that allows selected tasks to execute."""
+
+    ledger = byte_ledger_index.expanduser().resolve()
+    if not ledger.is_file():
+        raise PerformanceMatrixHarnessError(
+            "measurement byte-ledger index is missing"
+        )
+    document = {
+        "schema_version": _MEASUREMENT_START_SCHEMA,
+        "row_id": row_id,
+        "runner_pid": runner_pid,
+        "byte_ledger_index": str(ledger),
+        "byte_ledger_index_sha256": _sha256_file(ledger),
+    }
+    _atomic_json(path.expanduser().resolve(), document)
+    return document
+
+
+def _wait_for_measurement_start(
+    path: Path,
+    *,
+    row_id: str,
+    runner_pid: int,
+    timeout_seconds: float = 300.0,
+    monotonic_reader: Any = time.monotonic,
+    sleeper: Any = time.sleep,
+) -> dict[str, object]:
+    """Block one ready child until the parent has attached measurement."""
+
+    if timeout_seconds <= 0:
+        raise PerformanceMatrixHarnessError(
+            "measurement-start timeout must be positive"
+        )
+    started = float(monotonic_reader())
+    source = path.expanduser().resolve()
+    while not source.is_file():
+        if float(monotonic_reader()) - started > timeout_seconds:
+            raise PerformanceMatrixHarnessError(
+                "measurement-start token timed out"
+            )
+        sleeper(0.1)
+    document = _read_json(source, "measurement-start token")
+    expected = {
+        "schema_version",
+        "row_id",
+        "runner_pid",
+        "byte_ledger_index",
+        "byte_ledger_index_sha256",
+    }
+    if (
+        set(document) != expected
+        or document["schema_version"] != _MEASUREMENT_START_SCHEMA
+        or document["row_id"] != row_id
+        or document["runner_pid"] != runner_pid
+    ):
+        raise PerformanceMatrixHarnessError(
+            "measurement-start token identity differs"
+        )
+    ledger = Path(str(document["byte_ledger_index"])).expanduser().resolve()
+    if (
+        not ledger.is_file()
+        or _sha256_file(ledger)
+        != str(document["byte_ledger_index_sha256"]).strip().lower()
+    ):
+        raise PerformanceMatrixHarnessError(
+            "measurement-start byte-ledger identity differs"
+        )
+    return document
 
 
 def _path_token(value: object, label: str) -> Path:

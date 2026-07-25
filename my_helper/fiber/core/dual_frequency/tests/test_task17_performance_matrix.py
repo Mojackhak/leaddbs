@@ -12,6 +12,14 @@ from dual_frequency.workflow import ExecutionPlan, TaskSpec
 from my_helper.fiber.pipelines import run_task17_performance_matrix as harness
 
 
+class _Process:
+    def __init__(self, exit_code: int | None = None) -> None:
+        self.exit_code = exit_code
+
+    def poll(self) -> int | None:
+        return self.exit_code
+
+
 def _task(
     *,
     endpoint_id: str,
@@ -238,6 +246,91 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 harness._benchmark_root(
                     root / "production",
                     protected=(protected,),
+                )
+
+    def test_runner_readiness_binds_row_pid_plan_and_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_root = root / "run"
+            run_root.mkdir()
+            ready = root / "runner_ready.json"
+            ready.write_text(
+                json.dumps(
+                    {
+                        "schema_version": harness._RUNNER_READY_SCHEMA,
+                        "row_id": "row_a",
+                        "runner_pid": 123,
+                        "run_root": str(run_root),
+                        "segment_plan_sha256": "a" * 64,
+                        "imported_parent_task_ids": ["task_parent"],
+                        "imported_oss_task_ids": ["task_gate"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            document = harness._runner_ready(
+                _Process(),
+                ready,
+                row_id="row_a",
+                timeout_seconds=1,
+            )
+            self.assertEqual(document["runner_pid"], 123)
+
+    def test_runner_exit_before_readiness_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "exited before",
+            ):
+                harness._runner_ready(
+                    _Process(2),
+                    Path(temporary) / "missing.json",
+                    row_id="row_a",
+                    timeout_seconds=1,
+                )
+
+    def test_measurement_start_round_trip_binds_byte_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ledger = root / "byte-ledger.json"
+            ledger.write_text('{"schema_version":"ledger"}\n', encoding="utf-8")
+            token = root / "measurement_start.json"
+            published = harness._measurement_start(
+                token,
+                row_id="row_a",
+                runner_pid=123,
+                byte_ledger_index=ledger,
+            )
+            reopened = harness._wait_for_measurement_start(
+                token,
+                row_id="row_a",
+                runner_pid=123,
+                timeout_seconds=1,
+            )
+            self.assertEqual(reopened, published)
+
+    def test_measurement_start_rejects_a_changed_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ledger = root / "byte-ledger.json"
+            ledger.write_text('{"schema_version":"ledger"}\n', encoding="utf-8")
+            token = root / "measurement_start.json"
+            harness._measurement_start(
+                token,
+                row_id="row_a",
+                runner_pid=123,
+                byte_ledger_index=ledger,
+            )
+            ledger.write_text('{"schema_version":"changed"}\n', encoding="utf-8")
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "byte-ledger identity differs",
+            ):
+                harness._wait_for_measurement_start(
+                    token,
+                    row_id="row_a",
+                    runner_pid=123,
+                    timeout_seconds=1,
                 )
 
 
