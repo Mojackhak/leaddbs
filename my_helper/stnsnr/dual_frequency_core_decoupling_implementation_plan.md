@@ -5538,6 +5538,37 @@ solver_mode
 workers
 ```
 
+The prepared-plan SHA plus those five key fields derive one stable
+`row_<digest>` identity. Each row owns:
+
+```text
+rows/row_<digest>/
+  row_contract.json
+  attempts/
+    attempt_0001/
+      runner_ready.json
+      measurement_start.json
+      runner.stdout.log
+      runner.stderr.log
+      probe.csv
+      probe.stdout.log
+      probe.stderr.log
+      attempt_result.json
+  row_result.json
+```
+
+`row_contract.json` is immutable and binds the complete resolved-plan SHA,
+slice ID, cache-seed identity, worker count, solver mode, resource ceiling, and
+expected terminal-evidence paths. A terminal `row_result.json` is reused only
+after its contract SHA and every evidence SHA revalidate. A partial row keeps
+all prior attempts and creates the next monotonic attempt directory. A
+differently configured existing row fails before execution; it is never
+renamed or relabeled. Only a real cold solver row without authorization
+publishes a terminal `not_run` result, and that result binds the immutable
+authorization preflight. Runner, probe, evidence-builder, cache-state, or
+scientific failures remain failed or partial attempts and never become
+`not_run`.
+
 The required classes are direct voxel, each configured fiber connectome,
 formal permutation, bootstrap, spatial jitter, and pPAM. Workers are exactly
 1, 3, 6, and 12. Every non-pPAM class has cold and warm rows. pPAM has injected
