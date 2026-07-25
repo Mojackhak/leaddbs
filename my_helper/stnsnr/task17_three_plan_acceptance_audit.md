@@ -116,6 +116,13 @@ selected tests. This revalidates the offline implementation boundary but does
 not replace canonical publication, the 112-endpoint render, identical resume,
 or visual review.
 
+The same isolated checkpoint repeated the fault-acceptance, resource-guard,
+strict and pre-instrumentation resource-validation, artifact/static audit,
+performance-acceptance, byte-ledger, counter, and probe suites. All 99 tests and
+two subtests passed with warnings treated as errors. These tests validate the
+repository-owned evidence machinery; the production fault sequence and terminal
+OSS/combined resource documents remain required.
+
 The benchmark cache-seed layer now converts the accepted OSS closure into an
 exact deduplicated entry list, requires an empty and disjoint row-local cache,
 copies only the bound row and decision identities, and reopens every copied
