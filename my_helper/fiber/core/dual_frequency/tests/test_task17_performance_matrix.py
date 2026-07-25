@@ -228,6 +228,17 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
         self.assertEqual(sliced.tasks[0].task_id, parent.task_id)
         self.assertFalse(sliced.tasks[1].checkpoint_only)
         self.assertEqual(sliced.tasks[2].dependencies, (first.task_id,))
+        payload = harness._plain(sliced)
+        self.assertEqual(
+            harness._execution_plan_from_payload(payload),
+            sliced,
+        )
+        payload["tasks"][0]["unexpected"] = True
+        with self.assertRaisesRegex(
+            harness.PerformanceMatrixHarnessError,
+            "task fields differ",
+        ):
+            harness._execution_plan_from_payload(payload)
 
     def test_request_rejects_an_operator_authored_row_field(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

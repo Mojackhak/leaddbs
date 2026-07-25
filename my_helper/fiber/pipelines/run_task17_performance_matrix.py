@@ -34,8 +34,10 @@ from dual_frequency.application.service import (  # noqa: E402
     WorkflowService,
 )
 from dual_frequency.config import WorkflowOverrides  # noqa: E402
+from dual_frequency.contracts import TaskKey  # noqa: E402
 from dual_frequency.workflow import (  # noqa: E402
     ExecutionPlan,
+    GateRequirement,
     TaskSpec,
     plan_hash,
 )
@@ -739,6 +741,147 @@ def _execution_slice_plan(
         through=source_plan.through,
         tasks=(*roots, *ordered_selected),
     )
+
+
+def _execution_plan_from_payload(raw: object) -> ExecutionPlan:
+    """Decode one exact persisted execution slice without permissive defaults."""
+
+    if not isinstance(raw, Mapping) or set(raw) != {
+        "configuration_hash",
+        "scientific_configuration_hash",
+        "through",
+        "tasks",
+    }:
+        raise PerformanceMatrixHarnessError(
+            "persisted execution plan fields differ"
+        )
+    raw_tasks = raw["tasks"]
+    if not isinstance(raw_tasks, list) or not raw_tasks:
+        raise PerformanceMatrixHarnessError(
+            "persisted execution task closure differs"
+        )
+    task_fields = {
+        "key",
+        "endpoint_id",
+        "model_family",
+        "connectome_role",
+        "stage",
+        "round_id",
+        "phase",
+        "service_id",
+        "dependencies",
+        "gates",
+        "output_record_type",
+        "execution_parameters",
+        "expensive_producer",
+        "cache_first_expensive",
+        "checkpoint_only",
+        "timeout_seconds",
+        "transient_safe",
+        "max_transient_retries",
+    }
+    tasks: list[TaskSpec] = []
+    for index, item in enumerate(raw_tasks):
+        if not isinstance(item, Mapping) or set(item) != task_fields:
+            raise PerformanceMatrixHarnessError(
+                f"persisted execution task fields differ: {index}"
+            )
+        key = item["key"]
+        if not isinstance(key, Mapping) or set(key) != {
+            "endpoint_id",
+            "stage",
+            "branch",
+            "parameter_identity",
+        }:
+            raise PerformanceMatrixHarnessError(
+                f"persisted execution task key differs: {index}"
+            )
+        gates = item["gates"]
+        dependencies = item["dependencies"]
+        parameters = item["execution_parameters"]
+        if (
+            not isinstance(gates, list)
+            or not isinstance(dependencies, list)
+            or not isinstance(parameters, list)
+        ):
+            raise PerformanceMatrixHarnessError(
+                f"persisted execution task collections differ: {index}"
+            )
+        decoded_gates: list[GateRequirement] = []
+        for gate in gates:
+            if not isinstance(gate, Mapping) or set(gate) != {
+                "fact",
+                "false_status",
+            }:
+                raise PerformanceMatrixHarnessError(
+                    f"persisted execution gate differs: {index}"
+                )
+            decoded_gates.append(
+                GateRequirement(
+                    fact=str(gate["fact"]),
+                    false_status=str(gate["false_status"]),
+                )
+            )
+        decoded_parameters: list[tuple[str, str]] = []
+        for parameter in parameters:
+            if (
+                not isinstance(parameter, list)
+                or len(parameter) != 2
+                or not all(isinstance(value, str) for value in parameter)
+            ):
+                raise PerformanceMatrixHarnessError(
+                    f"persisted execution parameter differs: {index}"
+                )
+            decoded_parameters.append((parameter[0], parameter[1]))
+        try:
+            task = TaskSpec(
+                key=TaskKey(
+                    endpoint_id=str(key["endpoint_id"]),
+                    stage=str(key["stage"]),
+                    branch=str(key["branch"]),
+                    parameter_identity=str(key["parameter_identity"]),
+                ),
+                endpoint_id=str(item["endpoint_id"]),
+                model_family=str(item["model_family"]),
+                connectome_role=str(item["connectome_role"]),
+                stage=str(item["stage"]),
+                round_id=str(item["round_id"]),
+                phase=str(item["phase"]),
+                service_id=str(item["service_id"]),
+                dependencies=tuple(str(value) for value in dependencies),
+                gates=tuple(decoded_gates),
+                output_record_type=str(item["output_record_type"]),
+                execution_parameters=tuple(decoded_parameters),
+                expensive_producer=item["expensive_producer"],
+                cache_first_expensive=item["cache_first_expensive"],
+                checkpoint_only=item["checkpoint_only"],
+                timeout_seconds=item["timeout_seconds"],
+                transient_safe=item["transient_safe"],
+                max_transient_retries=item["max_transient_retries"],
+            )
+        except (TypeError, ValueError) as exc:
+            raise PerformanceMatrixHarnessError(
+                f"persisted execution task is invalid: {index}"
+            ) from exc
+        tasks.append(task)
+    try:
+        plan = ExecutionPlan(
+            configuration_hash=str(raw["configuration_hash"]),
+            scientific_configuration_hash=str(
+                raw["scientific_configuration_hash"]
+            ),
+            through=str(raw["through"]),
+            tasks=tuple(tasks),
+        )
+    except (TypeError, ValueError) as exc:
+        raise PerformanceMatrixHarnessError(
+            "persisted execution plan is invalid"
+        ) from exc
+    if _plain(plan) != dict(raw):
+        raise PerformanceMatrixHarnessError(
+            "persisted execution plan does not round-trip exactly"
+        )
+    return plan
 
 
 def _combined_extension_slice_plan(
