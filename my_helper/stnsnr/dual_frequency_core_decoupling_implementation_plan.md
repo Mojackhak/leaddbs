@@ -5617,6 +5617,9 @@ rows/row_<digest>/
   row_contract.json
   attempts/
     attempt_0001/
+      checkpoint_closure.json
+      row_cache_state.json
+      attempt_plan.json
       runner_ready.json
       measurement_start.json
       runner.stdout.log
@@ -5639,6 +5642,13 @@ publishes a terminal `not_run` result, and that result binds the immutable
 authorization preflight. Runner, probe, evidence-builder, cache-state, or
 scientific failures remain failed or partial attempts and never become
 `not_run`.
+
+Within a new attempt, the harness first validates and records the imported
+checkpoint closure, then prepares and records the row cache state, and commits
+`attempt_plan.json` last. That final marker binds the row contract SHA, attempt
+number, executable slice-plan hash, selected and imported task IDs, checkpoint
+closure SHA, and cache-state SHA. A runner child accepts only that marker and
+revalidates both referenced documents before creating its RunStore.
 
 `prepare` writes the resolved plan first, then all 72 immutable row contracts,
 and commits `benchmark_root.json` last with the complete row-ID and contract-SHA
