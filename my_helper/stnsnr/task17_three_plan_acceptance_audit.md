@@ -603,6 +603,17 @@ or dirtying the isolated worktree. It remains pre-merge evidence rather than a
 substitute for the required single all-green post-merge regression after the
 active OSS resource reservation ends.
 
+A read-only scope audit after that regression confirmed that main head
+`f08658f0d` remains an ancestor of the isolated branch. Before this
+documentation checkpoint, the closed range contained 48 commits; after this
+checkpoint commit it contains 49. The range still changes exactly eight paths:
+two focused tests, two workflow files, the performance runner, the frozen
+benchmark request, the implementation plan, and this acceptance ledger. The
+benchmark request SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`,
+and both worktrees were clean. The terminal pre-merge audit must still
+recompute all four facts after the OSS writer exits.
+
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
 It references only the parent-run input copies, declares the 64-GiB ceiling,
