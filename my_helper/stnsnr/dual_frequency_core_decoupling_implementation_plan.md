@@ -5487,10 +5487,10 @@ The measured slices are:
   selected physical group, plus the selected endpoint's matching jitter
   consumer; and
 - pPAM: the selected fiber endpoint's `prepare_exposure` task,
+  `establish_oss_axis_equivalence`,
   `prepare_ppam_observed_workspace`,
   `prepare_ppam_permutation_schedule`, every `run_ppam_permutation_block`, and
-  `aggregate_ppam_activation` task, with its accepted OSS axis-equivalence
-  decision treated as a verified ancestor.
+  `aggregate_ppam_activation` task.
 
 Cold and warm describe only the row-local shared scientific cache presented to
 the measured slice. They never permit selected task checkpoints to be copied
@@ -5508,6 +5508,19 @@ cold and warm rows: cold must publish the missing closure once, while warm must
 resolve the verified seed without publishing a producer. Statistical tasks
 cannot read a production-cache path directly or receive a copied selected-task
 result.
+
+pPAM has three separate slice identities even though their task service closure
+is the same. Injected cold and warm rows execute the OSS gate against a
+repository-owned deterministic toolchain whose probability rows and expected
+decision are derived from the accepted independent OSS closure. Real-cache-hit
+warm rows execute the gate against a verified row-local copy of the accepted
+OSS row and decision cache. Authorized real-cold rows execute the same gate
+against an empty row-local cache and the production toolchain. The accepted OSS
+gate task outcome is never copied as a checkpoint-only selected result.
+Injected warm seeds are created by one unmeasured injected gate execution;
+real-cache-hit warm seeds are direct verified copies. Any solver call in a
+real-cache-hit row or any production solver call in an injected row fails the
+row.
 
 Each measured row uses one harness parent, one isolated runner child, and one
 probe process. The child creates its immutable RunStore, imports and validates
