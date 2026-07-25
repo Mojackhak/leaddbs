@@ -156,6 +156,12 @@ commits `row_cache_state.json`, and writes `attempt_plan.json` last. That marker
 binds the contract, monotonic attempt number, plan hash, selected/imported task
 closures, and both input-document SHAs; a terminal row cannot create another
 attempt.
+Child preflight now reopens the attempt marker, contract, slice, checkpoint
+states, result record types, cache-state document, actual row-cache entries,
+and any injected fixture closure. It rejects path aliases, changed document
+SHAs, selected/imported drift, nonempty cold caches, injected fixtures on
+ordinary rows, and injected row identities outside the accepted closure before
+creating a RunStore.
 
 ## Final Closure Rule
 
