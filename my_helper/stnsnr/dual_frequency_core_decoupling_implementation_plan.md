@@ -5401,6 +5401,35 @@ two measured rows. `validate` reopens the resolved plan, every row transaction,
 the complete matrix manifest, and the terminal acceptance report without
 writing or repairing them.
 
+The operator-authored request has exactly these fields:
+
+```text
+schema_version
+plan_id
+accepted_parent_root
+accepted_independent_oss_root
+study_base
+direct_voxel_model
+normative_fiber_model
+workflow_profile
+conda_environment
+working_directory
+maximum_task_tree_rss_bytes
+real_cold_solver_authorization
+```
+
+`real_cold_solver_authorization` is null unless a separate authorization
+document is supplied. The request contains no benchmark class, connectome,
+scale, endpoint, task ID, cache-state, solver-mode, worker-count, burden, or
+row-command field. `prepare` derives the configured connectomes, workers 1, 3,
+6, and 12, every selected scientific request, every measured task slice, all
+row commands, and the exact 72-row closure. Both accepted roots must be
+terminal, configuration-compatible, and SHA-bound to the same scientific
+parent. The four source files must match the parent's recorded input JSON and
+YAML identities. The benchmark root is a separate CLI argument and must be
+disjoint from the parent, independent OSS, canonical publication, configured
+output, configured run, and shared production-cache roots.
+
 Cold and warm cache state is a harness-owned input condition rather than a
 label added after execution:
 
