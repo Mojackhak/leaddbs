@@ -114,6 +114,13 @@ focused performance-harness suite now has 21 passing tests. It covers the
 required reference/add-on gate-family closure as well as extending the accepted
 cache-closure fixture with seed-copy assertions.
 
+The injected fixture preparation now copies only accepted `oss_rows` entries
+into its separate row-local read-only cache, excludes every production decision
+entry, and binds the permitted row identities, accepted closure SHA, copied
+seed SHA, and fixture SHA. This is preparation support only; the spawn-worker
+descriptor and measured execution remain pending until the active independent
+OSS process has terminated.
+
 ## Final Closure Rule
 
 The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
