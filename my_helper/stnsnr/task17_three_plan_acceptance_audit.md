@@ -172,6 +172,21 @@ the outer `python -W error` policy, the current complete visualization suite
 passes all 38 tests. This is test-path isolation evidence; the installed
 production package and visualization implementation require no change.
 
+A broader 2026-07-25 pre-merge replay ran the isolated dual-frequency suite
+without the two tests that resolve the mounted production study base. It
+completed 736 tests, skipped four optional cases, and passed 314 subtests.
+Eleven cases initially failed only at isolated-worktree boundaries: two
+spawned children could not re-import pytest's temporary `core...` module name,
+four activation fixtures could not see the main worktree's local 69-MB
+template segmentation, and five frozen-acceptance cases could not see local
+fixture or mounted artifact paths. Replaying the two spawn cases through the
+importable `dual_frequency.tests...` package and the four activation cases
+against the same main-worktree template made all six pass without a code
+change. The visualization suite was then replayed separately and all 38 tests
+passed. The five frozen-artifact cases remain intentionally deferred until a
+permitted production inspection window and the post-merge main-worktree
+regression; no VAL path was read to manufacture pre-merge closure.
+
 The frozen formal postprocess request was also audited read-only. Its SHA-256 is
 `144ad7a1e775c1bf01f5d99df285a87b31bae7075aa3692d714201f1953e6ab0`.
 It names exactly the canonical direct-voxel and normative-fiber main and
