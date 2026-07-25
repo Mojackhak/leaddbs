@@ -5430,6 +5430,13 @@ YAML identities. The benchmark root is a separate CLI argument and must be
 disjoint from the parent, independent OSS, canonical publication, configured
 output, configured run, and shared production-cache roots.
 
+The resolved plan retains the validated Conda environment token and canonical
+working-directory path in an `execution_environment` object. They remain bound
+by the original request SHA and plan identity. The harness parent derives every
+child command from this object; a caller cannot replace either value on `run`
+or `resume`, and the child rejects a current working directory or Conda prefix
+that differs before it opens a row RunStore.
+
 Cold and warm cache state is a harness-owned input condition rather than a
 label added after execution:
 
