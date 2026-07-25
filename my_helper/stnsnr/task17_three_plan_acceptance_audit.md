@@ -341,6 +341,15 @@ is separate under `summary/spot/acceptance`. Preparing or executing it remains
 pending until independent OSS is terminal and the isolated implementation has
 passed complete regression in the production checkout.
 
+The six combined-preflight cache-first boundary tests were repeated on
+2026-07-25. They prove authorized OSS publication followed by unauthorized
+decision reuse, rejection of an OSS miss before toolchain entry, copied-cache
+OSS reuse without a solver, copied-cache jitter reuse without a physical
+producer, rejection of a jitter miss before producer entry, and executor
+admission only for tasks explicitly marked cache-first expensive. All six
+passed with warnings treated as errors. Production combined execution remains
+the required full-DAG proof.
+
 ## Final Closure Rule
 
 The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
