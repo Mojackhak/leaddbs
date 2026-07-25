@@ -3355,6 +3355,17 @@ the solver lineage releases VAL and connectome bandwidth. A second invocation
 with the configured worker count must be cache-only and byte-identical; it is
 not a second cold replay.
 
+The frozen scientific fixture SHA-256 is
+`7255126c155aa616faac1457103169597ecd9c8c9707976ecb26e71c617fba6c`.
+The frozen replay-workflow SHA-256 is
+`4ad144f4aa2c94a5d85ac89e84cf389474d8e82d31d4e642b8b5347d98cfb4cc`.
+The fixture deliberately excludes execution paths and worker ceilings; those
+remain owned by the workflow and the exact commands below. Before execution,
+both digests must match, the workflow must still select all models and
+connectomes through observed with one cold worker, and its cache and run roots
+must remain the dedicated acceptance roots. Any drift blocks replay rather
+than silently creating a different acceptance claim.
+
 Read-only validation and planning passed on 2026-07-22 for scale `adl`. The
 request resolves eight available endpoints, 46 dependency-complete tasks, the
 expected study-base SHA, configuration hash

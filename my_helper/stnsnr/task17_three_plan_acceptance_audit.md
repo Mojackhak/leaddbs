@@ -293,6 +293,29 @@ exposures, and 8 unique selected-ID payloads. The production-scale report scan
 has not run because the independent OSS process still owns the active VAL
 workload; parity acceptance therefore remains pending.
 
+The configured-data replay request is frozen across two versioned inputs.
+`config/four_model_v1/acceptance/task17_connectome_parity_fixture.json` has
+SHA-256
+`7255126c155aa616faac1457103169597ecd9c8c9707976ecb26e71c617fba6c`
+and contains only the retained scientific authority: the completed v8 parent
+identity plus complete physical and prepared payload, feature-axis, shape, and
+role closures. `config/four_model_v1/workflow_task17_parity.yaml` has SHA-256
+`4ad144f4aa2c94a5d85ac89e84cf389474d8e82d31d4e642b8b5347d98cfb4cc`
+and owns the execution boundary: observed cutoff, all model families and
+connectomes, one cold worker, expensive producers disabled, retained successful
+cache, dedicated cache
+`/Volumes/VAL/STNSNr/cache/dual_frequency_task17_parity_v1`, and dedicated run
+root `/Volumes/VAL/STNSNr/summary/spot/acceptance/.runs`. The plan binds the
+first invocation to run
+`task17-parity-v1-post-refactor-20260722` with one worker, then binds a
+14-worker exact resume to that same run root. The verifier alone binds the
+retained parent, replay cache, replay run, and immutable output
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-physical-parity-replay-v1.json`.
+Keeping runtime paths and worker ceilings out of the scientific fixture
+prevents execution policy from changing the authority SHA. These inputs are
+frozen and internally consistent, but execution remains pending until
+independent OSS releases VAL.
+
 The ordinary unmeasured warm-seed executor is implemented. It derives 7
 ordinary seed slices plus one injected slice, runs each ordinary slice once
 against a proven-empty isolated cache, binds its exact imported checkpoints,
