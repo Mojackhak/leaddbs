@@ -236,6 +236,18 @@ a fit-curve grid or an electrode display length, not a scientific threshold.
 Endpoints that reached a different fallback cell therefore retain their own
 published parameters in every visual and statistical output.
 
+The paired-inference contract was also replayed locally. Three backend tests
+and six parameterized fit/publication cases passed with warnings treated as
+errors. Each endpoint summary retains paired in-sample and LOOCV Spearman,
+Pearson, nominal p, plus-one two-sided permutation p, finite-subject,
+finite-prediction, finite-permutation, model-error, and baseline-error fields.
+It reports standard `in_sample_r2` with `loocv_r2`, and the common-baseline
+pair `in_sample_relative_r2` with `loocv_q2`. The unsupported
+`in_sample_adjusted_r2` remains absent. Spearman, Pearson, standard-R2,
+relative-R2/Q2, RMSE, and MAE optimism gaps are emitted only for matching
+subject masks. Visualization reads these stored values rather than recomputing
+or relabeling inference.
+
 A static 3-D scene audit on 2026-07-25 confirmed that both PDQ-39 examples
 resolve only canonical publication roots and retain an interactive figure
 without writing FIG, image, PDF, or spin outputs. The voxel example requests a
