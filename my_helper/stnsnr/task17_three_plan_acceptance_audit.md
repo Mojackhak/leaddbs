@@ -150,6 +150,12 @@ warm use the slice-bound unmeasured seed; injected rows also receive their
 separate accepted-row fixture; and real-cache-hit warm receives the verified
 independent OSS row/decision closure. Invalid cold real-cache-hit combinations
 fail before runner startup.
+Attempt preparation now validates the immutable row contract and exact slice,
+loads the accepted checkpoint states, commits `checkpoint_closure.json`, then
+commits `row_cache_state.json`, and writes `attempt_plan.json` last. That marker
+binds the contract, monotonic attempt number, plan hash, selected/imported task
+closures, and both input-document SHAs; a terminal row cannot create another
+attempt.
 
 ## Final Closure Rule
 
