@@ -50,6 +50,9 @@ _MEASUREMENT_START_SCHEMA = (
 )
 _ROW_CONTRACT_SCHEMA = "dual_frequency_task17_performance_row_contract_v1"
 _ROW_RESULT_SCHEMA = "dual_frequency_task17_performance_row_result_v1"
+_NOT_RUN_PREFLIGHT_SCHEMA = (
+    "dual_frequency_task17_performance_not_run_preflight_v1"
+)
 _WORKERS = (1, 3, 6, 12)
 _REQUEST_FIELDS = {
     "schema_version",
@@ -1015,6 +1018,69 @@ def _validate_row_result(
             "terminal benchmark row status differs"
         )
     return document
+
+
+def _publish_not_run_row(
+    row_root: Path,
+    *,
+    contract_sha256: str,
+    row: Mapping[str, object],
+    authorization: Mapping[str, object],
+) -> dict[str, object]:
+    root = row_root.expanduser().resolve()
+    key = _row_key_payload(row)
+    if (
+        key
+        != {
+            "benchmark_class": "ppam",
+            "cache_state": "cold",
+            "connectome_id": None,
+            "solver_mode": "real_solver",
+            "workers": row["workers"],
+        }
+        or row.get("planned_status") != "not_run"
+        or authorization
+        != {
+            "authorized": False,
+            "path": None,
+            "sha256": None,
+        }
+    ):
+        raise PerformanceMatrixHarnessError(
+            "only an unauthorized real cold solver row may be not_run"
+        )
+    preflight = {
+        "schema_version": _NOT_RUN_PREFLIGHT_SCHEMA,
+        "row_id": row["row_id"],
+        "key": key,
+        "authorized": False,
+        "reason": "real_cold_solver_not_authorized",
+        "authorization_path": None,
+        "authorization_sha256": None,
+    }
+    preflight_path = root / "real_cold_solver_preflight.json"
+    _atomic_json(preflight_path, preflight)
+    result = {
+        "schema_version": _ROW_RESULT_SCHEMA,
+        "row_id": row["row_id"],
+        "contract_sha256": contract_sha256,
+        "status": "not_run",
+        "attempt": 0,
+        "evidence": [
+            _relative_evidence(
+                preflight_path,
+                row_root=root,
+            )
+        ],
+        "not_run_reason": "real_cold_solver_not_authorized",
+    }
+    _atomic_json(root / "row_result.json", result)
+    validated = _validate_row_result(root, contract_sha256)
+    if validated != result:
+        raise PerformanceMatrixHarnessError(
+            "terminal not-run row differs after publication"
+        )
+    return result
 
 
 def _row_contract_closure(

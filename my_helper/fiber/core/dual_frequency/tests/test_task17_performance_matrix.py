@@ -448,6 +448,53 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             ):
                 harness._validate_row_contracts(root, resolved, closure)
 
+    def test_only_unauthorized_real_cold_solver_can_be_not_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            row = {
+                "row_id": "row_cold_solver",
+                "benchmark_class": "ppam",
+                "connectome_id": None,
+                "cache_state": "cold",
+                "solver_mode": "real_solver",
+                "workers": 1,
+                "planned_status": "not_run",
+            }
+            authorization = {
+                "authorized": False,
+                "path": None,
+                "sha256": None,
+            }
+            result = harness._publish_not_run_row(
+                root,
+                contract_sha256="a" * 64,
+                row=row,
+                authorization=authorization,
+            )
+            repeated = harness._publish_not_run_row(
+                root,
+                contract_sha256="a" * 64,
+                row=row,
+                authorization=authorization,
+            )
+            self.assertEqual(result, repeated)
+            preflight = json.loads(
+                (root / "real_cold_solver_preflight.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertIs(preflight["authorized"], False)
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "only an unauthorized",
+            ):
+                harness._publish_not_run_row(
+                    root / "other",
+                    contract_sha256="a" * 64,
+                    row={**row, "solver_mode": "injected"},
+                    authorization=authorization,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
