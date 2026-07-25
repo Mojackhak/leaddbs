@@ -8887,6 +8887,18 @@ Resume the same lineage under a fresh segment and guard. It must restore the
 stable reference gate, reuse every complete add-on cache, and retry only the
 failed add-on gate and its dependency-derived descendants.
 
+The authorized `segment_0018` resume remained active at
+2026-07-25T16:25:46Z. VAL was mounted, a real create/fsync/read/unlink probe
+passed, and the Samsung T7 reported `UsbLinkSpeed` 10000000000 bits/s. The
+590-task ledger contained 393 completed, one running add-on equivalence gate,
+and 196 dependency skips. The stable reference gate still contained 34
+accepted decisions; the add-on producer was executing `sample_03` for a
+genuinely missing row. The one-second guard contained 13692 samples, only
+`sample` events, peak task-tree RSS 45696860160 bytes, current task-tree RSS
+about 7513522176 bytes, swap baseline 3579188347 bytes, and current swap
+3366851707 bytes. Thus RSS remained `< 64 GiB` and swap growth remained `< 1`
+byte. No automatic restart or code hot-load occurred.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
