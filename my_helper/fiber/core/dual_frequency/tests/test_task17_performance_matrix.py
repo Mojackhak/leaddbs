@@ -932,6 +932,90 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     timeout_seconds=1,
                 )
 
+    def test_terminal_probe_summary_requires_one_complete_envelope(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "probe.csv"
+            path.write_text(
+                "\n".join(
+                    (
+                        "timestamp_utc,elapsed_monotonic_seconds,process_count,"
+                        "tree_rss_bytes,aggregate_cpu_seconds,swap_used_bytes,"
+                        "source_bytes,scratch_bytes,event",
+                        "2026-07-25T00:00:00+00:00,0.1,2,100,0.2,10,3,4,sample",
+                        "2026-07-25T00:00:01+00:00,1.1,1,120,0.8,10,5,7,sample",
+                        "2026-07-25T00:00:02+00:00,2.1,0,0,0.8,10,5,7,runner_exit",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            summary = harness._terminal_probe_summary(path)
+            self.assertEqual(summary["row_count"], 3)
+            self.assertEqual(summary["peak_rss_bytes"], 120)
+            self.assertEqual(summary["source_bytes"], 5)
+            self.assertEqual(summary["scratch_bytes"], 7)
+
+    def test_terminal_probe_summary_rejects_nonterminal_sample(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "probe.csv"
+            path.write_text(
+                "\n".join(
+                    (
+                        "timestamp_utc,elapsed_monotonic_seconds,process_count,"
+                        "tree_rss_bytes,aggregate_cpu_seconds,swap_used_bytes,"
+                        "source_bytes,scratch_bytes,event",
+                        "2026-07-25T00:00:00+00:00,0.1,1,100,0.2,10,3,4,sample",
+                        "2026-07-25T00:00:01+00:00,1.1,0,0,0.2,10,3,4,sample",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "terminal event differs",
+            ):
+                harness._terminal_probe_summary(path)
+
+    def test_finished_execution_segment_requires_exactly_one_segment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "execution_segments").mkdir()
+            (root / "run_manifest.json").write_text(
+                json.dumps({"final_status": "completed"}),
+                encoding="utf-8",
+            )
+            segment = root / "execution_segments" / "segment_0001.json"
+            segment.write_text(
+                json.dumps(
+                    {
+                        "segment_id": "segment_0001",
+                        "status": "finished",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            segment_id, segment_path, document = (
+                harness._finished_execution_segment(root)
+            )
+            self.assertEqual(segment_id, "segment_0001")
+            self.assertEqual(segment_path, segment.resolve())
+            self.assertEqual(document["status"], "finished")
+            (root / "execution_segments" / "segment_0002.json").write_text(
+                json.dumps(
+                    {
+                        "segment_id": "segment_0002",
+                        "status": "finished",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "exactly one",
+            ):
+                harness._finished_execution_segment(root)
+
     def test_child_execution_environment_is_plan_bound(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

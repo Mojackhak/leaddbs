@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from dataclasses import asdict, is_dataclass, replace
+from datetime import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import signal
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -3503,6 +3508,471 @@ def _execute_row_child(
     return result_document
 
 
+def _finished_execution_segment(run_root: Path) -> tuple[str, Path, dict[str, object]]:
+    """Return the sole finished execution segment for one isolated row run."""
+
+    root = run_root.expanduser().resolve()
+    manifest_path = root / "run_manifest.json"
+    manifest = _read_json(manifest_path, "benchmark row run manifest")
+    if manifest.get("final_status") != "completed":
+        raise PerformanceMatrixHarnessError(
+            "benchmark row run is not terminal completed"
+        )
+    segment_root = root / "execution_segments"
+    paths = tuple(sorted(segment_root.glob("segment_*.json")))
+    if len(paths) != 1:
+        raise PerformanceMatrixHarnessError(
+            "benchmark row must contain exactly one execution segment"
+        )
+    path = paths[0].resolve()
+    segment = _read_json(path, "benchmark row execution segment")
+    segment_id = path.stem
+    if (
+        segment.get("segment_id") != segment_id
+        or segment.get("status") != "finished"
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark row execution segment is not finished"
+        )
+    return segment_id, path, segment
+
+
+def _terminal_probe_summary(path: Path) -> dict[str, object]:
+    """Validate one complete probe CSV and return its terminal counters."""
+
+    source = path.expanduser().resolve()
+    expected_fields = (
+        "timestamp_utc",
+        "elapsed_monotonic_seconds",
+        "process_count",
+        "tree_rss_bytes",
+        "aggregate_cpu_seconds",
+        "swap_used_bytes",
+        "source_bytes",
+        "scratch_bytes",
+        "event",
+    )
+    try:
+        with source.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if tuple(reader.fieldnames or ()) != expected_fields:
+                raise PerformanceMatrixHarnessError(
+                    "benchmark probe CSV fields differ"
+                )
+            rows = list(reader)
+    except OSError as exc:
+        raise PerformanceMatrixHarnessError(
+            "benchmark probe CSV is unreadable"
+        ) from exc
+    if len(rows) < 2:
+        raise PerformanceMatrixHarnessError(
+            "benchmark probe CSV has no measured process envelope"
+        )
+    prior_timestamp: datetime | None = None
+    prior_elapsed = -1.0
+    prior_cpu = -1.0
+    prior_source = -1
+    prior_scratch = -1
+    peak_rss = 0
+    swap_values: list[int] = []
+    for index, row in enumerate(rows):
+        try:
+            timestamp = datetime.fromisoformat(row["timestamp_utc"])
+            elapsed = float(row["elapsed_monotonic_seconds"])
+            process_count = int(row["process_count"])
+            rss = int(row["tree_rss_bytes"])
+            cpu = float(row["aggregate_cpu_seconds"])
+            swap = int(row["swap_used_bytes"])
+            source_bytes = int(row["source_bytes"])
+            scratch_bytes = int(row["scratch_bytes"])
+        except (TypeError, ValueError) as exc:
+            raise PerformanceMatrixHarnessError(
+                "benchmark probe CSV contains an invalid scalar"
+            ) from exc
+        if (
+            timestamp.tzinfo is None
+            or not math.isfinite(elapsed)
+            or not math.isfinite(cpu)
+            or min(
+                elapsed,
+                process_count,
+                rss,
+                cpu,
+                swap,
+                source_bytes,
+                scratch_bytes,
+            )
+            < 0
+            or (prior_timestamp is not None and timestamp <= prior_timestamp)
+            or elapsed <= prior_elapsed
+            or cpu < prior_cpu
+            or source_bytes < prior_source
+            or scratch_bytes < prior_scratch
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark probe CSV is not monotonic"
+            )
+        expected_event = "runner_exit" if index == len(rows) - 1 else "sample"
+        if row["event"] != expected_event:
+            raise PerformanceMatrixHarnessError(
+                "benchmark probe CSV terminal event differs"
+            )
+        if (
+            expected_event == "sample"
+            and process_count < 1
+        ) or (
+            expected_event == "runner_exit"
+            and process_count != 0
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark probe process envelope differs"
+            )
+        prior_timestamp = timestamp
+        prior_elapsed = elapsed
+        prior_cpu = cpu
+        prior_source = source_bytes
+        prior_scratch = scratch_bytes
+        peak_rss = max(peak_rss, rss)
+        swap_values.append(swap)
+    return {
+        "row_count": len(rows),
+        "wall_seconds": prior_elapsed,
+        "aggregate_cpu_seconds": prior_cpu,
+        "peak_rss_bytes": peak_rss,
+        "swap_delta_bytes": max(swap_values) - swap_values[0],
+        "source_bytes": prior_source,
+        "scratch_bytes": prior_scratch,
+        "probe_sha256": _sha256_file(source),
+    }
+
+
+def _wait_for_probe_attachment(
+    process: subprocess.Popen[bytes],
+    path: Path,
+    *,
+    timeout_seconds: float = 60.0,
+) -> None:
+    """Require one live probe sample before releasing the runner."""
+
+    started = time.monotonic()
+    source = path.expanduser().resolve()
+    while True:
+        if source.is_file():
+            try:
+                with source.open("r", encoding="utf-8", newline="") as handle:
+                    rows = list(csv.reader(handle))
+            except OSError:
+                rows = []
+            if len(rows) > 1:
+                if process.poll() is not None:
+                    raise PerformanceMatrixHarnessError(
+                        "benchmark probe exited during attachment"
+                    )
+                return
+        if process.poll() is not None:
+            raise PerformanceMatrixHarnessError(
+                "benchmark probe exited before attachment"
+            )
+        if time.monotonic() - started > timeout_seconds:
+            raise PerformanceMatrixHarnessError(
+                "benchmark probe attachment timed out"
+            )
+        time.sleep(0.1)
+
+
+def _stop_process_group(process: subprocess.Popen[bytes]) -> None:
+    """Stop one harness-owned process group without touching other runs."""
+
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=10.0)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    process.wait(timeout=10.0)
+
+
+def _run_row_attempt(
+    *,
+    request_path: Path,
+    benchmark_root: Path,
+    resolved: Mapping[str, object],
+    row: Mapping[str, object],
+    candidate_parity_path: Path,
+) -> dict[str, object]:
+    """Run one prepared row through the measured child/probe transaction."""
+
+    from my_helper.fiber.pipelines.build_task17_performance_byte_ledger import (
+        build as build_byte_ledger,
+    )
+    from my_helper.fiber.pipelines.build_task17_performance_counters import (
+        build as build_counters,
+    )
+    from my_helper.fiber.pipelines.init_task17_performance_byte_ledger_index import (
+        initialize as initialize_byte_ledger,
+    )
+    from my_helper.fiber.pipelines.run_task17_artifact_static_audit import (
+        audit as run_artifact_static_audit,
+    )
+
+    root = benchmark_root.expanduser().resolve()
+    row_id = str(row.get("row_id", ""))
+    row_root = root / "rows" / row_id
+    contract_path = row_root / "row_contract.json"
+    contract_sha256 = _sha256_file(contract_path)
+    existing = _validate_row_result(row_root, contract_sha256)
+    if existing is not None:
+        return existing
+    attempt_root, attempt_plan = _prepare_row_attempt(
+        resolved=resolved,
+        row=row,
+        benchmark_root=root,
+    )
+    environment = _validate_child_execution_environment(resolved)
+    script = Path(__file__).resolve()
+    child_command = (
+        sys.executable,
+        str(script),
+        "_run-child",
+        "--request",
+        str(request_path.expanduser().resolve()),
+        "--benchmark-root",
+        str(root),
+        "--row-id",
+        row_id,
+        "--attempt-root",
+        str(attempt_root),
+    )
+    runner_stdout_path = attempt_root / "runner.stdout.log"
+    runner_stderr_path = attempt_root / "runner.stderr.log"
+    probe_stdout_path = attempt_root / "probe.stdout.log"
+    probe_stderr_path = attempt_root / "probe.stderr.log"
+    probe_path = attempt_root / "probe.csv"
+    byte_index_path = attempt_root / "live_byte_ledger_index.json"
+    runner: subprocess.Popen[bytes] | None = None
+    probe: subprocess.Popen[bytes] | None = None
+    try:
+        with (
+            runner_stdout_path.open("wb") as runner_stdout,
+            runner_stderr_path.open("wb") as runner_stderr,
+            probe_stdout_path.open("wb") as probe_stdout,
+            probe_stderr_path.open("wb") as probe_stderr,
+        ):
+            child_environment = os.environ.copy()
+            child_environment["CONDA_DEFAULT_ENV"] = environment[
+                "conda_environment"
+            ]
+            runner = subprocess.Popen(
+                child_command,
+                cwd=environment["working_directory"],
+                env=child_environment,
+                stdout=runner_stdout,
+                stderr=runner_stderr,
+                start_new_session=True,
+            )
+            ready = _runner_ready(
+                runner,
+                attempt_root / "runner_ready.json",
+                row_id=row_id,
+            )
+            if (
+                ready["runner_pid"] != runner.pid
+                or ready["segment_plan_sha256"]
+                != attempt_plan["segment_plan_sha256"]
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "benchmark runner readiness differs from the parent process"
+                )
+            run_root = Path(str(ready["run_root"])).expanduser().resolve()
+            initialize_byte_ledger(
+                run_root=run_root,
+                output=byte_index_path,
+            )
+            protected = (
+                Path(str(resolved["accepted_parent"]["root"])),
+                Path(str(resolved["accepted_independent_oss"]["root"])),
+                Path(str(resolved["accepted_oss_cache"]["cache_root"])),
+                run_root,
+            )
+            probe_command: list[str] = [
+                sys.executable,
+                str(script.with_name("run_task17_performance_probe.py")),
+                "--runner-pid",
+                str(runner.pid),
+                "--output",
+                str(probe_path),
+                "--byte-counter",
+                str(byte_index_path),
+            ]
+            for protected_root in protected:
+                probe_command.extend(
+                    ("--guarded-root", str(protected_root.resolve()))
+                )
+            probe = subprocess.Popen(
+                tuple(probe_command),
+                cwd=environment["working_directory"],
+                env=child_environment,
+                stdout=probe_stdout,
+                stderr=probe_stderr,
+                start_new_session=True,
+            )
+            _wait_for_probe_attachment(probe, probe_path)
+            _measurement_start(
+                attempt_root / "measurement_start.json",
+                row_id=row_id,
+                runner_pid=runner.pid,
+                byte_ledger_index=byte_index_path,
+            )
+            runner_code = runner.wait()
+            probe_code = probe.wait(timeout=60.0)
+        if runner_code != 0 or probe_code != 0:
+            raise PerformanceMatrixHarnessError(
+                "benchmark runner or probe did not complete"
+            )
+        probe_summary = _terminal_probe_summary(probe_path)
+        child_result_path = attempt_root / "attempt_result.json"
+        child_result = _read_json(
+            child_result_path,
+            "benchmark row child result",
+        )
+        if (
+            child_result.get("row_id") != row_id
+            or child_result.get("attempt") != attempt_plan["attempt"]
+            or child_result.get("segment_plan_sha256")
+            != attempt_plan["segment_plan_sha256"]
+            or child_result.get("result_sha256")
+            != _canonical_sha256(
+                {
+                    key: value
+                    for key, value in child_result.items()
+                    if key != "result_sha256"
+                }
+            )
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark row child result identity differs"
+            )
+        run_root = Path(str(child_result["run_root"])).expanduser().resolve()
+        manifest_path = run_root / "run_manifest.json"
+        if (
+            not manifest_path.is_file()
+            or _sha256_file(manifest_path)
+            != child_result["run_manifest_sha256"]
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark row child manifest SHA differs"
+            )
+        segment_id, segment_path, segment = _finished_execution_segment(
+            run_root
+        )
+        byte_ledger_path = attempt_root / "performance_byte_ledger.json"
+        build_byte_ledger(
+            run_root=run_root,
+            segment_id=segment_id,
+            output=byte_ledger_path,
+        )
+        byte_ledger = _read_json(
+            byte_ledger_path,
+            "benchmark terminal byte ledger",
+        )
+        if (
+            byte_ledger.get("source_bytes") != probe_summary["source_bytes"]
+            or byte_ledger.get("scratch_bytes")
+            != probe_summary["scratch_bytes"]
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark probe and terminal byte ledger differ"
+            )
+        audit_path = run_artifact_static_audit(
+            run_root=run_root,
+            segment_id=segment_id,
+            source_root=CORE_ROOT / "dual_frequency",
+        )
+        parity = candidate_parity_path.expanduser().resolve()
+        if not parity.is_file():
+            raise PerformanceMatrixHarnessError(
+                "configured candidate parity report is missing"
+            )
+        event_path = (run_root / str(segment["performance_events_path"])).resolve()
+        counter_inputs = {
+            "schema_version": (
+                "dual_frequency_performance_counter_inputs_v1"
+            ),
+            "run_root": str(run_root),
+            "run_id": _read_json(
+                manifest_path,
+                "benchmark row run manifest",
+            )["run_id"],
+            "segment_id": segment_id,
+            "segment_sha256": _sha256_file(segment_path),
+            "event_report_path": str(event_path),
+            "event_report_sha256": _sha256_file(event_path),
+            "byte_ledger_path": str(byte_ledger_path),
+            "byte_ledger_sha256": _sha256_file(byte_ledger_path),
+            "candidate_parity_path": str(parity),
+            "candidate_parity_sha256": _sha256_file(parity),
+            "artifact_static_audit_path": str(audit_path),
+            "artifact_static_audit_sha256": _sha256_file(audit_path),
+            "benchmark_class": str(row["benchmark_class"]),
+            "cache_state": str(row["cache_state"]),
+        }
+        counter_inputs_path = attempt_root / "performance_counter_inputs.json"
+        _atomic_json(counter_inputs_path, counter_inputs)
+        counter_path = build_counters(counter_inputs_path)
+        evidence_paths = (
+            attempt_root / "attempt_plan.json",
+            attempt_root / "runner_ready.json",
+            attempt_root / "measurement_start.json",
+            child_result_path,
+            runner_stdout_path,
+            runner_stderr_path,
+            probe_path,
+            probe_stdout_path,
+            probe_stderr_path,
+            byte_index_path,
+            byte_ledger_path,
+            counter_inputs_path,
+            manifest_path,
+            segment_path,
+            event_path,
+            audit_path,
+            counter_path,
+        )
+        result = {
+            "schema_version": _ROW_RESULT_SCHEMA,
+            "row_id": row_id,
+            "contract_sha256": contract_sha256,
+            "status": "executed",
+            "attempt": attempt_plan["attempt"],
+            "evidence": [
+                _relative_evidence(path, row_root=row_root)
+                for path in evidence_paths
+            ],
+            "not_run_reason": None,
+        }
+        _atomic_json(row_root / "row_result.json", result)
+        validated = _validate_row_result(row_root, contract_sha256)
+        if validated != result:
+            raise PerformanceMatrixHarnessError(
+                "terminal executed benchmark row differs after publication"
+            )
+        return result
+    finally:
+        if runner is not None:
+            _stop_process_group(runner)
+        if probe is not None:
+            _stop_process_group(probe)
+
+
 def validate_existing(
     request_path: Path,
     benchmark_root: Path,
@@ -3538,9 +4008,14 @@ def validate_existing(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("prepare", "validate"))
+    parser.add_argument(
+        "operation",
+        choices=("prepare", "validate", "_run-child"),
+    )
     parser.add_argument("--request", required=True, type=Path)
     parser.add_argument("--benchmark-root", required=True, type=Path)
+    parser.add_argument("--row-id")
+    parser.add_argument("--attempt-root", type=Path)
     return parser
 
 
@@ -3549,10 +4024,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if arguments.operation == "prepare":
             result = prepare(arguments.request, arguments.benchmark_root)
-        else:
+        elif arguments.operation == "validate":
             result = validate_existing(
                 arguments.request,
                 arguments.benchmark_root,
+            )
+        else:
+            if not arguments.row_id or arguments.attempt_root is None:
+                raise PerformanceMatrixHarnessError(
+                    "benchmark child row ID and attempt root are required"
+                )
+            result = _execute_row_child(
+                request_path=arguments.request,
+                benchmark_root=arguments.benchmark_root,
+                row_id=arguments.row_id,
+                attempt_root=arguments.attempt_root,
             )
     except (
         ApplicationError,

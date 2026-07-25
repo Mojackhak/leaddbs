@@ -110,7 +110,7 @@ exact deduplicated entry list, requires an empty and disjoint row-local cache,
 copies only the bound row and decision identities, and reopens every copied
 entry through the ordinary full cache validator before returning one canonical
 seed SHA. Reuse of a nonempty destination fails instead of merging state. The
-focused performance-harness suite now has 23 passing tests. It covers the
+focused performance-harness suite now has 26 passing tests. It covers the
 required reference/add-on gate-family closure as well as extending the accepted
 cache-closure fixture with seed-copy assertions.
 
@@ -175,6 +175,20 @@ slice, finalizes the run, rejects restored selected tasks, and publishes a
 SHA-bound child result. Injected rows still fail closed until the frozen
 spawn-worker fixture descriptor is implemented after the active OSS process
 terminates; the public `run` operation remains unavailable.
+
+The corresponding parent row transaction is also implemented. It launches the
+bound child and external probe in separate harness-owned process groups,
+requires readiness before creating the live byte-ledger index, requires one
+probe sample before releasing the child with `measurement_start.json`, and
+waits for both processes to terminate. It then validates exactly one finished
+segment and one terminal `runner_exit`, builds the byte ledger, requires the
+probe and ledger byte totals to match, runs the artifact/static audit and
+counter builder, and publishes a SHA-closed terminal row only after all
+evidence succeeds. Failures retain a partial monotonic attempt and terminate
+only the two harness-owned process groups. Configured candidate-parity
+generation, unmeasured ordinary warm-seed execution, injected spawned-worker
+support, matrix-level manifest/acceptance, and the public `run` operation
+remain pending.
 
 ## Final Closure Rule
 

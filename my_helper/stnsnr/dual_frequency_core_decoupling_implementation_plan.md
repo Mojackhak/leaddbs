@@ -8919,6 +8919,27 @@ about 7513522176 bytes, swap baseline 3579188347 bytes, and current swap
 3366851707 bytes. Thus RSS remained `< 64 GiB` and swap growth remained `< 1`
 byte. No automatic restart or code hot-load occurred.
 
+The benchmark parent transaction is now implemented without exposing the
+public `run` operation prematurely. For each prepared ordinary,
+real-cache-hit, or authorized real-solver row, the parent launches the bound
+child in a new process group, requires the exact readiness PID and slice-plan
+SHA, initializes the live byte-ledger index, launches the external probe, and
+waits for its first live process sample before publishing the immutable
+measurement token. After child and probe exit, it requires one terminal
+`runner_exit` sample, strictly increasing timezone-aware timestamps and elapsed
+times, monotonic CPU and byte counters, one completed run manifest, and exactly
+one finished execution segment. It then builds the terminal byte ledger,
+requires its source and scratch totals to match the probe, runs the
+artifact/static audit and counter builder, and commits `row_result.json` only
+after every evidence file has a row-local SHA reference. Any exception stops
+only the harness-owned runner and probe process groups and leaves the attempt
+partial. The hidden child CLI is available solely for this parent transaction.
+The public `run` gate remains closed until configured-data candidate parity,
+ordinary unmeasured warm-seed execution, injected spawn-worker support, and
+matrix-level terminal validation are complete. The focused harness suite now
+passes 26 tests, including exact terminal-segment and probe-envelope rejection
+fixtures.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
