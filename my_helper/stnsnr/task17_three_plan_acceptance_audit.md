@@ -141,6 +141,9 @@ matches the repair manifest. The repair-manifest SHA-256 remains
 `dff3ab60616b2bd9d77075bc6781f6ef928db666f1052ac31d5f02f4088f6b5c`,
 and the staged artifact-index SHA-256 is
 `9ea5003edcd97242d79d3e6cfbf92b770ab157cd1c54c21fe7d963b897331f9c`.
+Direct NIfTI loading further confirms 56 one-millimeter and 56 two-millimeter
+3-D payloads. Every actual finite-voxel count matches both metadata counts; the
+aggregate finite-voxel count across the 112 payloads is 68040.
 Canonical source-state comparison and promotion remain pending.
 
 The same isolated checkpoint repeated the fault-acceptance, resource-guard,
