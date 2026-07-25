@@ -93,6 +93,12 @@ tests passed with warnings treated as errors. This validates the local output
 and publication machinery but does not replace the remaining canonical OSS,
 combined, smoothing, and postprocess executions.
 
+The synthetic end-to-end suite was also repeated on the isolated branch. All
+seven tests passed with warnings treated as errors, covering local YAML
+validation, planning, execution, resume, main publication, and sensitivity
+publication across their real module boundaries. Synthetic fixtures do not
+replace configured-data or formal-run acceptance.
+
 ## Repository Entrypoint Preflight
 
 The following repository-owned entrypoints parse successfully in Conda
