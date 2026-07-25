@@ -2622,6 +2622,52 @@ def _open_prepared_benchmark(
     return resolved, marker
 
 
+def _validate_child_execution_environment(
+    resolved: Mapping[str, object],
+    *,
+    working_directory: Path | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Require the child process to match its immutable execution environment."""
+
+    raw = resolved.get("execution_environment")
+    if (
+        not isinstance(raw, Mapping)
+        or set(raw) != {"conda_environment", "working_directory"}
+    ):
+        raise PerformanceMatrixHarnessError(
+            "resolved child execution environment is invalid"
+        )
+    conda_environment = _safe_token(
+        raw["conda_environment"],
+        "resolved Conda environment",
+    )
+    expected_working_directory = Path(
+        str(raw["working_directory"])
+    ).expanduser().resolve()
+    actual_working_directory = (
+        Path.cwd().resolve()
+        if working_directory is None
+        else working_directory.expanduser().resolve()
+    )
+    values = os.environ if environment is None else environment
+    active_environment = str(values.get("CONDA_DEFAULT_ENV", "")).strip()
+    if not active_environment:
+        prefix = str(values.get("CONDA_PREFIX", "")).strip()
+        active_environment = Path(prefix).name if prefix else ""
+    if (
+        actual_working_directory != expected_working_directory
+        or active_environment != conda_environment
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark child execution environment differs"
+        )
+    return {
+        "conda_environment": conda_environment,
+        "working_directory": str(expected_working_directory),
+    }
+
+
 def validate_existing(
     request_path: Path,
     benchmark_root: Path,

@@ -806,6 +806,36 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     timeout_seconds=1,
                 )
 
+    def test_child_execution_environment_is_plan_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            resolved = {
+                "execution_environment": {
+                    "conda_environment": "leaddbs",
+                    "working_directory": str(root),
+                }
+            }
+            self.assertEqual(
+                harness._validate_child_execution_environment(
+                    resolved,
+                    working_directory=root,
+                    environment={"CONDA_DEFAULT_ENV": "leaddbs"},
+                ),
+                {
+                    "conda_environment": "leaddbs",
+                    "working_directory": str(root),
+                },
+            )
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "differs",
+            ):
+                harness._validate_child_execution_environment(
+                    resolved,
+                    working_directory=root,
+                    environment={"CONDA_DEFAULT_ENV": "base"},
+                )
+
     def test_row_ids_are_stable_and_key_specific(self) -> None:
         first = {
             "benchmark_class": "direct_voxel",
