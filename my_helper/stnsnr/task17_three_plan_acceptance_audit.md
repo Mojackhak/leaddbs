@@ -528,6 +528,17 @@ ancestry, commit count, path list, and request digest still must be recomputed
 after the independent OSS writer exits and immediately before the
 fast-forward-only merge.
 
+The latest read-only scope audit at reviewed head `a368278a6` again confirms
+that baseline `f08658f0d` remains an ancestor. The closed range contains 41
+commits and the same eight changed paths: the performance runner, its two
+workflow integration files, two focused test files, the frozen benchmark
+request, the implementation plan, and this acceptance ledger. The request
+SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+Both worktrees were clean. This is current merge-readiness evidence only; the
+same ancestry, path, and digest closure must still be recomputed after the OSS
+writer exits immediately before the fast-forward-only merge.
+
 A matching semantic audit confirms that the added fixture descriptor defaults
 to null, ordinary main and sensitivity worker construction never populate it,
 and only benchmark warm-seed and measured-row construction derives it from the
