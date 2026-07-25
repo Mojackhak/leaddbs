@@ -87,6 +87,12 @@ default remains three workers; formal worker overrides remain CLI/runtime
 inputs. On 2026-07-25, all 23 configuration and application-CLI tests plus 12
 subtests passed under Conda `leaddbs` with warnings treated as errors.
 
+The main model-set publication, reporting, artifact/static audit, and
+extension-v2 publication suites were repeated at the same checkpoint. All 35
+tests passed with warnings treated as errors. This validates the local output
+and publication machinery but does not replace the remaining canonical OSS,
+combined, smoothing, and postprocess executions.
+
 ## Repository Entrypoint Preflight
 
 The following repository-owned entrypoints parse successfully in Conda
