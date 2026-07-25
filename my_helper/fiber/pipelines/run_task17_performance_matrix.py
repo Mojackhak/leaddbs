@@ -42,7 +42,8 @@ from dual_frequency.backends.activation.ossdbs import (  # noqa: E402
 from dual_frequency.backends.activation.ppam import (  # noqa: E402
     PPAM_LATTICE_ABSOLUTE_TOLERANCE,
 )
-from dual_frequency.cache import ContentAddressedCache  # noqa: E402
+from dual_frequency.cache import ArtifactStore, ContentAddressedCache  # noqa: E402
+from dual_frequency.catalog import CatalogStatus  # noqa: E402
 from dual_frequency.config import WorkflowOverrides  # noqa: E402
 from dual_frequency.contracts import (  # noqa: E402
     OSSAxisEquivalenceGroupRecord,
@@ -58,8 +59,13 @@ from dual_frequency.runtime.oss_toolchain import (  # noqa: E402
 from dual_frequency.workflow import (  # noqa: E402
     ExecutionPlan,
     GateRequirement,
+    ExecutionContext,
+    RunIdentity,
+    RunStore,
     ServiceResult,
+    SpawnWorkerSpec,
     TaskSpec,
+    execute_plan,
     plan_hash,
 )
 
@@ -3283,6 +3289,218 @@ def _workflow_bundle_from_resolved(
             "benchmark child production workflow identity differs"
         )
     return service, bundle
+
+
+def _execute_row_child(
+    *,
+    request_path: Path,
+    benchmark_root: Path,
+    row_id: str,
+    attempt_root: Path,
+) -> dict[str, object]:
+    """Execute one already-prepared row after the parent measurement handshake."""
+
+    resolved, _marker = _open_prepared_benchmark(
+        request_path,
+        benchmark_root,
+    )
+    _validate_child_execution_environment(resolved)
+    row = _resolved_row(resolved, row_id)
+    (
+        attempt_plan,
+        checkpoint_states,
+        cache_state,
+        descriptor,
+        execution_plan,
+    ) = _open_row_attempt_inputs(
+        resolved=resolved,
+        row=row,
+        benchmark_root=benchmark_root,
+        attempt_root=attempt_root,
+    )
+    if row.get("solver_mode") == "injected":
+        raise PerformanceMatrixHarnessError(
+            "spawned injected OSS benchmark mode is not installed"
+        )
+    service, bundle = _workflow_bundle_from_resolved(resolved)
+    validated = bundle.validated
+    configuration = validated.configuration
+    parent = resolved["accepted_parent"]
+    oss = resolved["accepted_independent_oss"]
+    parent_root = Path(str(parent["root"])).expanduser().resolve()
+    oss_root = Path(str(oss["root"])).expanduser().resolve()
+    cache_root = Path(
+        str(cache_state["scientific_cache_root"])
+    ).expanduser().resolve()
+    output_root = configuration.direct_voxel.output.root.expanduser().resolve()
+    run_root = attempt_root.expanduser().resolve() / "run"
+    run_id = (
+        f"task17-perf-{row_id.removeprefix('row_')}-"
+        f"attempt-{int(attempt_plan['attempt']):04d}"
+    )
+    identity = RunIdentity(
+        study_id=validated.study.study_id,
+        run_id=run_id,
+        study_base_sha256=validated.study.source_sha256,
+        code_identity=service._code_identity(),
+        configuration_hash=configuration.configuration_hash,
+        scientific_configuration_hash=(
+            configuration.scientific_configuration_hash
+        ),
+        plan_hash=plan_hash(execution_plan),
+        parent_run_id=str(parent["run_id"]),
+    )
+    snapshot = service._resolved_snapshot(validated)
+    sources = service._configuration_sources(validated)
+    store = RunStore.open(
+        run_root,
+        identity,
+        resolved_configuration=snapshot,
+        configuration_sources=sources,
+        allowed_artifact_roots=(
+            parent_root,
+            oss_root,
+            output_root,
+            cache_root,
+        ),
+        resume=False,
+    )
+    store.annotate_manifest(
+        {
+            "run_type": "task17_performance_benchmark_row",
+            "benchmark_row_id": row_id,
+            "benchmark_attempt": int(attempt_plan["attempt"]),
+            "benchmark_slice_id": descriptor["slice_id"],
+            "resource_settings": {"workers": int(row["workers"])},
+        }
+    )
+    service._publish_input_bundle(store.root, validated)
+    installed = _install_imported_checkpoint_states(
+        store,
+        checkpoint_states,
+    )
+    if set(installed) != {
+        *descriptor["imported_parent_task_ids"],
+        *descriptor["imported_oss_task_ids"],
+    }:
+        raise PerformanceMatrixHarnessError(
+            "row-local installed checkpoint closure differs"
+        )
+    artifact_roots = (
+        store.root,
+        parent_root,
+        oss_root,
+        output_root,
+        cache_root,
+    )
+    artifact_store = ArtifactStore(artifact_roots)
+    scientific_cache = ContentAddressedCache(cache_root)
+    provider = service._default_provider(
+        validated,
+        work_root=store.root / "runtime_work",
+        artifact_store=artifact_store,
+        scientific_cache=scientific_cache,
+    )
+    endpoint_facts = {
+        endpoint.endpoint_id: {
+            "catalog_data_available": endpoint.status
+            == CatalogStatus.DATA_AVAILABLE,
+        }
+        for endpoint in validated.catalog
+    }
+    context = ExecutionContext(
+        run_store=store,
+        registry=service._default_registry(),
+        provider=provider,
+        endpoint_facts=endpoint_facts,
+        allow_expensive_producers=(
+            row.get("solver_mode") != "real_cache_hit"
+        ),
+        continue_on_endpoint_failure=(
+            configuration.workflow.execution.continue_on_endpoint_failure
+        ),
+        workers=int(row["workers"]),
+        artifact_store=artifact_store,
+        scientific_cache=scientific_cache,
+        resume=True,
+        spawn_worker_spec=SpawnWorkerSpec(
+            study=validated.study,
+            configuration=configuration,
+            catalog=validated.catalog,
+            work_root=store.root / "runtime_work",
+            artifact_roots=artifact_roots,
+            cache_root=cache_root,
+        ),
+    )
+    ready = {
+        "schema_version": _RUNNER_READY_SCHEMA,
+        "row_id": row_id,
+        "runner_pid": os.getpid(),
+        "run_root": str(store.root),
+        "segment_plan_sha256": descriptor["plan_hash"],
+        "imported_parent_task_ids": descriptor["imported_parent_task_ids"],
+        "imported_oss_task_ids": descriptor["imported_oss_task_ids"],
+    }
+    _atomic_json(
+        attempt_root.expanduser().resolve() / "runner_ready.json",
+        ready,
+    )
+    _wait_for_measurement_start(
+        attempt_root.expanduser().resolve() / "measurement_start.json",
+        row_id=row_id,
+        runner_pid=os.getpid(),
+    )
+    result = None
+    failure: BaseException | None = None
+    final_status = "failed"
+    try:
+        result = execute_plan(execution_plan, context)
+        final_status = "completed" if result.exit_code == 0 else "failed"
+    except BaseException as exc:
+        failure = exc
+    try:
+        store.finalize(final_status)
+    except BaseException as exc:
+        if failure is None:
+            failure = exc
+    if failure is not None:
+        raise failure
+    if result is None or result.exit_code != 0:
+        raise PerformanceMatrixHarnessError(
+            "benchmark row execution did not complete"
+        )
+    outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
+    selected_ids = tuple(str(value) for value in descriptor["selected_task_ids"])
+    if any(
+        task_id not in outcomes
+        or outcomes[task_id].status != "completed"
+        or outcomes[task_id].reason == "restored_completed_result"
+        for task_id in selected_ids
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark selected task execution closure differs"
+        )
+    result_document = {
+        "schema_version": "dual_frequency_task17_row_child_result_v1",
+        "row_id": row_id,
+        "attempt": int(attempt_plan["attempt"]),
+        "run_root": str(store.root),
+        "run_manifest_sha256": _sha256_file(
+            store.root / "run_manifest.json"
+        ),
+        "segment_plan_sha256": descriptor["plan_hash"],
+        "selected_task_ids": list(selected_ids),
+        "restored_task_ids": sorted(installed),
+        "task_statuses": {
+            task_id: outcomes[task_id].status for task_id in sorted(outcomes)
+        },
+    }
+    result_document["result_sha256"] = _canonical_sha256(result_document)
+    _atomic_json(
+        attempt_root.expanduser().resolve() / "attempt_result.json",
+        result_document,
+    )
+    return result_document
 
 
 def validate_existing(
