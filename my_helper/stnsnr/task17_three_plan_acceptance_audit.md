@@ -245,9 +245,14 @@ fixture or mounted artifact paths. Replaying the two spawn cases through the
 importable `dual_frequency.tests...` package and the four activation cases
 against the same main-worktree template made all six pass without a code
 change. The visualization suite was then replayed separately and all 38 tests
-passed. The five frozen-artifact cases remain intentionally deferred until a
-permitted production inspection window and the post-merge main-worktree
-regression; no VAL path was read to manufacture pre-merge closure.
+passed. During the next permitted production inspection window, the isolated
+package was exercised through the main checkout's exact frozen fixture files.
+All five previously deferred reference-fiber, add-on-fiber, OSS, jitter, and
+formal-summary cases passed, including 12 subtests, against their mounted
+allowlisted artifacts. The two real study-base compatibility and drift tests
+and the two-scale catalog/DAG smoke also passed. This closes every previously
+identified environment-path case without copying or replacing its data.
+The post-merge main-worktree complete regression remains mandatory.
 
 The frozen formal postprocess request was also audited read-only. Its SHA-256 is
 `144ad7a1e775c1bf01f5d99df285a87b31bae7075aa3692d714201f1953e6ab0`.
