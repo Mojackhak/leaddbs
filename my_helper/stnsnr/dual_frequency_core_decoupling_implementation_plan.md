@@ -5455,6 +5455,16 @@ label added after execution:
 - the real pPAM cache-hit seed comes only from the independently accepted OSS
   closure, copied into a row-local root and fully verified before measurement.
 
+An ordinary warm seed is generated only in a newly created, proven-empty,
+benchmark-local scientific cache by one unmeasured execution of the same
+selected slice. Because that isolated cache has no pre-existing entries, the
+seed transaction may enumerate its terminal `shared_exposure_v2` descendants,
+open every entry through `ContentAddressedCache.resolve_identity`, and freeze
+their kind, scientific identity, manifest SHA, and complete seed-closure SHA.
+Enumeration of the configured production shared cache remains forbidden.
+Measured warm rows copy only that frozen seed closure; an empty seed, an
+unexpected entry, or any manifest difference fails before readiness.
+
 `prepare` resolves the accepted OSS gate records from the terminal independent
 OSS lineage and records their exact group IDs, decision IDs, final/Omega row
 identities, cache-entry manifest SHAs, and one canonical closure SHA in the
