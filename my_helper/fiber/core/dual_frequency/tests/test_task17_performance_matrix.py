@@ -39,6 +39,21 @@ class _Process:
         return self.exit_code
 
 
+class _TaskStore:
+    def __init__(self) -> None:
+        self.states: dict[str, dict[str, object]] = {}
+
+    def write_task_state(
+        self,
+        task_id: str,
+        payload: dict[str, object],
+    ) -> None:
+        self.states[task_id] = {**payload, "task_id": task_id}
+
+    def read_task_state(self, task_id: str) -> dict[str, object] | None:
+        return self.states.get(task_id)
+
+
 def _task(
     *,
     endpoint_id: str,
@@ -560,6 +575,12 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 closure["entries"][0]["task_id"],
                 parent.task_id,
             )
+            store = _TaskStore()
+            self.assertEqual(
+                harness._install_imported_checkpoint_states(store, states),
+                (parent.task_id,),
+            )
+            self.assertEqual(store.states[parent.task_id], state)
 
     def test_execution_slice_replaces_only_direct_parents_with_checkpoints(
         self,

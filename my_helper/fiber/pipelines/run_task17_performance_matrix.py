@@ -144,6 +144,18 @@ class _PollableProcess(Protocol):
         """Return the child exit code or None while it remains alive."""
 
 
+class _TaskStateStore(Protocol):
+    def write_task_state(
+        self,
+        task_id: str,
+        payload: Mapping[str, object],
+    ) -> None:
+        """Persist one task state."""
+
+    def read_task_state(self, task_id: str) -> dict[str, object] | None:
+        """Read one task state."""
+
+
 class _AcceptedOSSInjectedToolchain:
     """Return deterministic sample evidence from one accepted OSS row closure."""
 
@@ -2090,6 +2102,36 @@ def _imported_checkpoint_states(
         **closure,
         "closure_sha256": _canonical_sha256(closure),
     }
+
+
+def _install_imported_checkpoint_states(
+    store: _TaskStateStore,
+    states: Sequence[Mapping[str, object]],
+) -> tuple[str, ...]:
+    """Install exact completed checkpoints and verify their persisted form."""
+
+    installed: list[str] = []
+    for raw in states:
+        state = dict(raw)
+        task_id = state.get("task_id")
+        if (
+            type(task_id) is not str
+            or task_id in installed
+            or state.get("status") != "completed"
+            or not isinstance(state.get("result"), Mapping)
+        ):
+            raise PerformanceMatrixHarnessError(
+                "imported checkpoint installation input is invalid"
+            )
+        payload = {key: value for key, value in state.items() if key != "task_id"}
+        store.write_task_state(task_id, payload)
+        reopened = store.read_task_state(task_id)
+        if reopened != state:
+            raise PerformanceMatrixHarnessError(
+                "imported checkpoint changed during row-local installation"
+            )
+        installed.append(task_id)
+    return tuple(installed)
 
 
 def _authorization(
