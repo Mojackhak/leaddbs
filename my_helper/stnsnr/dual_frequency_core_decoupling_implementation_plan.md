@@ -4189,6 +4189,17 @@ as provenance and are not hidden resume gates. This accepts the three-gate
 resume implementation boundary; the active independent OSS lineage still
 requires terminal replay evidence after its two equivalence gates close.
 
+A 2026-07-25 isolated pre-merge replay exposed one test-only resource
+dependency. The historical accepted-OSS cache-only resume fixture created its
+initial expensive gate under the host's live available-memory measurement.
+While the production OSS process held memory, that synthetic first pass could
+not admit its 48-GiB grant and reported a scheduler deadlock before reaching
+the resume behavior under test. The fixture must pin `_ResourceLedger` to a
+synthetic 128-GiB total and available-memory state around all three invocations.
+This keeps the real 48-GiB solver charge and 64-GiB managed ceiling intact,
+makes the unit test independent of concurrent host load, and changes no
+production executor or resume gate.
+
 A current focused resource and determinism replay on 2026-07-22 passed 14 tests
 plus four subtests under Conda `leaddbs`. It verifies one closed pool generation
 in fault-free execution, cumulative jitter-memory admission, exclusive OSS-axis
