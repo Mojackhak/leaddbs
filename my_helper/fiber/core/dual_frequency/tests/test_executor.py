@@ -1913,7 +1913,14 @@ class ExecutorTest(unittest.TestCase):
                 RegisteredService("child", child_service),
             )
         )
-        with tempfile.TemporaryDirectory() as temporary_directory:
+        with (
+            tempfile.TemporaryDirectory() as temporary_directory,
+            patch.object(
+                _ResourceLedger,
+                "_memory_state",
+                return_value=(128 * 1024**3, 128 * 1024**3),
+            ),
+        ):
             root = Path(temporary_directory) / "run"
             first = execute_plan(
                 plan,

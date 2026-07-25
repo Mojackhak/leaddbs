@@ -4198,7 +4198,10 @@ the resume behavior under test. The fixture must pin `_ResourceLedger` to a
 synthetic 128-GiB total and available-memory state around all three invocations.
 This keeps the real 48-GiB solver charge and 64-GiB managed ceiling intact,
 makes the unit test independent of concurrent host load, and changes no
-production executor or resume gate.
+production executor or resume gate. The fixture now pins that synthetic memory
+state. All eight focused resume tests and all 41 executor tests pass under
+Conda `leaddbs` with warnings treated as errors while the independent OSS
+process remains active.
 
 A current focused resource and determinism replay on 2026-07-22 passed 14 tests
 plus four subtests under Conda `leaddbs`. It verifies one closed pool generation
