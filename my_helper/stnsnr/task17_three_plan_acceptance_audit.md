@@ -123,6 +123,15 @@ final-in-sample publications, contains no `.runs` path, selects all available
 scales, and requests paired-fit, voxel 2-D, and fiber 2-D components. The
 configured output root remains absent until its production execution gate.
 
+A static 3-D scene audit on 2026-07-25 confirmed that both PDQ-39 examples
+resolve only canonical publication roots and retain an interactive figure
+without writing FIG, image, PDF, or spin outputs. The voxel example requests a
+0.5-mm inward sample depth. The shared renderer uses vik for signed voxel and
+score-mapped fiber color, freezes anatomy slices as independent grayscale
+truecolor, and sets RAS colors to `#F2000E`, `#0E6AAF`, and `#0CA228` without
+changing the reference arrow-style parameters. Real canonical scene execution
+and visual review remain required after the publication gates close.
+
 The same isolated checkpoint repeated the fault-acceptance, resource-guard,
 strict and pre-instrumentation resource-validation, artifact/static audit,
 performance-acceptance, byte-ledger, counter, and probe suites. All 99 tests and
