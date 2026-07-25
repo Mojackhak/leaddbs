@@ -531,6 +531,40 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             "task fields differ",
         ):
             harness._execution_plan_from_payload(payload)
+        descriptor = harness._slice_descriptor(
+            sliced,
+            (first, second),
+            parent_completed={parent.task_id},
+            oss_completed=set(),
+            label="formal_permutation",
+        )
+        resolved = {
+            "slices": [descriptor],
+            "rows": [
+                {
+                    "row_id": "row-formal",
+                    "slice_id": descriptor["slice_id"],
+                }
+            ],
+        }
+        row = harness._resolved_row(resolved, "row-formal")
+        reopened_descriptor, reopened_plan = harness._resolved_slice(
+            resolved,
+            row,
+        )
+        self.assertEqual(reopened_descriptor, descriptor)
+        self.assertEqual(reopened_plan, sliced)
+        with self.assertRaisesRegex(
+            harness.PerformanceMatrixHarnessError,
+            "resolve exactly once",
+        ):
+            harness._resolved_row(
+                {
+                    **resolved,
+                    "rows": [resolved["rows"][0], resolved["rows"][0]],
+                },
+                "row-formal",
+            )
 
     def test_request_rejects_an_operator_authored_row_field(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -1943,6 +1943,67 @@ def _validate_row_contracts(
             )
 
 
+def _resolved_row(
+    resolved: Mapping[str, object],
+    row_id: str,
+) -> dict[str, object]:
+    """Return one exact row from an immutable resolved benchmark plan."""
+
+    rows = resolved.get("rows")
+    if not isinstance(rows, list):
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark rows are invalid"
+        )
+    matches = tuple(
+        dict(row)
+        for row in rows
+        if isinstance(row, Mapping) and row.get("row_id") == row_id
+    )
+    if len(matches) != 1:
+        raise PerformanceMatrixHarnessError(
+            "benchmark row identity does not resolve exactly once"
+        )
+    return matches[0]
+
+
+def _resolved_slice(
+    resolved: Mapping[str, object],
+    row: Mapping[str, object],
+) -> tuple[dict[str, object], ExecutionPlan]:
+    """Return and decode the exact executable slice bound to one row."""
+
+    slice_id = row.get("slice_id")
+    slices = resolved.get("slices")
+    if type(slice_id) is not str or not isinstance(slices, list):
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark slice binding is invalid"
+        )
+    matches = tuple(
+        dict(item)
+        for item in slices
+        if isinstance(item, Mapping) and item.get("slice_id") == slice_id
+    )
+    if len(matches) != 1:
+        raise PerformanceMatrixHarnessError(
+            "benchmark slice identity does not resolve exactly once"
+        )
+    descriptor = matches[0]
+    plan = _execution_plan_from_payload(descriptor.get("execution_plan"))
+    selected_task_ids = descriptor.get("selected_task_ids")
+    if (
+        not isinstance(selected_task_ids, list)
+        or sorted(
+            task.task_id for task in plan.tasks if not task.checkpoint_only
+        )
+        != sorted(str(value) for value in selected_task_ids)
+        or plan_hash(plan) != descriptor.get("plan_hash")
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark executable slice differs from its selected task closure"
+        )
+    return descriptor, plan
+
+
 def _authorization(
     raw: object,
 ) -> dict[str, object]:
