@@ -226,6 +226,16 @@ final-in-sample publications, contains no `.runs` path, selects all available
 scales, and requests paired-fit, voxel 2-D, and fiber 2-D components. The
 configured output root remains absent until its production execution gate.
 
+A production-code scan at the same checkpoint confirms that formal
+postprocess, paired-fit, voxel-section, fiber-section, and 3-D example-input
+resolution all read the actual selected tau and Coverage from each canonical
+`final_model.json` and cross-check the paired summary. They contain no
+modality-wide voxel-200, fiber-400, or Coverage-5 fallback. Those literals occur
+only in synthetic test fixtures; the unrelated production literal 200 defines
+a fit-curve grid or an electrode display length, not a scientific threshold.
+Endpoints that reached a different fallback cell therefore retain their own
+published parameters in every visual and statistical output.
+
 A static 3-D scene audit on 2026-07-25 confirmed that both PDQ-39 examples
 resolve only canonical publication roots and retain an interactive figure
 without writing FIG, image, PDF, or spin outputs. The voxel example requests a
