@@ -125,6 +125,9 @@ The future row runner can now reopen one row identity exactly once, resolve its
 single bound slice, strict-decode the persisted execution plan, and rederive
 the selected non-checkpoint task closure plus plan hash. Missing, duplicated,
 or changed row/slice bindings fail before any runner child is launched.
+It can also open the marker-complete benchmark root without repair, bind the
+original minimal request SHA and plan ID, rederive the resolved-plan SHA, and
+revalidate all 72 immutable row contracts before selecting work.
 
 ## Final Closure Rule
 
