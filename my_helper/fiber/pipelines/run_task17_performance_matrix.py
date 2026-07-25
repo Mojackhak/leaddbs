@@ -3227,6 +3227,64 @@ def _validate_child_execution_environment(
     }
 
 
+def _workflow_bundle_from_resolved(
+    resolved: Mapping[str, object],
+) -> tuple[WorkflowService, object]:
+    """Recompile the ordinary production workflow from bound source inputs."""
+
+    sources = resolved.get("input_sources")
+    parent = resolved.get("accepted_parent")
+    expected_roles = {
+        "study_base",
+        "direct_voxel_model",
+        "normative_fiber_model",
+        "workflow_profile",
+    }
+    if (
+        not isinstance(sources, Mapping)
+        or set(sources) != expected_roles
+        or not isinstance(parent, Mapping)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "resolved workflow source closure is invalid"
+        )
+    request: dict[str, object] = {}
+    for role in sorted(expected_roles):
+        raw = sources[role]
+        if (
+            not isinstance(raw, Mapping)
+            or set(raw) != {"path", "sha256"}
+        ):
+            raise PerformanceMatrixHarnessError(
+                "resolved workflow source descriptor is invalid"
+            )
+        path = Path(str(raw["path"])).expanduser().resolve()
+        if not path.is_file() or _sha256_file(path) != raw["sha256"]:
+            raise PerformanceMatrixHarnessError(
+                "resolved workflow source SHA differs"
+            )
+        request[role] = path
+    parent_root = Path(str(parent.get("root", ""))).expanduser().resolve()
+    snapshot = _resolved_snapshot(parent_root)
+    workflow_request = _workflow_request(request, snapshot)
+    service = WorkflowService()
+    try:
+        bundle = service.plan(workflow_request)
+    except (ApplicationError, OSError, RuntimeError, ValueError) as exc:
+        raise PerformanceMatrixHarnessError(
+            "benchmark child cannot compile the production workflow"
+        ) from exc
+    if (
+        bundle.validated.configuration.scientific_configuration_hash
+        != resolved.get("scientific_configuration_hash")
+        or plan_hash(bundle.plan) != resolved.get("full_plan_hash")
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark child production workflow identity differs"
+        )
+    return service, bundle
+
+
 def validate_existing(
     request_path: Path,
     benchmark_root: Path,
