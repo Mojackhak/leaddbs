@@ -656,6 +656,40 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 (parent.task_id,),
             )
             self.assertEqual(store.states[parent.task_id], state)
+            row = {
+                "row_id": "row_checkpoint_attempt",
+                "benchmark_class": "formal_permutation",
+                "connectome_id": None,
+                "cache_state": "cold",
+                "solver_mode": "none",
+                "workers": 1,
+                "slice_id": descriptor["slice_id"],
+                "planned_status": "planned",
+            }
+            resolved = {
+                "maximum_task_tree_rss_bytes": 64 * 1024**3,
+                "rows": [row],
+                "slices": [descriptor],
+                "accepted_parent": {"root": str(parent_root)},
+                "accepted_independent_oss": {"root": str(oss_root)},
+                "accepted_oss_cache": {
+                    "cache_root": str(root / "unused-cache"),
+                    "groups": [],
+                    "rows": [],
+                    "closure_sha256": "a" * 64,
+                },
+            }
+            attempt, attempt_plan = harness._prepare_row_attempt(
+                resolved=resolved,
+                row=row,
+                benchmark_root=root / "benchmark",
+            )
+            self.assertEqual(attempt.name, "attempt_0001")
+            self.assertTrue((attempt / "attempt_plan.json").is_file())
+            self.assertEqual(
+                attempt_plan["selected_task_ids"],
+                [selected.task_id],
+            )
 
     def test_execution_slice_replaces_only_direct_parents_with_checkpoints(
         self,

@@ -2343,6 +2343,89 @@ def _install_imported_checkpoint_states(
     return tuple(installed)
 
 
+def _prepare_row_attempt(
+    *,
+    resolved: Mapping[str, object],
+    row: Mapping[str, object],
+    benchmark_root: Path,
+) -> tuple[Path, dict[str, object]]:
+    """Commit all immutable row inputs before a runner child starts."""
+
+    row_id = row.get("row_id")
+    if type(row_id) is not str or row.get("planned_status") != "planned":
+        raise PerformanceMatrixHarnessError(
+            "only planned benchmark rows can create execution attempts"
+        )
+    root = benchmark_root.expanduser().resolve()
+    row_root = root / "rows" / row_id
+    contract = _row_contract(resolved, row)
+    _contract_path, contract_sha256 = _ensure_row_contract(
+        row_root,
+        contract,
+    )
+    if _validate_row_result(row_root, contract_sha256) is not None:
+        raise PerformanceMatrixHarnessError(
+            "terminal benchmark row cannot create another attempt"
+        )
+    descriptor, _plan = _resolved_slice(resolved, row)
+    parent = resolved.get("accepted_parent")
+    oss = resolved.get("accepted_independent_oss")
+    if not isinstance(parent, Mapping) or not isinstance(oss, Mapping):
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark accepted roots are invalid"
+        )
+    states, checkpoint_closure = _imported_checkpoint_states(
+        descriptor,
+        parent_root=Path(str(parent.get("root", ""))),
+        oss_root=Path(str(oss.get("root", ""))),
+    )
+    attempt_root, attempt_number = _next_attempt(row_root)
+    checkpoint_document = {
+        "schema_version": (
+            "dual_frequency_task17_attempt_checkpoint_inputs_v1"
+        ),
+        "source_closure": checkpoint_closure,
+        "task_states": list(states),
+    }
+    checkpoint_document["document_sha256"] = _canonical_sha256(
+        checkpoint_document
+    )
+    checkpoint_path = attempt_root / "checkpoint_closure.json"
+    _atomic_json(checkpoint_path, checkpoint_document)
+    cache_document = _prepare_row_cache_state(
+        resolved=resolved,
+        row=row,
+        benchmark_root=root,
+        attempt_root=attempt_root,
+    )
+    cache_path = attempt_root / "row_cache_state.json"
+    _atomic_json(cache_path, cache_document)
+    attempt_plan = {
+        "schema_version": "dual_frequency_task17_row_attempt_v1",
+        "row_id": row_id,
+        "attempt": attempt_number,
+        "row_contract_sha256": contract_sha256,
+        "slice_id": row["slice_id"],
+        "segment_plan_sha256": descriptor["plan_hash"],
+        "selected_task_ids": descriptor["selected_task_ids"],
+        "imported_parent_task_ids": descriptor[
+            "imported_parent_task_ids"
+        ],
+        "imported_oss_task_ids": descriptor["imported_oss_task_ids"],
+        "checkpoint_closure": {
+            "relative_path": checkpoint_path.relative_to(attempt_root).as_posix(),
+            "sha256": _sha256_file(checkpoint_path),
+        },
+        "row_cache_state": {
+            "relative_path": cache_path.relative_to(attempt_root).as_posix(),
+            "sha256": _sha256_file(cache_path),
+        },
+    }
+    attempt_plan["attempt_plan_sha256"] = _canonical_sha256(attempt_plan)
+    _atomic_json(attempt_root / "attempt_plan.json", attempt_plan)
+    return attempt_root, attempt_plan
+
+
 def _authorization(
     raw: object,
 ) -> dict[str, object]:
