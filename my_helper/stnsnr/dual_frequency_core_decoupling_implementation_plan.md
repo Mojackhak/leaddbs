@@ -5497,6 +5497,28 @@ executed task IDs, restored task IDs, and terminal scientific payload closure.
 Any selected task in the restored set or any imported ancestor in the executed
 set fails the row.
 
+Each measured row uses one harness parent, one isolated runner child, and one
+probe process. The child creates its immutable RunStore, imports and validates
+checkpoint-only ancestors, writes `runner_ready.json`, and waits without
+executing a selected task. The parent then initializes the live byte-ledger
+index, starts `run_task17_performance_probe.py` against the runner child PID,
+and atomically publishes `measurement_start.json`. Only then may the child
+enter `execute_plan`. The child terminates after finalizing its run manifest;
+the probe must publish its sole `runner_exit` row and terminate before the
+parent builds terminal evidence. A missing readiness boundary, runner exit
+before probe attachment, selected-task event before the measurement token,
+or surviving runner/probe descendant fails the row and leaves it partial.
+
+`prepare` also generates one configured-data candidate-parity plan from the
+accepted parent's complete prepared-exposure closure and executes it outside
+every measured row. Its report is immutable, plan-SHA-bound, and shared by all
+counter builders; it is never generated from a benchmark result. The report
+must cover direct voxel plus all configured connectomes, contain every full and
+fold candidate comparison, and have no candidate mismatch before any measured
+row starts. Resume revalidates its plan, report SHA, and candidate-row closure
+without recomputation. An absent or partial parity report blocks `run` rather
+than allowing zero-filled counter fields.
+
 The executor retains scheduler samples in memory at five-second cadence and
 publishes them once, atomically, when the execution segment closes. Each sample
 contains UTC start and finish times, ready and running task counts,
