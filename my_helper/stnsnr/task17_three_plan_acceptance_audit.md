@@ -138,6 +138,19 @@ checkpoint closure, copied-root reuse, corruption rejection, and the rule that
 failed or partial runs retain recovery state. Production identical resume and
 deletion-rebuild acceptance remain separate pending gates.
 
+The current resume implementation was re-inspected directly. `RunIdentity`
+still records `code_identity`, configuration hashes, and the plan hash as
+provenance, but `_validate_resume` does not use any of them as a reuse gate. It
+requires the study JSON digest and the ordered source digests for the three
+YAML inputs. The executor then restores only a task JSON whose status is
+completed and whose full typed result decodes and validates; malformed,
+incomplete, or missing results rerun with their affected descendants. Nine
+focused resume and copied-cache cases plus four cleanup-policy cases passed.
+One fixture changes the synthetic code identity while preserving JSON and YAML
+inputs and proves that the completed result is restored without service
+invocation. Failed or partial runs remain ineligible for cleanup, and the
+production false cleanup policy returns before inspection or mutation.
+
 The complete isolated fault harness and local resource-guard modules were
 replayed again on 2026-07-25. All 15 fault cases and all 11 guard cases passed.
 For harness tests that launch nested `conda run`, warnings-as-errors belongs on
