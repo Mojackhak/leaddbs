@@ -131,6 +131,9 @@ revalidate all 72 immutable row contracts before selecting work.
 Checkpoint-root loading now requires the exact persisted parent/OSS task IDs,
 completed result envelopes, planned output-record types, source-file SHAs, and
 full slice closure; overlap with any selected task fails before import.
+Row-local installation removes the source-only task ID field before using the
+RunStore API, then reads every state back and requires exact equality with the
+validated source envelope before readiness can be published.
 
 ## Final Closure Rule
 
