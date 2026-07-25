@@ -382,7 +382,13 @@ class _ResourceLedger:
             return total, available
 
     @staticmethod
-    def request(task: TaskSpec) -> _ResourceGrant:
+    def request(
+        task: TaskSpec,
+        *,
+        allow_expensive_producers: bool = True,
+    ) -> _ResourceGrant:
+        if task.cache_first_expensive and not allow_expensive_producers:
+            return _ResourceGrant(1, 512 * 1024**2, 0, 0)
         if task.stage.startswith("jitter_block_"):
             if task.model_family.endswith("fiber"):
                 return _ResourceGrant(1, 12 * 1024**3, 1, 0)
@@ -433,10 +439,31 @@ class _ResourceLedger:
             reasons.append("external_solver")
         projected = self.available_memory - self.memory_used - grant.memory_bytes
         cumulative_memory = self.memory_used + grant.memory_bytes
-        if cumulative_memory > self.managed:
+        if not cumulative_memory < self.managed:
             reasons.append("managed_memory")
         if not projected > self.reserve:
             reasons.append("memory_reserve")
+        return tuple(reasons)
+
+    def structural_blocking_reasons(
+        self,
+        grant: _ResourceGrant,
+    ) -> tuple[str, ...]:
+        """Return resource predicates that cannot recover without reconfiguration."""
+
+        reasons: list[str] = []
+        if grant.cpu > self.workers:
+            reasons.append("cpu")
+        if grant.connectome_io > self.io_limit:
+            reasons.append("connectome_io")
+        if grant.solver > self.solver_limit:
+            reasons.append("external_solver")
+        maximum_managed = min(
+            64 * 1024**3,
+            max(0, self.total_memory - self.reserve),
+        )
+        if not grant.memory_bytes < maximum_managed:
+            reasons.append("managed_memory")
         return tuple(reasons)
 
     def acquire(self, grant: _ResourceGrant) -> None:
@@ -1402,6 +1429,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 )
                 continue
             progressed = False
+            resource_blocked_ready = False
             ready = [
                 task
                 for task in plan.tasks
@@ -1529,9 +1557,13 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                         admission_time,
                     )
                     continue
-                grant = ledger.request(task)
+                grant = ledger.request(
+                    task,
+                    allow_expensive_producers=task_allows_expensive,
+                )
                 blocking_reasons = ledger.blocking_reasons(grant)
                 if blocking_reasons:
+                    resource_blocked_ready = True
                     metrics.observe_blocked(
                         task.task_id,
                         blocking_reasons,
@@ -1643,6 +1675,30 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                         abort = True
                 continue
             if pending:
+                if process_mode and ready and resource_blocked_ready:
+                    impossible: list[str] = []
+                    for task in ready:
+                        task_allows_expensive = (
+                            context.allow_expensive_producers
+                            and task.task_id not in cache_only_replays
+                        )
+                        grant = ledger.request(
+                            task,
+                            allow_expensive_producers=task_allows_expensive,
+                        )
+                        reasons = ledger.structural_blocking_reasons(grant)
+                        if reasons:
+                            impossible.append(
+                                f"{task.task_id}:{','.join(reasons)}"
+                            )
+                    if impossible:
+                        raise ExecutionError(
+                            "executor found structurally inadmissible tasks: "
+                            + ";".join(impossible)
+                        )
+                    time.sleep(1.0)
+                    resource_monitor.sample_if_due(ledger, force=True)
+                    continue
                 raise ExecutionError(
                     "executor reached a dependency or resource-admission deadlock"
                 )

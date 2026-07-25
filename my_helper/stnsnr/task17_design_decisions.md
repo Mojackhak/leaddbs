@@ -1264,3 +1264,54 @@ before toolchain construction on any true miss, corruption, mismatch,
 ambiguity, or conflict. This is output-reference completion validation, not a
 repository SHA resume gate, and it never recomputes a historical scientific
 payload merely to change its address.
+
+## Decision 40: Separate Cache-Only Admission From Solver Admission
+
+The first production replay after Decision 39 created `segment_0016` and
+restored 196 terminal tasks without invoking the OSS toolchain or solver. It
+then stopped before scheduling either ready equivalence gate. The scheduler
+gave both gates the solver-capable 48-GiB memory, connectome-I/O, and solver
+grant even though the terminal reference gate had been forced to cache-only
+historical promotion. At that sample the dynamic managed-memory ceiling was
+49758738842 bytes, which was `< 48 GiB`; both ready tasks were therefore
+resource-blocked and the empty running set was incorrectly classified as a
+dependency deadlock.
+
+This is an execution-admission defect, not cache corruption or scientific
+incompatibility. The terminal reference closure remains 34 pass decisions and
+68 complete rows. The partial add-on closure remains three pass decisions and
+six complete rows. No row or decision was written by `segment_0016`.
+
+The corrected admission contract is:
+
+1. A `cache_first_expensive` task that is not authorized to invoke its
+   expensive producer receives a cache-read grant of 512 MiB, no connectome-I/O
+   token, and no solver token. This includes a Decision 39 migration replay
+   even when the enclosing command allows expensive producers.
+2. The same task receives its declared 48-GiB, connectome-I/O, and single-solver
+   grant only when a true miss is authorized to reach the producer.
+3. If every dependency-ready task is blocked only by a dynamic memory
+   predicate, the production scheduler keeps the tasks pending, samples live
+   memory once per second, and retries admission after recovery. It does not
+   misclassify temporary memory pressure as a dependency deadlock.
+4. A grant that cannot fit below the structural worker, I/O, solver, physical
+   memory, reserve, or 64-GiB limits still fails immediately. Dependency cycles
+   and missing dependency outcomes also remain immediate errors.
+5. The external guard remains the hard operational stop for VAL loss,
+   task-tree RSS not `< 64 GiB`, or swap growth not `< 1` byte. Waiting for
+   dynamic admission does not authorize a solver, mutate a cache, or add a
+   scientific timeout.
+
+Acceptance requires a cache-only equivalence gate to run with no solver grant,
+a solver-capable task to remain pending across one low-memory sample and run
+after a later admissible sample, and a structurally impossible grant to fail
+without an unbounded wait. Production resume must then prove that reference
+promotion performs no solver call and that the first solver work belongs only
+to a missing add-on row.
+
+The implementation now passes 157 focused tests plus 36 subtests and the
+complete dual-frequency discovery passes 727 tests plus 326 subtests with
+warnings treated as errors. The new fixtures prove the 512-MiB cache-only
+grant, zero cache-only I/O and solver tokens, immediate structural rejection,
+and recovery from a low-memory idle interval into an authorized 48-GiB solver
+grant. Production evidence remains required.

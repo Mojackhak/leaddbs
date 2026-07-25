@@ -8562,6 +8562,34 @@ historical gate replay, descendant replay, forced no-expensive task
 authorization, and an end-to-end executor resume fixture that promotes a real
 historical row-and-decision cache closure without invoking the toolchain.
 
+The compatibility commits were then merged after the interrupted writer had
+fully exited. Parent-run ID, parent manifest SHA, scientific configuration
+hash, plan hash, and OSS-only analysis scope all validated before resume, and
+the main checkout passed 155 focused tests plus 36 subtests. The first true
+resume created `segment_0016`, restored 196 tasks, scheduled zero tasks, invoked
+no solver, and wrote no row or decision. Its two ready equivalence gates were
+both charged as 48-GiB solver tasks while the live managed-memory ceiling was
+49758738842 bytes, which was `< 48 GiB`; the executor then incorrectly raised a
+dependency or resource-admission deadlock.
+
+Decision 40 freezes the repair before another production attempt. A
+cache-first task without expensive authorization receives only the bounded
+cache-read grant and owns no solver or connectome-I/O token. A structurally
+admissible task blocked only by current memory pressure remains pending while
+the production monitor resamples once per second. Structural impossibility and
+dependency deadlock continue to fail immediately. This changes only scheduler
+admission: it does not change task identity, stable OSS identity, historical
+promotion criteria, row content, decision content, or any scientific result.
+Production `segment_0017` must prove cache-only reference promotion and reuse
+of the three completed add-on decisions before the first missing add-on row
+reaches the solver.
+
+The Decision 40 implementation is complete. Focused executor and OSS coverage
+passes 157 tests plus 36 subtests. Complete dual-frequency discovery passes 727
+tests plus 326 subtests with warnings treated as errors. The new production
+resume is therefore authorized, but its cache-reuse and first-solver-call
+evidence remain open until the guarded segment runs.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after

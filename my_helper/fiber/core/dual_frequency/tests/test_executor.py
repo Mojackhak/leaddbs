@@ -323,6 +323,51 @@ class ExecutorTest(unittest.TestCase):
             (grant.memory_bytes, grant.connectome_io, grant.solver),
             (48 * 1024**3, 1, 1),
         )
+        cache_only_gate = _task(
+            endpoint,
+            "oss_axis_equivalence_synthetic",
+            "establish_oss_axis_equivalence",
+            expensive=True,
+            cache_first_expensive=True,
+        )
+        cache_only_grant = _ResourceLedger.request(
+            cache_only_gate,
+            allow_expensive_producers=False,
+        )
+        self.assertEqual(
+            (
+                cache_only_grant.memory_bytes,
+                cache_only_grant.connectome_io,
+                cache_only_grant.solver,
+            ),
+            (512 * 1024**2, 0, 0),
+        )
+
+    def test_structurally_impossible_memory_grant_is_detected(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        with patch.object(
+            _ResourceLedger,
+            "_memory_state",
+            return_value=(64 * 1024**3, 64 * 1024**3),
+        ):
+            ledger = _ResourceLedger(workers=1)
+        grant = ledger.request(
+            _task(
+                endpoint,
+                "oss_axis_equivalence_synthetic",
+                "establish_oss_axis_equivalence",
+            )
+        )
+        self.assertIn(
+            "managed_memory",
+            ledger.structural_blocking_reasons(grant),
+        )
 
     def test_solver_grant_cannot_bypass_the_managed_memory_ceiling(self) -> None:
         ledger = _ResourceLedger(workers=12)
@@ -877,6 +922,95 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["peak_task_tree_rss_bytes"], 11 * 1024**3)
         self.assertEqual(document["minimum_available_memory_bytes"], 72 * 1024**3)
         self.assertEqual(document["peak_swap_delta_bytes"], 5)
+
+    def test_production_idle_memory_wait_recovers_without_deadlock(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        task = _task(
+            endpoint,
+            "oss_axis_equivalence_synthetic",
+            "unused",
+            expensive=True,
+        )
+        plan = self._plan((task,))
+        _InjectedProcessPool.configure(
+            ["success"],
+            lambda _command: ServiceResult.from_record(_source(endpoint)),
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            with (
+                patch.object(
+                    _ResourceLedger,
+                    "_memory_state",
+                    return_value=(128 * 1024**3, 70 * 1024**3),
+                ),
+                patch(
+                    "dual_frequency.workflow.executor.ProcessPoolExecutor",
+                    _InjectedProcessPool,
+                ),
+                patch.object(
+                    _LiveResourceMonitor,
+                    "_available_memory_bytes",
+                    side_effect=(
+                        70 * 1024**3,
+                        90 * 1024**3,
+                        90 * 1024**3,
+                    ),
+                ),
+                patch.object(
+                    _LiveResourceMonitor,
+                    "_process_tree_rss_bytes",
+                    return_value=0,
+                ),
+            ):
+                result = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(root, plan),
+                        registry=ServiceRegistry(
+                            (
+                                RegisteredService(
+                                    "unused",
+                                    lambda request: _result(request),
+                                ),
+                            )
+                        ),
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=True,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        spawn_worker_spec=object(),
+                    ),
+                )
+            segment = next((root / "execution_segments").glob("segment_*.json"))
+            document = json.loads(segment.read_text(encoding="utf-8"))
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(document["scheduled_task_count"], 1)
+        self.assertGreater(document["resource_sample_count"], 1)
+        self.assertEqual(
+            document["admission_blocked_task_count_by_reason"][
+                "managed_memory"
+            ],
+            1,
+        )
+        self.assertEqual(
+            document["admission_blocked_task_count_by_reason"][
+                "memory_reserve"
+            ],
+            1,
+        )
+        self.assertGreater(
+            document["admission_wait_seconds_by_reason"]["managed_memory"],
+            0.9,
+        )
 
     def test_segment_records_worker_slot_admission_wait(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
