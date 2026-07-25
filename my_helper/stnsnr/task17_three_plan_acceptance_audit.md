@@ -425,10 +425,16 @@ closes the pre-merge production-path isolation review; it does not replace the
 post-merge complete regression.
 
 The complete isolated dual-frequency test tree was collected read-only on
-2026-07-25 through package-only Python-path links. All 764 tests were discovered
-without an import or collection error. This is runner-readiness evidence only:
-it does not claim that the complete regression executed, and the post-merge
-full run remains mandatory after the active OSS resource reservation ends.
+2026-07-25 through package-only Python-path links. The bridge exposes exactly
+`dual_frequency` and `seed_target_connectivity` from the isolated worktree,
+while the worktree root exposes `my_helper`; it does not expose the entire
+`my_helper/fiber/core` directory. All 764 tests were discovered without an
+import or collection error. The same bridge now passes all seven synthetic
+end-to-end tests, including four-family main execution, selective resume,
+independent jitter and OSS extensions, missing-parent rebuild, and guarded
+cleanup. This is runner-readiness evidence only: it does not claim that the
+complete regression executed, and the post-merge full run remains mandatory
+after the active OSS resource reservation ends.
 
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
