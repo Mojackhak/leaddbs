@@ -123,6 +123,13 @@ two subtests passed with warnings treated as errors. These tests validate the
 repository-owned evidence machinery; the production fault sequence and terminal
 OSS/combined resource documents remain required.
 
+The complete repository `test_task17_*` selection was then run as one closure
+under the same environment. All 161 tests and two subtests passed with warnings
+treated as errors. This combined replay confirms compatibility among the
+benchmark, parity, publication, smoothing, fault, resource, and telemetry
+fixtures; it remains lower-level evidence rather than a production acceptance
+substitute.
+
 The benchmark cache-seed layer now converts the accepted OSS closure into an
 exact deduplicated entry list, requires an empty and disjoint row-local cache,
 copies only the bound row and decision identities, and reopens every copied
