@@ -495,10 +495,14 @@ def _load_request(path: Path) -> tuple[dict[str, Any], str]:
         "working_directory",
     ):
         _path_token(request[field], field)
-    environment = str(request["conda_environment"]).strip()
-    if not environment:
+    environment = _safe_token(
+        request["conda_environment"],
+        "benchmark Conda environment",
+    )
+    request["conda_environment"] = environment
+    if not Path(str(request["working_directory"])).expanduser().resolve().is_dir():
         raise PerformanceMatrixHarnessError(
-            "benchmark Conda environment must be nonempty"
+            "benchmark working directory must be a directory"
         )
     maximum_rss = request["maximum_task_tree_rss_bytes"]
     if type(maximum_rss) is not int or maximum_rss < 1:
@@ -2492,6 +2496,14 @@ def _prepare_document(
         },
         "accepted_oss_cache": accepted_oss_cache,
         "input_sources": input_sources,
+        "execution_environment": {
+            "conda_environment": request["conda_environment"],
+            "working_directory": str(
+                Path(str(request["working_directory"]))
+                .expanduser()
+                .resolve()
+            ),
+        },
         "scientific_configuration_hash": (
             bundle.validated.configuration.scientific_configuration_hash
         ),

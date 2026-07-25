@@ -698,6 +698,14 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "fields differ",
             ):
                 harness._load_request(path)
+            request.pop("benchmark_class")
+            request["conda_environment"] = "bad/name"
+            path.write_text(json.dumps(request), encoding="utf-8")
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "path-safe",
+            ):
+                harness._load_request(path)
 
     def test_benchmark_root_rejects_a_protected_ancestor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
