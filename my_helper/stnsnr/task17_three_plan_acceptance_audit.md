@@ -333,6 +333,13 @@ The terminal merge sequence must revalidate the request digest before `prepare`;
 no commit in this range authorizes benchmark execution while the independent
 OSS lineage remains active.
 
+If main remains an ancestor of `task17-perf-injected-worker`, the required merge
+is a Git fast-forward-only merge of that branch after the OSS writer exits.
+Selecting individual commits is prohibited because later tests and acceptance
+documentation are part of the same reviewed range. If fast-forward is no longer
+possible, stop and re-audit the divergence in a clean worktree before any merge
+or benchmark preparation.
+
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
 It references only the parent-run input copies, declares the 64-GiB ceiling,
