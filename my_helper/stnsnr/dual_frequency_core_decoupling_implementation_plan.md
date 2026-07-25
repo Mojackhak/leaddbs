@@ -5549,6 +5549,20 @@ parent builds terminal evidence. A missing readiness boundary, runner exit
 before probe attachment, selected-task event before the measurement token,
 or surviving runner/probe descendant fails the row and leaves it partial.
 
+Injected pPAM rows retain the ordinary persistent spawn pool. A versioned
+benchmark-only fixture descriptor may therefore be carried in
+`SpawnWorkerSpec`; its default is null, and every ordinary main, sensitivity,
+OSS, combined, or postprocess worker must retain that null default. The
+descriptor contains only a row-local read-only fixture-cache root, its accepted
+closure SHA, and the exact permitted OSS row identities. The harness copies and
+fully verifies that fixture before runner readiness. Worker initialization may
+replace only `oss_producer_toolchain` with the deterministic injected
+toolchain when this descriptor is present. The row-local scientific cache
+remains separate: injected cold starts empty, while injected warm starts from
+the separately prepared unmeasured injected seed. Importing the harness module
+from the worker, reading the production shared cache after readiness, accepting
+an unbound row identity, or changing any non-OSS provider method fails the row.
+
 `prepare` also generates one configured-data candidate-parity plan from the
 accepted parent's complete prepared-exposure closure and executes it outside
 every measured row. Its report is immutable, plan-SHA-bound, and shared by all
