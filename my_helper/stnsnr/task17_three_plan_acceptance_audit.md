@@ -259,6 +259,13 @@ permitted row. Both warm-seed and measured-row contexts derive this descriptor
 from their prevalidated fixture document; callers cannot supply a separate
 cache root or row list.
 
+A 2026-07-25 static construction audit found exactly four runtime
+`SpawnWorkerSpec` call sites. The ordinary main and sensitivity service call
+sites omit the fixture field and retain its null default. Only the benchmark
+warm-seed and measured-row call sites populate it, and both use
+`_benchmark_oss_fixture_spec` over their already validated fixture document.
+No other production or extension path references the injection field.
+
 The CLI now exposes the existing internal `run` orchestrator. Its read-only
 `validate` path additionally distinguishes a prepared root from a terminal
 root, rejects one-sided matrix/report publication, recomputes repository
