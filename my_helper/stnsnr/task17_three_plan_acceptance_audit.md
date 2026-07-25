@@ -359,6 +359,12 @@ documentation are part of the same reviewed range. If fast-forward is no longer
 possible, stop and re-audit the divergence in a clean worktree before any merge
 or benchmark preparation.
 
+The complete isolated dual-frequency test tree was collected read-only on
+2026-07-25 through package-only Python-path links. All 764 tests were discovered
+without an import or collection error. This is runner-readiness evidence only:
+it does not claim that the complete regression executed, and the post-merge
+full run remains mandatory after the active OSS resource reservation ends.
+
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
 It references only the parent-run input copies, declares the 64-GiB ceiling,
