@@ -48,6 +48,8 @@ _RUNNER_READY_SCHEMA = "dual_frequency_task17_performance_runner_ready_v1"
 _MEASUREMENT_START_SCHEMA = (
     "dual_frequency_task17_performance_measurement_start_v1"
 )
+_ROW_CONTRACT_SCHEMA = "dual_frequency_task17_performance_row_contract_v1"
+_ROW_RESULT_SCHEMA = "dual_frequency_task17_performance_row_result_v1"
 _WORKERS = (1, 3, 6, 12)
 _REQUEST_FIELDS = {
     "schema_version",
@@ -816,6 +818,197 @@ def _row_keys(connectomes: Sequence[str]) -> list[dict[str, object]]:
     )
 
 
+def _row_key_payload(row: Mapping[str, object]) -> dict[str, object]:
+    expected = {
+        "benchmark_class",
+        "connectome_id",
+        "cache_state",
+        "solver_mode",
+        "workers",
+    }
+    if not expected <= set(row):
+        raise PerformanceMatrixHarnessError(
+            "benchmark row key fields are incomplete"
+        )
+    return {field: row[field] for field in sorted(expected)}
+
+
+def _row_id(plan_identity_sha256: str, row: Mapping[str, object]) -> str:
+    digest = str(plan_identity_sha256).strip().lower()
+    if len(digest) != 64 or any(
+        character not in "0123456789abcdef" for character in digest
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark plan identity SHA differs"
+        )
+    return "row_" + _canonical_sha256(
+        {
+            "plan_identity_sha256": digest,
+            "key": _row_key_payload(row),
+        }
+    )[:20]
+
+
+def _row_contract(
+    resolved_plan: Mapping[str, object],
+    row: Mapping[str, object],
+) -> dict[str, object]:
+    row_id = str(row.get("row_id", "")).strip()
+    if not row_id.startswith("row_") or "/" in row_id or "\\" in row_id:
+        raise PerformanceMatrixHarnessError("benchmark row ID differs")
+    resolved_sha = _canonical_sha256(resolved_plan)
+    slice_id = str(row.get("slice_id", "")).strip().lower()
+    if len(slice_id) != 64 or any(
+        character not in "0123456789abcdef" for character in slice_id
+    ):
+        raise PerformanceMatrixHarnessError("benchmark row slice ID differs")
+    maximum_rss = resolved_plan.get("maximum_task_tree_rss_bytes")
+    if type(maximum_rss) is not int or maximum_rss < 1:
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark RSS ceiling differs"
+        )
+    cache_state = str(row["cache_state"])
+    seed_key = (
+        f"{row['benchmark_class']}:{row['connectome_id']}:{row['solver_mode']}"
+        if cache_state == "warm"
+        else None
+    )
+    return {
+        "schema_version": _ROW_CONTRACT_SCHEMA,
+        "row_id": row_id,
+        "resolved_plan_sha256": resolved_sha,
+        "key": _row_key_payload(row),
+        "slice_id": slice_id,
+        "cache_seed_key": seed_key,
+        "maximum_task_tree_rss_bytes": maximum_rss,
+        "planned_status": row["planned_status"],
+        "expected_evidence": {
+            "run_manifest": "run/run_manifest.json",
+            "probe": "attempts/<attempt>/probe.csv",
+            "counter": "run/execution_segments/performance_counters_<segment>.json",
+            "row_result": "row_result.json",
+        },
+    }
+
+
+def _ensure_row_contract(
+    row_root: Path,
+    contract: Mapping[str, object],
+) -> tuple[Path, str]:
+    root = row_root.expanduser().resolve()
+    if root.exists() and root.is_symlink():
+        raise PerformanceMatrixHarnessError("benchmark row root cannot be a symlink")
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "row_contract.json"
+    _atomic_json(path, contract)
+    return path, _sha256_file(path)
+
+
+def _next_attempt(row_root: Path) -> tuple[Path, int]:
+    attempts_root = row_root.expanduser().resolve() / "attempts"
+    attempts_root.mkdir(parents=True, exist_ok=True)
+    indexes: list[int] = []
+    for path in attempts_root.glob("attempt_*"):
+        suffix = path.name.removeprefix("attempt_")
+        if path.is_dir() and len(suffix) == 4 and suffix.isdigit():
+            indexes.append(int(suffix))
+    index = max(indexes, default=0) + 1
+    attempt = attempts_root / f"attempt_{index:04d}"
+    attempt.mkdir()
+    return attempt, index
+
+
+def _relative_evidence(
+    path: Path,
+    *,
+    row_root: Path,
+) -> dict[str, str]:
+    root = row_root.expanduser().resolve()
+    source = path.expanduser().resolve()
+    try:
+        relative = source.relative_to(root)
+    except ValueError as exc:
+        raise PerformanceMatrixHarnessError(
+            "row evidence lies outside its row root"
+        ) from exc
+    if not source.is_file():
+        raise PerformanceMatrixHarnessError("row evidence file is missing")
+    return {
+        "relative_path": relative.as_posix(),
+        "sha256": _sha256_file(source),
+    }
+
+
+def _validate_row_result(
+    row_root: Path,
+    contract_sha256: str,
+) -> dict[str, object] | None:
+    root = row_root.expanduser().resolve()
+    path = root / "row_result.json"
+    if not path.exists():
+        return None
+    document = _read_json(path, "terminal benchmark row")
+    expected = {
+        "schema_version",
+        "row_id",
+        "contract_sha256",
+        "status",
+        "attempt",
+        "evidence",
+        "not_run_reason",
+    }
+    if (
+        set(document) != expected
+        or document["schema_version"] != _ROW_RESULT_SCHEMA
+        or document["contract_sha256"] != contract_sha256
+        or document["status"] not in {"executed", "not_run"}
+    ):
+        raise PerformanceMatrixHarnessError(
+            "terminal benchmark row identity differs"
+        )
+    evidence = document["evidence"]
+    if not isinstance(evidence, list) or not evidence:
+        raise PerformanceMatrixHarnessError(
+            "terminal benchmark row evidence is incomplete"
+        )
+    seen: set[Path] = set()
+    for item in evidence:
+        if not isinstance(item, Mapping) or set(item) != {
+            "relative_path",
+            "sha256",
+        }:
+            raise PerformanceMatrixHarnessError(
+                "terminal benchmark row evidence fields differ"
+            )
+        relative = Path(str(item["relative_path"]))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise PerformanceMatrixHarnessError(
+                "terminal benchmark row evidence path is unsafe"
+            )
+        source = (root / relative).resolve()
+        if (
+            source in seen
+            or root not in source.parents
+            or not source.is_file()
+            or _sha256_file(source) != item["sha256"]
+        ):
+            raise PerformanceMatrixHarnessError(
+                "terminal benchmark row evidence SHA differs"
+            )
+        seen.add(source)
+    if (
+        document["status"] == "not_run"
+        and document["not_run_reason"] != "real_cold_solver_not_authorized"
+    ) or (
+        document["status"] == "executed"
+        and document["not_run_reason"] is not None
+    ):
+        raise PerformanceMatrixHarnessError(
+            "terminal benchmark row status differs"
+        )
+    return document
+
+
 def _authorization(
     raw: object,
 ) -> dict[str, object]:
@@ -1076,8 +1269,37 @@ def _prepare_document(
         label="ppam",
     )
 
-    rows = _row_keys(connectomes)
     authorization = _authorization(request["real_cold_solver_authorization"])
+    burden_selections = {
+        "formal_permutation": formal_burden,
+        "bootstrap": bootstrap_burden,
+        "spatial_jitter": jitter_burden,
+        "ppam": ppam_burden,
+    }
+    plan_identity_sha256 = _canonical_sha256(
+        {
+            "request_sha256": request_sha,
+            "accepted_parent_manifest_sha256": parent_manifest_sha256(
+                parent_root
+            ),
+            "accepted_independent_oss_manifest_sha256": (
+                parent_manifest_sha256(oss_root)
+            ),
+            "scientific_configuration_hash": (
+                bundle.validated.configuration.scientific_configuration_hash
+            ),
+            "full_plan_hash": plan_hash(bundle.plan),
+            "configured_connectomes": list(connectomes),
+            "workers": list(_WORKERS),
+            "maximum_task_tree_rss_bytes": request[
+                "maximum_task_tree_rss_bytes"
+            ],
+            "real_cold_solver_authorization": authorization,
+            "burden_selections": burden_selections,
+            "slices": [slices[key] for key in sorted(slices)],
+        }
+    )
+    rows = _row_keys(connectomes)
     for row in rows:
         benchmark_class = str(row["benchmark_class"])
         slice_key = (
@@ -1092,10 +1314,12 @@ def _prepare_document(
             or authorization["authorized"]
             else "not_run"
         )
+        row["row_id"] = _row_id(plan_identity_sha256, row)
     resolved = {
         "schema_version": _RESOLVED_SCHEMA,
         "plan_id": request["plan_id"],
         "request_sha256": request_sha,
+        "plan_identity_sha256": plan_identity_sha256,
         "accepted_parent": {
             "root": str(parent_root),
             "run_id": parent_manifest["run_id"],
@@ -1117,12 +1341,7 @@ def _prepare_document(
             "maximum_task_tree_rss_bytes"
         ],
         "real_cold_solver_authorization": authorization,
-        "burden_selections": {
-            "formal_permutation": formal_burden,
-            "bootstrap": bootstrap_burden,
-            "spatial_jitter": jitter_burden,
-            "ppam": ppam_burden,
-        },
+        "burden_selections": burden_selections,
         "slices": [slices[key] for key in sorted(slices)],
         "rows": rows,
     }

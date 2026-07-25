@@ -333,6 +333,92 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     timeout_seconds=1,
                 )
 
+    def test_row_ids_are_stable_and_key_specific(self) -> None:
+        first = {
+            "benchmark_class": "direct_voxel",
+            "connectome_id": None,
+            "cache_state": "cold",
+            "solver_mode": "none",
+            "workers": 1,
+        }
+        second = {**first, "workers": 3}
+        self.assertEqual(
+            harness._row_id("a" * 64, first),
+            harness._row_id("a" * 64, dict(first)),
+        )
+        self.assertNotEqual(
+            harness._row_id("a" * 64, first),
+            harness._row_id("a" * 64, second),
+        )
+
+    def test_row_contract_is_immutable_and_attempts_are_monotonic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resolved = {"maximum_task_tree_rss_bytes": 64 * 1024**3}
+            row = {
+                "row_id": "row_123",
+                "benchmark_class": "direct_voxel",
+                "connectome_id": None,
+                "cache_state": "cold",
+                "solver_mode": "none",
+                "workers": 1,
+                "slice_id": "a" * 64,
+                "planned_status": "planned",
+            }
+            contract = harness._row_contract(resolved, row)
+            _path, first_sha = harness._ensure_row_contract(root, contract)
+            _path, second_sha = harness._ensure_row_contract(root, contract)
+            self.assertEqual(first_sha, second_sha)
+            first, first_index = harness._next_attempt(root)
+            second, second_index = harness._next_attempt(root)
+            self.assertEqual(first.name, "attempt_0001")
+            self.assertEqual(first_index, 1)
+            self.assertEqual(second.name, "attempt_0002")
+            self.assertEqual(second_index, 2)
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "immutable benchmark document changed",
+            ):
+                harness._ensure_row_contract(
+                    root,
+                    {**contract, "slice_id": "b" * 64},
+                )
+
+    def test_terminal_row_rejects_changed_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = root / "attempts" / "attempt_0001" / "probe.csv"
+            evidence.parent.mkdir(parents=True)
+            evidence.write_text("probe\n", encoding="utf-8")
+            reference = harness._relative_evidence(
+                evidence,
+                row_root=root,
+            )
+            contract_sha = "a" * 64
+            (root / "row_result.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": harness._ROW_RESULT_SCHEMA,
+                        "row_id": "row_a",
+                        "contract_sha256": contract_sha,
+                        "status": "executed",
+                        "attempt": 1,
+                        "evidence": [reference],
+                        "not_run_reason": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNotNone(
+                harness._validate_row_result(root, contract_sha)
+            )
+            evidence.write_text("changed\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "evidence SHA differs",
+            ):
+                harness._validate_row_result(root, contract_sha)
+
 
 if __name__ == "__main__":
     unittest.main()
