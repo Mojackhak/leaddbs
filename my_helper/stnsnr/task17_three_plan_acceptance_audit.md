@@ -71,6 +71,22 @@ broader ledger label.
 | Step 11, current status and final commit | `Final three-plan requirement audit` |
 | Final performance checklist, physical preparation through exact boundaries | The parity, jitter, OSS, cache, performance, resume, resource, and boundary-policy rows collectively retain every checklist clause |
 
+## Current YAML Preflight
+
+The current repository workflow resolves only `direct_voxel_model.yaml` and
+`normative_fiber_model.yaml`; no Python loader references the historical
+`model.yaml`. The direct-voxel profile SHA-256 is
+`0a8d9a6654dd13001ceed147fccc80b474740377b15ddd41e02447794080569f`,
+the normative-fiber profile SHA-256 is
+`439c59b3cc2052d6de47886bfc80010780bd3f9677c6b85c38f93930682af27b`,
+and the workflow SHA-256 is
+`a508b484e99280d9db43d0f25d9528f7fddc274b28e200b64a3609bea5d0336a`.
+The profiles retain the frozen tau and Coverage grids, main-analysis cells,
+three fiber fold minima of one, and retained-cache policy. The repository
+default remains three workers; formal worker overrides remain CLI/runtime
+inputs. On 2026-07-25, all 23 configuration and application-CLI tests plus 12
+subtests passed under Conda `leaddbs` with warnings treated as errors.
+
 ## Repository Entrypoint Preflight
 
 The following repository-owned entrypoints parse successfully in Conda
