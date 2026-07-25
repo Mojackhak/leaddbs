@@ -528,12 +528,13 @@ ancestry, commit count, path list, and request digest still must be recomputed
 after the independent OSS writer exits and immediately before the
 fast-forward-only merge.
 
-The latest read-only scope audit at reviewed head `a368278a6` again confirms
-that baseline `f08658f0d` remains an ancestor. The closed range contains 41
+The latest read-only scope audit at reviewed head `8d2168dfe` again confirms
+that baseline `f08658f0d` remains an ancestor. The closed range contains 43
 commits and the same eight changed paths: the performance runner, its two
 workflow integration files, two focused test files, the frozen benchmark
-request, the implementation plan, and this acceptance ledger. The request
-SHA-256 remains
+request, the implementation plan, and this acceptance ledger. The two commits
+after `a368278a6` are documentation-only closure for the benchmark merge and
+the frozen production fault-acceptance invocation. The request SHA-256 remains
 `c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
 Both worktrees were clean. This is current merge-readiness evidence only; the
 same ancestry, path, and digest closure must still be recomputed after the OSS
