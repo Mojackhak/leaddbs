@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
@@ -494,6 +495,90 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     row={**row, "solver_mode": "injected"},
                     authorization=authorization,
                 )
+
+    def test_extension_slice_includes_the_base_physical_producer(self) -> None:
+        readiness = _task(
+            endpoint_id="endpoint_a",
+            stage="readiness",
+            service_id="validate_reference_fiber_input",
+        )
+        base = _task(
+            endpoint_id="endpoint_a",
+            stage="prepare",
+            service_id="prepare_reference_fiber_sidecar",
+            dependencies=(readiness.task_id,),
+        )
+        full = ExecutionPlan(
+            configuration_hash="b" * 64,
+            scientific_configuration_hash="c" * 64,
+            through="formal",
+            tasks=(readiness, base),
+        )
+        gate = _task(
+            endpoint_id="endpoint_a",
+            stage="gate",
+            service_id="establish_oss_axis_equivalence",
+        )
+        block = _task(
+            endpoint_id="endpoint_a",
+            stage="block",
+            service_id="run_ppam_permutation_block",
+            dependencies=(base.task_id,),
+        )
+        aggregate = _task(
+            endpoint_id="endpoint_a",
+            stage="aggregate",
+            service_id="aggregate_ppam_activation",
+            dependencies=(block.task_id, gate.task_id),
+        )
+        extension = ExecutionPlan(
+            configuration_hash="b" * 64,
+            scientific_configuration_hash="c" * 64,
+            through="sensitivity",
+            tasks=(
+                replace(
+                    base,
+                    dependencies=(),
+                    gates=(),
+                    checkpoint_only=True,
+                ),
+                gate,
+                block,
+                aggregate,
+            ),
+        )
+        plan, selected = harness._combined_extension_slice_plan(
+            full,
+            extension,
+            endpoint_id="endpoint_a",
+            extension_services={
+                "run_ppam_permutation_block",
+                "aggregate_ppam_activation",
+            },
+        )
+        self.assertEqual(
+            [task.service_id for task in selected],
+            [
+                "prepare_reference_fiber_sidecar",
+                "run_ppam_permutation_block",
+                "aggregate_ppam_activation",
+            ],
+        )
+        descriptor = harness._slice_descriptor(
+            plan,
+            selected,
+            parent_completed={readiness.task_id},
+            oss_completed={gate.task_id},
+            label="ppam",
+        )
+        self.assertEqual(
+            descriptor["imported_parent_task_ids"],
+            [readiness.task_id],
+        )
+        self.assertEqual(
+            descriptor["imported_oss_task_ids"],
+            [gate.task_id],
+        )
 
 
 if __name__ == "__main__":

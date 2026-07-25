@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 import hashlib
 import json
 import os
@@ -89,6 +89,12 @@ _MAIN_SLICE_SERVICES = {
         "run_formal_bootstrap_block",
         "aggregate_formal_bootstrap",
     },
+}
+_BASE_PREPARE_SERVICES = {
+    "prepare_reference_voxel_exposure",
+    "prepare_addon_voxel_exposure",
+    "prepare_reference_fiber_sidecar",
+    "prepare_addon_fiber_sidecars",
 }
 _JITTER_SERVICES = {
     "prepare_jitter_exposure_block",
@@ -681,6 +687,87 @@ def _selected_tasks(
             "benchmark measured task slice is empty"
         )
     return selected
+
+
+def _combined_extension_slice_plan(
+    full_plan: ExecutionPlan,
+    extension_plan: ExecutionPlan,
+    *,
+    endpoint_id: str,
+    extension_services: set[str],
+) -> tuple[ExecutionPlan, tuple[TaskSpec, ...]]:
+    """Combine one base producer with a selected extension task closure."""
+
+    base_tasks = _selected_tasks(
+        full_plan,
+        service_ids=_BASE_PREPARE_SERVICES,
+        endpoint_id=endpoint_id,
+    )
+    if len(base_tasks) != 1:
+        raise PerformanceMatrixHarnessError(
+            "benchmark endpoint must have one base prepare task"
+        )
+    extension_tasks = _selected_tasks(
+        extension_plan,
+        service_ids=extension_services,
+        endpoint_id=endpoint_id,
+    )
+    selected_by_id = {
+        task.task_id: task for task in (*base_tasks, *extension_tasks)
+    }
+    if len(selected_by_id) != len(base_tasks) + len(extension_tasks):
+        raise PerformanceMatrixHarnessError(
+            "benchmark base and extension task slices overlap"
+        )
+    source_by_id = {task.task_id: task for task in full_plan.tasks}
+    source_by_id.update(
+        {task.task_id: task for task in extension_plan.tasks}
+    )
+    source_by_id[base_tasks[0].task_id] = base_tasks[0]
+    imported_ids = {
+        dependency
+        for task in selected_by_id.values()
+        for dependency in task.dependencies
+        if dependency not in selected_by_id
+    }
+    missing = sorted(imported_ids - set(source_by_id))
+    if missing:
+        raise PerformanceMatrixHarnessError(
+            "benchmark extension slice has unknown dependencies: "
+            + ",".join(missing)
+        )
+    roots = tuple(
+        replace(
+            source_by_id[task_id],
+            dependencies=(),
+            gates=(),
+            checkpoint_only=True,
+        )
+        for task_id in sorted(imported_ids)
+    )
+    ordered_selected = tuple(
+        task
+        for task in (*full_plan.tasks, *extension_plan.tasks)
+        if task.task_id in selected_by_id
+        and selected_by_id[task.task_id] is task
+    )
+    if len(ordered_selected) != len(selected_by_id):
+        ordered_selected = tuple(
+            selected_by_id[task_id]
+            for task_id in (
+                base_tasks[0].task_id,
+                *(task.task_id for task in extension_tasks),
+            )
+        )
+    plan = ExecutionPlan(
+        configuration_hash=full_plan.configuration_hash,
+        scientific_configuration_hash=(
+            full_plan.scientific_configuration_hash
+        ),
+        through="sensitivity",
+        tasks=(*roots, *ordered_selected),
+    )
+    return plan, ordered_selected
 
 
 def _completed_task_ids(root: Path) -> set[str]:
@@ -1370,7 +1457,10 @@ def _prepare_document(
     ):
         tasks = _selected_tasks(
             bundle.plan,
-            service_ids=_MAIN_SLICE_SERVICES[kind],
+            service_ids={
+                *_MAIN_SLICE_SERVICES[kind],
+                *_BASE_PREPARE_SERVICES,
+            },
             endpoint_id=str(base["endpoint_id"]),
         )
         slices[kind] = _slice_descriptor(
@@ -1405,9 +1495,15 @@ def _prepare_document(
         raise PerformanceMatrixHarnessError(
             "cannot compile the jitter benchmark slice"
         ) from exc
-    slices["spatial_jitter"] = _slice_descriptor(
+    jitter_slice_plan, jitter_tasks = _combined_extension_slice_plan(
+        bundle.plan,
         jitter_plan,
-        _selected_tasks(jitter_plan, service_ids=_JITTER_SERVICES),
+        endpoint_id=str(jitter_base["endpoint_id"]),
+        extension_services=_JITTER_SERVICES,
+    )
+    slices["spatial_jitter"] = _slice_descriptor(
+        jitter_slice_plan,
+        jitter_tasks,
         parent_completed=parent_completed,
         oss_completed=oss_completed,
         label="spatial_jitter",
@@ -1434,9 +1530,15 @@ def _prepare_document(
         raise PerformanceMatrixHarnessError(
             "cannot compile the pPAM benchmark slice"
         ) from exc
-    slices["ppam"] = _slice_descriptor(
+    ppam_slice_plan, ppam_tasks = _combined_extension_slice_plan(
+        bundle.plan,
         ppam_plan,
-        _selected_tasks(ppam_plan, service_ids=_PPAM_SERVICES),
+        endpoint_id=str(ppam_base["endpoint_id"]),
+        extension_services=_PPAM_SERVICES,
+    )
+    slices["ppam"] = _slice_descriptor(
+        ppam_slice_plan,
+        ppam_tasks,
         parent_completed=parent_completed,
         oss_completed=oss_completed,
         label="ppam",
