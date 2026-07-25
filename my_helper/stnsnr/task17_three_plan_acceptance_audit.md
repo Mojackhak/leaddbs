@@ -110,7 +110,7 @@ exact deduplicated entry list, requires an empty and disjoint row-local cache,
 copies only the bound row and decision identities, and reopens every copied
 entry through the ordinary full cache validator before returning one canonical
 seed SHA. Reuse of a nonempty destination fails instead of merging state. The
-focused performance-harness suite now has 22 passing tests. It covers the
+focused performance-harness suite now has 23 passing tests. It covers the
 required reference/add-on gate-family closure as well as extending the accepted
 cache-closure fixture with seed-copy assertions.
 
@@ -137,6 +137,8 @@ validated source envelope before readiness can be published.
 The prepared plan now persists a path-safe Conda environment token and
 canonical existing working directory as its immutable child execution
 environment; neither can be supplied again by a later `run` invocation.
+The child-side validator requires both the canonical working directory and the
+active Conda environment or prefix name to match before a row RunStore opens.
 
 ## Final Closure Rule
 
