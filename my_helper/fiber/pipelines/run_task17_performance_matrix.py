@@ -106,6 +106,7 @@ _JITTER_SERVICES = {
     "run_addon_fiber_jitter",
 }
 _PPAM_SERVICES = {
+    "establish_oss_axis_equivalence",
     "prepare_ppam_observed_workspace",
     "prepare_ppam_permutation_schedule",
     "run_ppam_permutation_block",
@@ -1738,13 +1739,15 @@ def _prepare_document(
         endpoint_id=str(ppam_base["endpoint_id"]),
         extension_services=_PPAM_SERVICES,
     )
-    slices["ppam"] = _slice_descriptor(
-        ppam_slice_plan,
-        ppam_tasks,
-        parent_completed=parent_completed,
-        oss_completed=oss_completed,
-        label="ppam",
-    )
+    for solver_mode in ("injected", "real_cache_hit", "real_solver"):
+        label = f"ppam:{solver_mode}"
+        slices[label] = _slice_descriptor(
+            ppam_slice_plan,
+            ppam_tasks,
+            parent_completed=parent_completed,
+            oss_completed=oss_completed,
+            label=label,
+        )
 
     authorization = _authorization(request["real_cold_solver_authorization"])
     burden_selections = {
@@ -1782,7 +1785,11 @@ def _prepare_document(
         slice_key = (
             f"fiber_connectome:{row['connectome_id']}"
             if benchmark_class == "fiber_connectome"
-            else benchmark_class
+            else (
+                f"ppam:{row['solver_mode']}"
+                if benchmark_class == "ppam"
+                else benchmark_class
+            )
         )
         row["slice_id"] = slices[slice_key]["slice_id"]
         row["planned_status"] = (

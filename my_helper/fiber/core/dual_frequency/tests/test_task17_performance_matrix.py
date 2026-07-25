@@ -627,6 +627,29 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             len(descriptor["execution_plan"]["tasks"]),
             len(plan.tasks),
         )
+        measured_gate_plan, measured_gate_tasks = (
+            harness._combined_extension_slice_plan(
+                full,
+                extension,
+                endpoint_id="endpoint_a",
+                extension_services=harness._PPAM_SERVICES,
+            )
+        )
+        self.assertIn(
+            "establish_oss_axis_equivalence",
+            {task.service_id for task in measured_gate_tasks},
+        )
+        measured_gate_descriptor = harness._slice_descriptor(
+            measured_gate_plan,
+            measured_gate_tasks,
+            parent_completed={readiness.task_id},
+            oss_completed=set(),
+            label="ppam:injected",
+        )
+        self.assertEqual(
+            measured_gate_descriptor["imported_oss_task_ids"],
+            [],
+        )
 
 
 if __name__ == "__main__":
