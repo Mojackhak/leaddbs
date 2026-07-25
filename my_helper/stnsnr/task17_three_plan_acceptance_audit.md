@@ -384,6 +384,16 @@ documentation are part of the same reviewed range. If fast-forward is no longer
 possible, stop and re-audit the divergence in a clean worktree before any merge
 or benchmark preparation.
 
+A 2026-07-25 pre-merge scope audit confirms that baseline `f08658f0d` remains
+an ancestor of reviewed head `910b05fc0`. That closed range contains 24 commits
+and exactly seven changed paths: the performance harness, spawned-worker
+implementation and export, its focused test, the frozen benchmark request,
+this acceptance ledger, and the Task 17 implementation plan. It contains no
+formal workflow YAML, model policy, publication implementation, visualization
+implementation, or unrelated repository path. This proves review scope only;
+the ancestry and changed-path closure must be recomputed immediately before the
+eventual fast-forward merge.
+
 The complete isolated dual-frequency test tree was collected read-only on
 2026-07-25 through package-only Python-path links. All 764 tests were discovered
 without an import or collection error. This is runner-readiness evidence only:
