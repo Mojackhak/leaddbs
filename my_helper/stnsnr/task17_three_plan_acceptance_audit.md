@@ -26,7 +26,7 @@ Status vocabulary:
 | Requirement | Status | Current authoritative evidence | Remaining acceptance action |
 | --- | --- | --- | --- |
 | Production YAML drives all four model families | ACCEPTED | `config/four_model_v1/workflow.yaml` references the production direct-voxel and normative-fiber profiles; configuration, CLI, in-sample, and cleanup fixtures pass. The historical `model.yaml` is explicitly outside the current loader and lineage. | Reconfirm resolved YAML digests during the final publication audit. |
-| Frozen voxel and fiber source grids | ACCEPTED | Direct voxel uses tau 150, 180, 200, 220, 250, and 300 with pre-specified 200. Normative fiber uses tau 200, 350, 400, 450, 600, and 800 with pre-specified 400. Both use Coverage 5, 6, 7, 8, 10, and 12. | Compare the final published resolved profiles byte-for-byte with the completed parent manifests. |
+| Frozen voxel and fiber source grids | ACCEPTED | Direct voxel uses tau 150, 180, 200, 220, 250, and 300 with pre-specified 200. Normative fiber uses tau 200, 350, 400, 450, 600, and 800 with pre-specified 400. Both use Coverage 5, 6, 7, 8, 10, and 12. The two published resolved profiles match the deterministic serialization of the completed parent's resolved configuration byte-for-byte. | Reconfirm the indexed profile hashes during the final publication audit. |
 | Boundary and computability policy | ACCEPTED | Current runtime and formal kernels include equality for both scientific boundaries: voxel and fiber exposure at tau is suprathreshold, and a feature with subject Coverage at the requested minimum is retained. The 12-subject floor remains active, and every declared connectome requires at least one fold candidate fiber. Three focused boundary tests and the production-profile configuration test passed on 2026-07-25 with warnings treated as errors. | Repeat the repository-owned final static audit after all production children terminate. |
 | Main four-family formal run | ACCEPTED | Parent run `task17-main-v8-tau-grid-formal-20260717` is the completed immutable authority for 28 scales and 112 final endpoints. | Reopen its terminal manifest, task closure, final decisions, and artifact index during final audit. |
 | Canonical main model-set publication | ACCEPTED | Completed direct-voxel and normative-fiber model-set publications are the only allowed public parents. Postprocess preflight resolves them without a run-store fallback. | Repeat model-manifest and indexed-payload verification after display-smoothing promotion. |
@@ -118,6 +118,23 @@ three fiber fold minima of one, and retained-cache policy. The repository
 default remains three workers; formal worker overrides remain CLI/runtime
 inputs. On 2026-07-25, all 23 configuration and application-CLI tests plus 12
 subtests passed under Conda `leaddbs` with warnings treated as errors.
+
+The completed parent's deterministic `configuration_resolved.yaml` sections
+were serialized with the publication writer's exact sorted-YAML contract and
+compared directly with both canonical resolved profiles. The direct-voxel
+bytes matched at SHA-256
+`d4f6cc2c99d01dcd56c85c5123dee02e655b22f127b26562bf05602c2d17ae03`;
+the normative-fiber bytes matched at SHA-256
+`06866f2dea707a97686e081442a37d9f61ec7e9d1708d88524c236f73910d228`.
+Both artifact indexes contain those exact profile hashes and the common
+study-base SHA-256
+`3aa0d58a7373e186896b2fbfb5c0342d8425046bf9a5b07517b416d6a7def925`.
+The current raw normative-fiber YAML differs from the parent copy only in the
+OSS fitting-threshold comment, and the current workflow adds the nonscientific
+retained-cache policy. Loading the current profiles still yields scientific
+configuration SHA-256
+`6d23bc0e9f30e697806d0847f238c1c8b09170673dc1ff0c29253808a5c401d5`,
+which matches the completed parent and both model-set manifests.
 
 The main model-set publication, reporting, artifact/static audit, and
 extension-v2 publication suites were repeated at the same checkpoint. All 35
