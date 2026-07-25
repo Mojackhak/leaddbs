@@ -166,6 +166,15 @@ The child can now reopen all four bound source files, verify their SHAs,
 reconstruct the parent resolved selection, compile the ordinary production DAG,
 and require both the scientific-configuration hash and full-plan hash to match
 the immutable benchmark plan before using its selected slice.
+The hidden row-child executor is now implemented for ordinary, real-cache-hit,
+and authorized real-solver slices. It creates an isolated RunStore and
+row-local scientific cache, installs only validated checkpoint roots, retains
+the production registry/provider and persistent spawn pool, publishes
+`runner_ready.json`, waits for the parent measurement token, executes the exact
+slice, finalizes the run, rejects restored selected tasks, and publishes a
+SHA-bound child result. Injected rows still fail closed until the frozen
+spawn-worker fixture descriptor is implemented after the active OSS process
+terminates; the public `run` operation remains unavailable.
 
 ## Final Closure Rule
 
