@@ -163,6 +163,15 @@ selected tests. This revalidates the offline implementation boundary but does
 not replace canonical publication, the 112-endpoint render, identical resume,
 or visual review.
 
+The isolated launcher must expose the worktree root plus a package-only
+`dual_frequency` link. It must not add the whole `my_helper/fiber/core`
+directory as a top-level module root: that directory contains an unrelated
+MATLAB `coverage/` folder, which can shadow Numba's optional third-party
+`coverage` import during pytest collection. With the package-only bridge and
+the outer `python -W error` policy, the current complete visualization suite
+passes all 38 tests. This is test-path isolation evidence; the installed
+production package and visualization implementation require no change.
+
 The frozen formal postprocess request was also audited read-only. Its SHA-256 is
 `144ad7a1e775c1bf01f5d99df285a87b31bae7075aa3692d714201f1953e6ab0`.
 It names exactly the canonical direct-voxel and normative-fiber main and
