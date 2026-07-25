@@ -15,6 +15,7 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
+import numpy as np
 import yaml
 
 
@@ -33,11 +34,30 @@ from dual_frequency.application.service import (  # noqa: E402
     WorkflowRequest,
     WorkflowService,
 )
+from dual_frequency.backends.activation.ossdbs import (  # noqa: E402
+    OSSRowMaterializer,
+    OSSRowProduct,
+)
+from dual_frequency.backends.activation.ppam import (  # noqa: E402
+    PPAM_LATTICE_ABSOLUTE_TOLERANCE,
+)
+from dual_frequency.cache import ContentAddressedCache  # noqa: E402
 from dual_frequency.config import WorkflowOverrides  # noqa: E402
-from dual_frequency.contracts import TaskKey  # noqa: E402
+from dual_frequency.contracts import (  # noqa: E402
+    OSSAxisEquivalenceGroupRecord,
+    TaskKey,
+)
+from dual_frequency.runtime.oss_axis_equivalence import (  # noqa: E402
+    OSS_AXIS_PROBABILITY_TOLERANCE,
+    accepted_group_uses_stable_scientific_cache,
+)
+from dual_frequency.runtime.oss_toolchain import (  # noqa: E402
+    OSSRowExecutionEvidence,
+)
 from dual_frequency.workflow import (  # noqa: E402
     ExecutionPlan,
     GateRequirement,
+    ServiceResult,
     TaskSpec,
     plan_hash,
 )
@@ -121,6 +141,76 @@ class PerformanceMatrixHarnessError(RuntimeError):
 class _PollableProcess(Protocol):
     def poll(self) -> int | None:
         """Return the child exit code or None while it remains alive."""
+
+
+class _AcceptedOSSInjectedToolchain:
+    """Return deterministic sample evidence from one accepted OSS row closure."""
+
+    def __init__(
+        self,
+        *,
+        cache_root: Path,
+        accepted_row_identities: Sequence[str],
+    ) -> None:
+        identities = tuple(sorted(str(value) for value in accepted_row_identities))
+        if not identities or len(set(identities)) != len(identities):
+            raise PerformanceMatrixHarnessError(
+                "injected OSS rows must be nonempty and unique"
+            )
+        self._cache = ContentAddressedCache(cache_root)
+        self._accepted_row_identities = frozenset(identities)
+
+    def produce_with_evidence(self, request: object) -> OSSRowExecutionEvidence:
+        """Reconstruct one deterministic ten-sample row from accepted probabilities."""
+
+        identity = getattr(request, "scientific_identity", None)
+        row = getattr(request, "row", None)
+        if (
+            type(identity) is not str
+            or identity not in self._accepted_row_identities
+            or row is None
+        ):
+            raise PerformanceMatrixHarnessError(
+                "injected OSS request is outside the accepted row closure"
+            )
+        entry = self._cache.resolve_identity("oss_rows", identity)
+        if entry is None:
+            raise PerformanceMatrixHarnessError(
+                "accepted injected OSS row is unavailable"
+            )
+        try:
+            product = OSSRowMaterializer._validated_row_product(entry, row)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise PerformanceMatrixHarnessError(
+                "accepted injected OSS row differs from the runtime request"
+            ) from exc
+        counts_float = product.probabilities.astype(np.float64) * 10.0
+        counts = np.rint(counts_float).astype(np.int64)
+        if (
+            np.any(counts < 0)
+            or np.any(counts > 10)
+            or not np.allclose(
+                counts_float,
+                counts,
+                rtol=0.0,
+                atol=PPAM_LATTICE_ABSOLUTE_TOLERANCE,
+            )
+        ):
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS probabilities cannot reconstruct ten samples"
+            )
+        sample_numbers = np.arange(10, dtype=np.int64)[:, None]
+        states = np.where(sample_numbers < counts[None, :], 1, 0).astype(
+            np.int8
+        )
+        injected_product = OSSRowProduct(
+            product.feature_ids,
+            product.probabilities,
+            producer_implementation_attestation=(
+                "task17-performance-injected-oss-v1"
+            ),
+        )
+        return OSSRowExecutionEvidence(injected_product, states)
 
 
 def _plain(value: Any) -> Any:
@@ -426,6 +516,200 @@ def _terminal_run(root: Path, label: str) -> dict[str, Any]:
     ):
         raise PerformanceMatrixHarnessError(f"{label} is not a completed run")
     return manifest
+
+
+def _accepted_oss_gate_records(
+    oss_root: Path,
+) -> tuple[tuple[str, OSSAxisEquivalenceGroupRecord], ...]:
+    """Decode the exact accepted OSS gate records from one terminal lineage."""
+
+    tasks_root = oss_root / "tasks"
+    records: list[tuple[str, OSSAxisEquivalenceGroupRecord]] = []
+    for path in sorted(tasks_root.glob("task_*.json")):
+        payload = _read_json(path, "accepted OSS task state")
+        result_payload = payload.get("result")
+        if (
+            payload.get("status") != "completed"
+            or payload.get("service_id") != "establish_oss_axis_equivalence"
+            or not isinstance(result_payload, Mapping)
+        ):
+            continue
+        try:
+            record = ServiceResult.from_dict(result_payload).decode_record()
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS gate result cannot be decoded"
+            ) from exc
+        if not isinstance(record, OSSAxisEquivalenceGroupRecord):
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS gate task returned a different record type"
+            )
+        if record.gate_status != "accepted_omega_max":
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS gate is not terminally accepted"
+            )
+        task_id = str(payload.get("task_id", path.stem))
+        if task_id != path.stem:
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS task path and task ID differ"
+            )
+        records.append((task_id, record))
+    if (
+        len(records) != 2
+        or {record.model_family for _, record in records}
+        != {"reference_fiber", "addon_fiber"}
+        or len({record.group_id for _, record in records}) != len(records)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "accepted OSS lineage lacks the exact two fiber gate records"
+        )
+    return tuple(sorted(records, key=lambda item: item[1].group_id))
+
+
+def _accepted_oss_cache_closure(
+    records: Sequence[tuple[str, OSSAxisEquivalenceGroupRecord]],
+    *,
+    cache_root: Path,
+) -> dict[str, object]:
+    """Validate and bind all decision and row entries referenced by OSS gates."""
+
+    cache = ContentAddressedCache(cache_root)
+    groups: list[dict[str, object]] = []
+    all_rows: dict[str, dict[str, object]] = {}
+    expected_decision_fields = {
+        "schema_version",
+        "decision_id",
+        "group_id",
+        "status",
+        "final_row_identity",
+        "omega_row_identity",
+        "state_mismatch_count",
+        "activation_count_mismatch_count",
+        "max_probability_difference",
+        "probability_tolerance",
+    }
+    for task_id, record in records:
+        try:
+            stable = accepted_group_uses_stable_scientific_cache(record, cache)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS group cache closure is invalid"
+            ) from exc
+        if not stable:
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS group still references historical cache keys"
+            )
+        decisions: list[dict[str, object]] = []
+        for decision_id in record.row_decision_ids:
+            decision_entry = cache.resolve_identity(
+                "oss_axis_equivalence",
+                decision_id,
+            )
+            if decision_entry is None:
+                raise PerformanceMatrixHarnessError(
+                    "accepted OSS decision cache is unavailable"
+                )
+            decision = _read_json(
+                decision_entry.file_path("decision.json"),
+                "accepted OSS decision",
+            )
+            if (
+                set(decision) != expected_decision_fields
+                or decision.get("decision_id") != decision_id
+                or decision.get("group_id") != record.group_id
+                or decision.get("status") != "pass"
+                or type(decision.get("state_mismatch_count")) is not int
+                or decision["state_mismatch_count"] > 0
+                or type(decision.get("activation_count_mismatch_count"))
+                is not int
+                or decision["activation_count_mismatch_count"] > 0
+                or not isinstance(
+                    decision.get("max_probability_difference"),
+                    (int, float),
+                )
+                or float(decision["max_probability_difference"])
+                > OSS_AXIS_PROBABILITY_TOLERANCE
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "accepted OSS decision payload differs from a pass decision"
+                )
+            row_payloads: dict[str, dict[str, object]] = {}
+            row_arrays: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+            for role in ("final", "omega"):
+                identity = decision.get(f"{role}_row_identity")
+                if type(identity) is not str:
+                    raise PerformanceMatrixHarnessError(
+                        "accepted OSS decision row identity is invalid"
+                    )
+                row_entry = cache.resolve_identity("oss_rows", identity)
+                if row_entry is None:
+                    raise PerformanceMatrixHarnessError(
+                        "accepted OSS row cache is unavailable"
+                    )
+                try:
+                    arrays = OSSRowMaterializer._load_entry(row_entry.path)
+                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                    raise PerformanceMatrixHarnessError(
+                        "accepted OSS row payload is invalid"
+                    ) from exc
+                row_payload = {
+                    "scientific_identity": identity,
+                    "manifest_sha256": _sha256_file(row_entry.manifest_path),
+                    "feature_count": int(arrays[0].size),
+                }
+                previous = all_rows.get(identity)
+                if previous is not None and previous != row_payload:
+                    raise PerformanceMatrixHarnessError(
+                        "accepted OSS row identity has conflicting evidence"
+                    )
+                all_rows[identity] = row_payload
+                row_payloads[role] = row_payload
+                row_arrays[role] = arrays
+            final_ids, final_probabilities = row_arrays["final"]
+            omega_ids, omega_probabilities = row_arrays["omega"]
+            positions = np.searchsorted(omega_ids, final_ids)
+            if (
+                np.any(positions >= omega_ids.size)
+                or not np.array_equal(omega_ids[positions], final_ids)
+                or np.any(
+                    np.abs(
+                        final_probabilities.astype(np.float64)
+                        - omega_probabilities[positions].astype(np.float64)
+                    )
+                    > OSS_AXIS_PROBABILITY_TOLERANCE
+                )
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "accepted OSS final and Omega rows differ on the final axis"
+                )
+            decisions.append(
+                {
+                    "decision_id": decision_id,
+                    "manifest_sha256": _sha256_file(
+                        decision_entry.manifest_path
+                    ),
+                    "final_row": row_payloads["final"],
+                    "omega_row": row_payloads["omega"],
+                }
+            )
+        groups.append(
+            {
+                "task_id": task_id,
+                "group_id": record.group_id,
+                "model_family": record.model_family,
+                "decision_ids": list(record.row_decision_ids),
+                "decisions": decisions,
+            }
+        )
+    closure = {
+        "cache_root": str(cache.root),
+        "groups": groups,
+        "rows": [all_rows[key] for key in sorted(all_rows)],
+    }
+    return {
+        **closure,
+        "closure_sha256": _canonical_sha256(closure),
+    }
 
 
 def _validate_oss_parent(
@@ -1527,6 +1811,7 @@ def _prepare_document(
         oss_root,
         oss_manifest,
     )
+    oss_gate_records = _accepted_oss_gate_records(oss_root)
     input_sources = _validate_input_bundle(parent_root, request)
     snapshot = _resolved_snapshot(parent_root)
     workflow_request = _workflow_request(request, snapshot)
@@ -1546,6 +1831,10 @@ def _prepare_document(
         )
     configuration = bundle.validated.configuration
     cache_root = configuration.workflow.storage.cache_root.expanduser().resolve()
+    accepted_oss_cache = _accepted_oss_cache_closure(
+        oss_gate_records,
+        cache_root=cache_root,
+    )
     output_root = configuration.direct_voxel.output.root.expanduser().resolve()
     run_root = configuration.workflow.storage.run_root.expanduser().resolve()
     root = _benchmark_root(
@@ -1765,6 +2054,9 @@ def _prepare_document(
             "accepted_independent_oss_manifest_sha256": (
                 parent_manifest_sha256(oss_root)
             ),
+            "accepted_oss_cache_closure_sha256": accepted_oss_cache[
+                "closure_sha256"
+            ],
             "scientific_configuration_hash": (
                 bundle.validated.configuration.scientific_configuration_hash
             ),
@@ -1814,6 +2106,7 @@ def _prepare_document(
             "run_id": oss_manifest["run_id"],
             "manifest_sha256": parent_manifest_sha256(oss_root),
         },
+        "accepted_oss_cache": accepted_oss_cache,
         "input_sources": input_sources,
         "scientific_configuration_hash": (
             bundle.validated.configuration.scientific_configuration_hash

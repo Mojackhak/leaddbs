@@ -6,9 +6,27 @@ from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 
-from dual_frequency.contracts import TaskKey
+import numpy as np
+
+from dual_frequency.backends.activation.ossdbs import (
+    OSS_SCIENTIFIC_BACKEND_VERSION,
+    OSSRowInput,
+    OSSScientificSettings,
+    build_oss_row_cache_key,
+)
+from dual_frequency.cache import (
+    CacheFileMetadata,
+    ContentAddressedCache,
+    ScientificCacheKey,
+)
+from dual_frequency.contracts import (
+    AxisRef,
+    OSSAxisEquivalenceGroupRecord,
+    TaskKey,
+)
 from dual_frequency.workflow import ExecutionPlan, TaskSpec
 from my_helper.fiber.pipelines import run_task17_performance_matrix as harness
 
@@ -48,6 +66,191 @@ def _task(
 
 
 class Task17PerformanceMatrixTest(unittest.TestCase):
+    @staticmethod
+    def _publish_oss_row(
+        *,
+        root: Path,
+        cache: ContentAddressedCache,
+        name: str,
+        axis: AxisRef,
+        ids: np.ndarray,
+        probabilities: np.ndarray,
+    ) -> tuple[OSSRowInput, str]:
+        row = OSSRowInput(
+            subject_id="sub-01",
+            side="L",
+            source_id="left",
+            feature_axis=axis,
+            feature_ids=ids,
+            geometry_hash="b" * 64,
+            stimulation_hash="c" * 64,
+            component_frequency_hash="d" * 64,
+            transform_hash="e" * 64,
+            connectome_feature_hash="f" * 64,
+        )
+        key = build_oss_row_cache_key(
+            row,
+            OSSScientificSettings(
+                backend_version=OSS_SCIENTIFIC_BACKEND_VERSION
+            ),
+        )
+        ids_path = root / f"{name}-ids.npy"
+        probabilities_path = root / f"{name}-probabilities.npy"
+        np.save(ids_path, ids, allow_pickle=False)
+        np.save(probabilities_path, probabilities, allow_pickle=False)
+        cache.publish(
+            key,
+            {
+                "fiber_ids.npy": ids_path,
+                "probabilities.npy": probabilities_path,
+            },
+            metadata={
+                "fiber_ids.npy": CacheFileMetadata(
+                    dtype="int64",
+                    shape=(axis.count,),
+                    axes=(axis,),
+                    units="fiber_id",
+                    space="right_canonical",
+                ),
+                "probabilities.npy": CacheFileMetadata(
+                    dtype="float32",
+                    shape=(axis.count,),
+                    axes=(axis,),
+                    units="probability",
+                    space="right_canonical",
+                ),
+            },
+        )
+        return row, key.digest
+
+    def test_injected_oss_toolchain_reconstructs_exact_ten_sample_counts(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = ContentAddressedCache(root / "cache")
+            axis = AxisRef("fiber-axis", 3, "a" * 64)
+            ids = np.asarray([1, 2, 3], dtype=np.int64)
+            probabilities = np.asarray([0.0, 0.3, 1.0], dtype=np.float32)
+            row, identity = self._publish_oss_row(
+                root=root,
+                cache=cache,
+                name="injected",
+                axis=axis,
+                ids=ids,
+                probabilities=probabilities,
+            )
+            toolchain = harness._AcceptedOSSInjectedToolchain(
+                cache_root=cache.root,
+                accepted_row_identities=(identity,),
+            )
+            evidence = toolchain.produce_with_evidence(
+                SimpleNamespace(
+                    scientific_identity=identity,
+                    row=row,
+                )
+            )
+            self.assertEqual(
+                np.count_nonzero(evidence.sample_states == 1, axis=0).tolist(),
+                [0, 3, 10],
+            )
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "outside the accepted row closure",
+            ):
+                toolchain.produce_with_evidence(
+                    SimpleNamespace(
+                        scientific_identity="0" * 64,
+                        row=row,
+                    )
+                )
+
+    def test_accepted_oss_cache_closure_binds_only_gate_referenced_rows(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = ContentAddressedCache(root / "cache")
+            final_axis = AxisRef("final-axis", 2, "1" * 64)
+            omega_axis = AxisRef("omega-axis", 3, "2" * 64)
+            _final_row, final_identity = self._publish_oss_row(
+                root=root,
+                cache=cache,
+                name="final",
+                axis=final_axis,
+                ids=np.asarray([2, 3], dtype=np.int64),
+                probabilities=np.asarray([0.3, 0.8], dtype=np.float32),
+            )
+            _omega_row, omega_identity = self._publish_oss_row(
+                root=root,
+                cache=cache,
+                name="omega",
+                axis=omega_axis,
+                ids=np.asarray([1, 2, 3], dtype=np.int64),
+                probabilities=np.asarray([0.1, 0.3, 0.8], dtype=np.float32),
+            )
+            decision_key = ScientificCacheKey(
+                geometry_hash=final_identity,
+                stimulation_hash=omega_identity,
+                component_frequency_hash="3" * 64,
+                transform_hash="4" * 64,
+                connectome_feature_hash="5" * 64,
+                backend_name="oss_axis_equivalence",
+                backend_version="1",
+                scientific_parameter_hashes=(
+                    ("final_row", final_identity),
+                    ("omega_row", omega_identity),
+                ),
+                kind="oss_axis_equivalence",
+            )
+            decision_path = root / "decision.json"
+            decision_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": (
+                            "dual_frequency_oss_axis_decision_v1"
+                        ),
+                        "decision_id": decision_key.digest,
+                        "group_id": "reference-group",
+                        "status": "pass",
+                        "final_row_identity": final_identity,
+                        "omega_row_identity": omega_identity,
+                        "state_mismatch_count": 0,
+                        "activation_count_mismatch_count": 0,
+                        "max_probability_difference": 0.0,
+                        "probability_tolerance": 1e-7,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cache.publish(
+                decision_key,
+                {"decision.json": decision_path},
+            )
+            record = OSSAxisEquivalenceGroupRecord(
+                group_id="reference-group",
+                model_family="reference_fiber",
+                gate_status="accepted_omega_max",
+                final_feature_axis=final_axis,
+                omega_feature_axis=omega_axis,
+                omega_cache_kind="fiber_exposures",
+                omega_cache_semantic_sha256="6" * 64,
+                endpoint_ids=("endpoint-a",),
+                row_decision_ids=(decision_key.digest,),
+            )
+            closure = harness._accepted_oss_cache_closure(
+                (("task_gate", record),),
+                cache_root=cache.root,
+            )
+            self.assertEqual(
+                [row["scientific_identity"] for row in closure["rows"]],
+                sorted((final_identity, omega_identity)),
+            )
+            self.assertEqual(
+                closure["groups"][0]["decision_ids"],
+                [decision_key.digest],
+            )
+
     def test_exact_three_connectome_key_closure_has_72_rows(self) -> None:
         rows = harness._row_keys(("ppmi", "mgh", "dtor"))
         self.assertEqual(len(rows), 72)
