@@ -551,6 +551,18 @@ closure passed under Conda `leaddbs` with warnings treated as errors. This
 closes the pre-merge production-path isolation review; it does not replace the
 post-merge complete regression.
 
+A 2026-07-25 offline command-drift audit invoked `--help` through the locked
+Conda `leaddbs` interpreter for the strict resource validator, extension-v2
+validator, display-smoothing repair transaction, performance matrix harness,
+fault-acceptance harness, unfiltered extension publisher, and formal
+postprocess entry point. All seven entry points returned zero. Their current
+interfaces retain the frozen run, segment, guard, RSS, source publication,
+stage, Trash, benchmark, fault-root, and formal-output arguments plus the
+required `publish-extension`, `stage`, `validate`, `promote`, `prepare`, `run`,
+and `init` operations. This proves that the documented post-OSS command
+sequence has not drifted at the CLI boundary; it does not substitute for
+executing that sequence against terminal production artifacts.
+
 The complete isolated dual-frequency test tree was collected read-only on
 2026-07-25 through package-only Python-path links. The bridge exposes exactly
 `dual_frequency` and `seed_target_connectivity` from the isolated worktree,
