@@ -863,6 +863,48 @@ def _copy_verified_cache_entries(
     }
 
 
+def _prepare_injected_oss_fixture(
+    *,
+    accepted_closure: Mapping[str, object],
+    destination_cache_root: Path,
+) -> dict[str, object]:
+    """Copy only accepted OSS rows into one benchmark-only fixture cache."""
+
+    source = accepted_closure.get("cache_root")
+    closure_sha256 = accepted_closure.get("closure_sha256")
+    if type(source) is not str or type(closure_sha256) is not str:
+        raise PerformanceMatrixHarnessError(
+            "accepted OSS closure lacks its source or identity"
+        )
+    entries = tuple(
+        descriptor
+        for descriptor in _accepted_oss_cache_entry_descriptors(
+            accepted_closure
+        )
+        if descriptor["kind"] == "oss_rows"
+    )
+    seed = _copy_verified_cache_entries(
+        source_cache_root=Path(source),
+        destination_cache_root=destination_cache_root,
+        entries=entries,
+    )
+    fixture = {
+        "schema_version": (
+            "dual_frequency_task17_injected_oss_fixture_v1"
+        ),
+        "accepted_closure_sha256": closure_sha256,
+        "fixture_cache_root": seed["destination_cache_root"],
+        "permitted_row_identities": [
+            item["scientific_identity"] for item in seed["entries"]
+        ],
+        "seed_sha256": seed["seed_sha256"],
+    }
+    return {
+        **fixture,
+        "fixture_sha256": _canonical_sha256(fixture),
+    }
+
+
 def _validate_oss_parent(
     parent_root: Path,
     parent_manifest: Mapping[str, object],

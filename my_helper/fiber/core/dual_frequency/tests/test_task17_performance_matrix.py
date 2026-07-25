@@ -266,6 +266,20 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     decision_key.digest,
                 )
             )
+            fixture = harness._prepare_injected_oss_fixture(
+                accepted_closure=closure,
+                destination_cache_root=root / "injected-fixture",
+            )
+            self.assertEqual(len(fixture["permitted_row_identities"]), 2)
+            fixture_cache = ContentAddressedCache(
+                root / "injected-fixture"
+            )
+            self.assertIsNone(
+                fixture_cache.resolve_identity(
+                    "oss_axis_equivalence",
+                    decision_key.digest,
+                )
+            )
             with self.assertRaisesRegex(
                 harness.PerformanceMatrixHarnessError,
                 "destination must be empty",
