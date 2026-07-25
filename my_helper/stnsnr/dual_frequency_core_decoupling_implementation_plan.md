@@ -5388,6 +5388,44 @@ cache-hit modes reuse the same selected scientific request for their class.
 This makes row comparisons workload-matched while preventing one scale,
 endpoint, or cache state from receiving a smaller convenient workload.
 
+The repository entrypoint is
+`my_helper/fiber/pipelines/run_task17_performance_matrix.py`. It exposes
+`prepare`, `run`, and read-only `validate` operations over one
+`dual_frequency_task17_performance_benchmark_plan_v1` request and one
+plan-SHA-bound benchmark root. `prepare` validates the accepted parent,
+resolved profiles, configured connectome closure, requested worker closure,
+and output-root separation, derives the maximum-burden requests above, and
+commits one immutable resolved plan before any measured row starts. `run`
+executes missing rows sequentially and records every attempt; it never overlaps
+two measured rows. `validate` reopens the resolved plan, every row transaction,
+the complete matrix manifest, and the terminal acceptance report without
+writing or repairing them.
+
+Cold and warm cache state is a harness-owned input condition rather than a
+label added after execution:
+
+- every measured cold row receives a new empty row-local cache root and must
+  publish the required producer closure during that row;
+- for each scientific request, one unmeasured preparation transaction creates
+  a canonical warm-cache seed, verifies its exact manifest and payload closure,
+  and never contributes timing or utilization evidence;
+- every measured warm row receives a verified direct copy of that same
+  canonical seed, so workers 1, 3, 6, and 12 begin from byte-identical cache
+  content;
+- a warm row that publishes a new required producer fails its cache-state
+  contract instead of being relabeled cold;
+- a cold row that resolves a pre-existing required entry fails before the
+  runner starts; and
+- the real pPAM cache-hit seed comes only from the independently accepted OSS
+  closure, copied into a row-local root and fully verified before measurement.
+
+The harness records the empty-cache proof or warm-seed manifest SHA, copied
+entry closure, and first producer/cache-resolution events in each row
+transaction. It keeps source inputs read-only and moves any replaced
+unversioned row-local state into a benchmark-local quarantine instead of
+overwriting it. An interrupted preparation or measured row remains partial and
+resumable but cannot enter the matrix manifest.
+
 The executor retains scheduler samples in memory at five-second cadence and
 publishes them once, atomically, when the execution segment closes. Each sample
 contains UTC start and finish times, ready and running task counts,
