@@ -5364,6 +5364,30 @@ probe attachment, terminal evidence construction, identical resume, and
 fail-closed partial-row recovery before the 72-row production matrix is
 launched.
 
+The benchmark plan must not let an operator choose an arbitrary favorable
+endpoint. It derives one deterministic maximum-structural-burden request for
+each class from the accepted parent and resolved configuration, with stable
+semantic ID order as the final tie break:
+
+- direct voxel uses the complete scale-neutral physical-row closure on the
+  configured canonical voxel axis;
+- each fiber-connectome row uses that connectome's complete scale-neutral
+  physical-row closure on its configured parent fiber axis;
+- formal permutation and bootstrap use the terminal final endpoint with the
+  largest subject-by-feature operator burden for the requested class;
+- spatial jitter uses the terminal endpoint with the largest physical support
+  multiplied by its fixed replicate count; and
+- pPAM uses the terminal normative-fiber endpoint with the largest accepted
+  `Omega_max` axis multiplied by its fixed permutation count.
+
+The frozen request records every candidate burden and the selected endpoint or
+physical closure. A later parent or configuration change must produce a
+different benchmark-plan identity rather than silently reusing the prior
+selection. Cold and warm rows, every worker count, and injected versus real
+cache-hit modes reuse the same selected scientific request for their class.
+This makes row comparisons workload-matched while preventing one scale,
+endpoint, or cache state from receiving a smaller convenient workload.
+
 The executor retains scheduler samples in memory at five-second cadence and
 publishes them once, atomically, when the execution segment closes. Each sample
 contains UTC start and finish times, ready and running task counts,
