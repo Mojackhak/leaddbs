@@ -110,8 +110,9 @@ exact deduplicated entry list, requires an empty and disjoint row-local cache,
 copies only the bound row and decision identities, and reopens every copied
 entry through the ordinary full cache validator before returning one canonical
 seed SHA. Reuse of a nonempty destination fails instead of merging state. The
-focused performance-harness suite remains at 20 passing tests because the seed
-copy assertions extend the existing accepted-closure fixture.
+focused performance-harness suite now has 21 passing tests. It covers the
+required reference/add-on gate-family closure as well as extending the accepted
+cache-closure fixture with seed-copy assertions.
 
 ## Final Closure Rule
 

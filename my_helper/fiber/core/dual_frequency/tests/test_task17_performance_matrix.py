@@ -27,7 +27,7 @@ from dual_frequency.contracts import (
     OSSAxisEquivalenceGroupRecord,
     TaskKey,
 )
-from dual_frequency.workflow import ExecutionPlan, TaskSpec
+from dual_frequency.workflow import ExecutionPlan, ServiceResult, TaskSpec
 from my_helper.fiber.pipelines import run_task17_performance_matrix as harness
 
 
@@ -275,6 +275,56 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     destination_cache_root=root / "row-cache",
                     entries=descriptors,
                 )
+
+    def test_accepted_oss_gate_records_require_both_fiber_families(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tasks_root = root / "tasks"
+            tasks_root.mkdir()
+            axis = AxisRef("fiber-axis", 2, "1" * 64)
+            for family in ("reference_fiber", "addon_fiber"):
+                record = OSSAxisEquivalenceGroupRecord(
+                    group_id=f"{family}-group",
+                    model_family=family,
+                    gate_status="accepted_omega_max",
+                    final_feature_axis=axis,
+                    omega_feature_axis=axis,
+                    omega_cache_kind="fiber_exposures",
+                    omega_cache_semantic_sha256="2" * 64,
+                    endpoint_ids=(f"{family}-endpoint",),
+                    row_decision_ids=(f"{family}-decision",),
+                )
+                task_id = f"task_{family}"
+                (tasks_root / f"{task_id}.json").write_text(
+                    json.dumps(
+                        {
+                            "task_id": task_id,
+                            "endpoint_id": f"{family}-endpoint",
+                            "service_id": "establish_oss_axis_equivalence",
+                            "status": "completed",
+                            "reason": "completed",
+                            "started_at": None,
+                            "finished_at": None,
+                            "result": ServiceResult.from_record(
+                                record
+                            ).as_dict(),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            records = harness._accepted_oss_gate_records(root)
+            self.assertEqual(
+                {record.model_family for _, record in records},
+                {"reference_fiber", "addon_fiber"},
+            )
+            (tasks_root / "task_addon_fiber.json").unlink()
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "exact two fiber gate records",
+            ):
+                harness._accepted_oss_gate_records(root)
 
     def test_exact_three_connectome_key_closure_has_72_rows(self) -> None:
         rows = harness._row_keys(("ppmi", "mgh", "dtor"))
