@@ -5426,6 +5426,48 @@ unversioned row-local state into a benchmark-local quarantine instead of
 overwriting it. An interrupted preparation or measured row remains partial and
 resumable but cannot enter the matrix manifest.
 
+Every row compiles the ordinary production DAG and then applies one
+repository-owned measured-task slice. Required ancestors outside that slice are
+copied from the accepted parent as immutable row-local checkpoint inputs and
+fully verified before the probe starts. They are not timed. A selected task
+cannot be restored from the accepted parent or the warm-cache seed. A selected
+task must execute in the measured segment, while its scale, endpoint,
+connectome, schedule, feature-axis, and replicate identities remain those of
+the ordinary compiled DAG. The row fails if the terminal executed-task closure
+differs from its prepared slice.
+
+The measured slices are:
+
+- direct voxel: every `prepare_reference_voxel_exposure` and
+  `prepare_addon_voxel_exposure` task in the selected complete physical-row
+  closure;
+- one fiber connectome: every `prepare_reference_fiber_sidecar` and
+  `prepare_addon_fiber_sidecars` task in the selected complete physical-row
+  closure for that connectome;
+- formal permutation: the selected endpoint's
+  `prepare_formal_operator_workspace`,
+  `prepare_formal_permutation_schedule`, every
+  `run_formal_permutation_block`, and `aggregate_formal_permutation` task;
+- bootstrap: the selected endpoint's `prepare_formal_operator_workspace`,
+  `prepare_formal_bootstrap_schedule`, every `run_formal_bootstrap_block`, and
+  `aggregate_formal_bootstrap` task;
+- spatial jitter: every `prepare_jitter_exposure_block` task for the selected
+  physical group plus the selected endpoint's matching jitter consumer; and
+- pPAM: the selected endpoint's `prepare_ppam_observed_workspace`,
+  `prepare_ppam_permutation_schedule`, every `run_ppam_permutation_block`, and
+  `aggregate_ppam_activation` task, with its accepted OSS axis-equivalence
+  decision treated as a verified ancestor.
+
+Cold and warm describe only the row-local shared scientific cache presented to
+the measured slice. They never permit selected task checkpoints to be copied
+from a prior measured run. Consequently warm formal, bootstrap, jitter, and
+pPAM rows still execute their complete statistical work and differ from their
+cold counterparts only in required shared-producer resolution. The terminal
+row transaction records the prepared task IDs, imported ancestor IDs and SHAs,
+executed task IDs, restored task IDs, and terminal scientific payload closure.
+Any selected task in the restored set or any imported ancestor in the executed
+set fails the row.
+
 The executor retains scheduler samples in memory at five-second cadence and
 publishes them once, atomically, when the execution segment closes. Each sample
 contains UTC start and finish times, ready and running task counts,
