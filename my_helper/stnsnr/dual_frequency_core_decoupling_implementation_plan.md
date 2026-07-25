@@ -9002,9 +9002,43 @@ generation paths. It then binds the actual resolved worker snapshot, finished
 segment, probe, counter sidecar, and numerical identity into the matrix row.
 After all rows are terminal, the harness atomically publishes the exact
 72-row matrix, invokes the repository validator, and publishes its immutable
-acceptance report. The public `run` operation remains closed only because
-injected spawned-worker execution is still fail-closed. Candidate-parity plus
-harness coverage now passes 35 tests.
+acceptance report. At that intermediate checkpoint the public `run` operation
+remained closed because injected spawned-worker execution was fail-closed.
+Candidate-parity plus harness coverage then passed 35 tests.
+
+The injected-worker implementation boundary was frozen before code changes.
+`SpawnWorkerSpec` receives one optional immutable
+`BenchmarkOSSInjectedFixtureSpec`; the default remains null. The descriptor
+contains the version, resolved fixture-cache root, accepted closure SHA, and
+sorted permitted row identities. A worker with a descriptor reconstructs the
+ordinary `StudyRuntimeInputProvider`, validates the descriptor and fixture
+root, and overrides only `oss_producer_toolchain` with the deterministic
+ten-sample benchmark toolchain. The pre-spawn child validates the complete
+fixture closure once; workers fully reopen only a requested permitted row,
+avoiding a closure-wide rehash in every process. The provider must remain a
+`StudyRuntimeInputProvider` instance because the OSS gate enforces that
+capability boundary. Warm-seed and measured-row parents derive the descriptor
+only from their already validated fixture document. Ordinary rows continue to
+construct the unchanged null descriptor. Focused tests must prove null-default
+compatibility, invalid-descriptor rejection, permitted-row reconstruction,
+forbidden-row rejection, and injected warm/row context construction before the
+public `run` operation opens.
+
+The public boundary then exposes only the already implemented `_run_matrix`
+orchestration as `run`. Read-only `validate` must keep its prepared-plan checks
+and, when either terminal file exists, require both `performance_matrix.json`
+and `performance_acceptance.json`, recompute strict acceptance without writing,
+and require exact equality with the stored report. A matrix without acceptance,
+acceptance without a matrix, or changed terminal report is partial and fails.
+
+This isolated implementation now passes five candidate-parity tests and 34
+performance-harness tests. It adds the null-default spawn descriptor, the
+worker-local injected provider, injected warm-seed and measured-row context
+construction, public `run`, and read-only terminal validation. The complete
+suite remains deferred until independent OSS exits because the active
+production memory reservation makes the system-derived executor admission test
+fail in both the unchanged main checkout and this isolated worktree; ignored
+template and frozen-acceptance data are also absent from the worktree.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 

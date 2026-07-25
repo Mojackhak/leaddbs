@@ -32,7 +32,7 @@ Status vocabulary:
 | Canonical main model-set publication | ACCEPTED | Completed direct-voxel and normative-fiber model-set publications are the only allowed public parents. Postprocess preflight resolves them without a run-store fallback. | Repeat model-manifest and indexed-payload verification after display-smoothing promotion. |
 | Final in-sample inference and publication | ACCEPTED | Both model-set domains contain the canonical final-in-sample v2 extension. Formal postprocess resolves paired in-sample and LOOCV endpoint evidence from public paths. | Recheck exact 112-endpoint pairing and all declared statistics in the terminal postprocess output. |
 | Shared physical preparation and configured-data parity | PENDING | Shared geometry, one-time physical exposure, inclusive fiber overlap, exact minimum-grid `Omega_max`, side-specific fiber peak reduction, cache-backed subject/feature views, copied-cache reuse, and bounded parity fixtures pass 104 focused tests. These fixtures prove the implementation boundary but do not compare the complete configured production matrices. | After independent OSS releases the formal connectome and VAL I/O path, run the repository-owned configured-data post-refactor replay. Record complete matrix parity, worker-count determinism, physical-row counters, logical-versus-physical write reduction, and absence of endpoint matrix copies or repeated full-connectome traversal. |
-| Cold/warm performance and scheduler acceptance | PENDING | Persistent spawned scheduling, global CPU/memory/I/O/solver ledgers, parent-only state mutation, process-local cache verification, vectorized kernels, and deterministic RNG boundaries pass static tests. The repository-owned cumulative-CPU probe, five-second scheduler-window publication, exact 72-row matrix validator, source-evidence binding, deterministic report, worker/default decision, RSS/swap gates, and utilization-window gate are implemented. Every executed row binds the exact probe SHA; I/O classification is closed to compute-bound or storage-limited; and a non-default worker promotion requires matched compute-bound rows that are all faster than workers 3 while retaining both wall times in the report. All 28 counters derive from immutable task fragments, configured parity, artifact/static audit, terminal segment fields, and a SHA-bound source/scratch byte ledger; caller-entered counter values are rejected. Commit `f73d849d8` binds every scheduler sample to its contemporaneous managed-memory ceiling and validates the initial, minimum, maximum, and final segment closure. The benchmark harness validates the minimal operator request, accepted parent and independent OSS binding, exact source identities, maximum-burden scientific requests, measured/imported DAG task slices, protected-root separation, optional solver authorization, and the exact 72-row key closure. Its runner-readiness and measurement-start protocol binds the row, child PID, slice-plan SHA, imported task closures, byte-ledger path, and byte-ledger SHA before selected work may start. Stable row identities, immutable row contracts, monotonic attempt directories, terminal evidence SHAs, changed-contract rejection, and changed-evidence rejection are implemented. `prepare` writes the resolved plan, all 72 contracts, and only then the complete contract-SHA marker; read-only validation rejects missing, extra, changed, or path-aliased contract roots. The sole unauthorized real-cold solver branch publishes an immutable false-authorization preflight and terminal `not_run`; other rows cannot use that status. Every statistical slice includes its selected endpoint's base physical producer so a cold row can create the row-local shared-cache closure and a warm row can prove a cache hit without copying a selected-task result. Each resolved slice persists a closed executable plan with imported direct parents converted to checkpoint-only roots while preserving every selected task's original service, parameters, gates, and internal dependencies. pPAM injected, real-cache-hit, and real-solver rows have separate slice identities and all measure the OSS equivalence gate; the accepted OSS outcome is an injected/reference authority or cache seed, never a copied selected-task result. `prepare` decodes the exact two terminal OSS gate records, resolves only their referenced decision and final/Omega row entries from the configured shared cache, verifies stable scientific keys and final-axis probability parity, and binds every cache-manifest SHA plus a canonical closure SHA into the resolved plan. The benchmark-only injected toolchain reconstructs exact ten-sample activation counts from those accepted rows and rejects requests outside that closure. Ordinary warm-seed production, child/probe launch, terminal row evidence, identical row resume, normalized numerical identity, scheduler-derived I/O classification, 72-row matrix publication, and strict acceptance invocation are implemented internally. Five candidate-parity tests and 30 harness tests pass. Public `run` remains closed because the injected spawned-worker fixture is still fail-closed. No production matrix has run. | Complete and test the injected spawned-worker fixture after independent OSS terminates, expose the public `run` operation, then run the workers 1, 3, 6, and 12 cold/warm matrix without substituting skipped or default-zero rows. Retain every terminal counter sidecar, exact-resume proof, deterministic matrix, and acceptance report. |
+| Cold/warm performance and scheduler acceptance | PENDING | Persistent spawned scheduling, global CPU/memory/I/O/solver ledgers, parent-only state mutation, process-local cache verification, vectorized kernels, and deterministic RNG boundaries pass static tests. The repository-owned cumulative-CPU probe, five-second scheduler-window publication, exact 72-row matrix validator, source-evidence binding, deterministic report, worker/default decision, RSS/swap gates, and utilization-window gate are implemented. Every executed row binds the exact probe SHA; I/O classification is closed to compute-bound or storage-limited; and a non-default worker promotion requires matched compute-bound rows that are all faster than workers 3 while retaining both wall times in the report. All 28 counters derive from immutable task fragments, configured parity, artifact/static audit, terminal segment fields, and a SHA-bound source/scratch byte ledger; caller-entered counter values are rejected. Commit `f73d849d8` binds every scheduler sample to its contemporaneous managed-memory ceiling and validates the initial, minimum, maximum, and final segment closure. The benchmark harness validates the minimal operator request, accepted parent and independent OSS binding, exact source identities, maximum-burden scientific requests, measured/imported DAG task slices, protected-root separation, optional solver authorization, and the exact 72-row key closure. Its runner-readiness and measurement-start protocol binds the row, child PID, slice-plan SHA, imported task closures, byte-ledger path, and byte-ledger SHA before selected work may start. Stable row identities, immutable row contracts, monotonic attempt directories, terminal evidence SHAs, changed-contract rejection, and changed-evidence rejection are implemented. `prepare` writes the resolved plan, all 72 contracts, and only then the complete contract-SHA marker; read-only validation rejects missing, extra, changed, or path-aliased contract roots. The sole unauthorized real-cold solver branch publishes an immutable false-authorization preflight and terminal `not_run`; other rows cannot use that status. Every statistical slice includes its selected endpoint's base physical producer so a cold row can create the row-local shared-cache closure and a warm row can prove a cache hit without copying a selected-task result. Each resolved slice persists a closed executable plan with imported direct parents converted to checkpoint-only roots while preserving every selected task's original service, parameters, gates, and internal dependencies. pPAM injected, real-cache-hit, and real-solver rows have separate slice identities and all measure the OSS equivalence gate; the accepted OSS outcome is an injected/reference authority or cache seed, never a copied selected-task result. `prepare` decodes the exact two terminal OSS gate records, resolves only their referenced decision and final/Omega row entries from the configured shared cache, verifies stable scientific keys and final-axis probability parity, and binds every cache-manifest SHA plus a canonical closure SHA into the resolved plan. The benchmark-only injected toolchain reconstructs exact ten-sample activation counts from those accepted rows and rejects requests outside that closure. Ordinary and injected warm-seed production, child/probe launch, terminal row evidence, identical row resume, normalized numerical identity, scheduler-derived I/O classification, 72-row matrix publication, strict acceptance invocation, public `run`, and read-only terminal validation are implemented in the isolated worktree. Five candidate-parity tests and 34 harness tests pass. No production matrix has run. | After independent OSS terminates, merge the isolated implementation and run the complete regression. Then execute the workers 1, 3, 6, and 12 cold/warm matrix without substituting skipped or default-zero rows. Retain every terminal counter sidecar, exact-resume proof, deterministic matrix, and acceptance report. |
 | Corruption, fail-once recovery, and deletion-rebuild acceptance | PENDING | Static cache, resume, checkpoint, and rebuild fixtures reject payload, shard, axis, and result corruption and selectively rerun affected descendants. The repository-owned marker-bound isolated harness implements complete parent/publication SHA closure, exact copied-cache marker closure, path-safe unique case IDs, absolute and relative command confinement, quarantine-and-restore corruption, immutable and task-bound pre-resume fail-once evidence, protected-artifact checks, distinct-lineage rebuild, unauthorized copied-cache replay, exact or NPY-tolerant one-shot comparison, contract-bound terminal case reuse, and read-only validation that cannot repair a changed report. Fifteen focused harness tests and complete 690-test discovery pass with warnings treated as errors. The production-scale sequence has not run. | Generate the production fault plan from the accepted parent and canonical publication. In its marked isolated root, execute all three corruption classes, fail-once recovery, missing-parent rebuild, copied-cache replay, and one-shot comparisons; retain the terminal deterministic report. |
 | Independent spatial jitter computation | ACCEPTED | `task17-jitter-v8-support-preserving-formal-20260719` completed its support-preserving block and endpoint closure with no terminal failure. Jitter compilation, selective block resume, cache-first dispatch, and extension publication boundaries pass 25 focused tests with temporary fixtures. | Reopen the completed child manifest, block closure, endpoint closure, artifact index, and parent binding during final audit. |
 | Canonical independent jitter-v2 publication | PENDING | The completed jitter child was replayed twice into self-contained v2 extensions in both public domains. The identical replay preserved both terminal publications and their source/parent bindings. | After independent OSS releases shared VAL bandwidth, run the frozen repository-owned publication validator across both roots and retain its atomic acceptance document. |
@@ -101,10 +101,10 @@ immutable request, maximum-burden workload selection, DAG slices, and 72-row
 closure. Its internal orchestration now prepares ordinary warm seeds, runs and
 probes measured rows, resumes only complete terminal transactions, builds
 counter evidence, and publishes the terminal matrix plus acceptance report.
-The injected spawned-worker fixture remains fail-closed, so the harness does
-not yet expose its public `run` operation and no production matrix manifest
-exists. The remaining injected execution boundary and production execution
-therefore remain open. The dedicated
+The injected spawned-worker fixture and public `run` operation are implemented
+in the isolated worktree, but no production matrix manifest exists. Merge,
+complete regression, and production execution therefore remain open. The
+dedicated
 isolated fault harness is implemented, but its production plan and sequence
 have not run. Those gaps remain part of their `PENDING` ledger rows. The
 existence of implementation tests or lower-level telemetry cannot close them.
@@ -176,9 +176,9 @@ row-local scientific cache, installs only validated checkpoint roots, retains
 the production registry/provider and persistent spawn pool, publishes
 `runner_ready.json`, waits for the parent measurement token, executes the exact
 slice, finalizes the run, rejects restored selected tasks, and publishes a
-SHA-bound child result. Injected rows still fail closed until the frozen
-spawn-worker fixture descriptor is implemented after the active OSS process
-terminates; the public `run` operation remains unavailable.
+SHA-bound child result. The isolated implementation now supplies injected rows
+with the frozen spawn-worker fixture descriptor while leaving every ordinary
+production descriptor null.
 
 The corresponding parent row transaction is also implemented. It launches the
 bound child and external probe in separate harness-owned process groups,
@@ -190,8 +190,8 @@ probe and ledger byte totals to match, runs the artifact/static audit and
 counter builder, and publishes a SHA-closed terminal row only after all
 evidence succeeds. Failures retain a partial monotonic attempt and terminate
 only the two harness-owned process groups. Injected spawned-worker support,
-matrix-level manifest/acceptance, and the public `run` operation remain
-pending.
+matrix-level manifest/acceptance, and public `run` are implemented in the
+isolated worktree; production execution remains pending.
 
 Configured candidate-parity generation is no longer an implementation gap.
 The harness now requires the exact 224 prepared-endpoint closure and pairs it
@@ -213,9 +213,9 @@ against a proven-empty isolated cache, binds its exact imported checkpoints,
 rejects restored selected tasks, fully verifies the resulting cache, and
 publishes the seed manifest last. Existing seeds must remain below their own
 transaction root and revalidate byte-for-byte. Real-cache-hit pPAM continues
-to use the independent OSS closure directly. The injected seed remains
-fail-closed until the spawned-worker fixture is installed after independent
-OSS terminates.
+to use the independent OSS closure directly. The isolated injected-worker
+implementation now enables the eighth injected seed without changing ordinary
+seed execution.
 
 Internal matrix resume and terminal publication are implemented. The harness
 serially resumes the exact 72 rows, reuses only SHA-complete terminal
@@ -224,9 +224,29 @@ classification from scheduler windows, derives worker/cache-comparable
 numerical identity from normalized selected-task results, and permits
 `not_run` only for unauthorized real-cold pPAM. A complete closure publishes
 the matrix, runs the existing strict validator, and commits its acceptance
-report. Five candidate-parity tests and 30 performance-harness tests pass.
-Public `run` exposure remains pending solely behind the injected spawned-worker
-fixture and its focused tests.
+report. This intermediate closure passed five candidate-parity tests and 30
+performance-harness tests before injected-worker support was added.
+
+The implemented injected-worker contract uses an optional
+`BenchmarkOSSInjectedFixtureSpec` on `SpawnWorkerSpec`. Its null default leaves
+all production paths unchanged. When present, worker initialization must retain
+an actual `StudyRuntimeInputProvider`, validate the versioned row-local fixture
+root, and replace only `oss_producer_toolchain` with the deterministic
+ten-sample benchmark implementation. The pre-spawn child validates the full
+fixture closure once, while each worker fully reopens only a requested
+permitted row. Both warm-seed and measured-row contexts derive this descriptor
+from their prevalidated fixture document; callers cannot supply a separate
+cache root or row list.
+
+The CLI now exposes the existing internal `run` orchestrator. Its read-only
+`validate` path additionally distinguishes a prepared root from a terminal
+root, rejects one-sided matrix/report publication, recomputes repository
+acceptance for a terminal matrix, and requires exact document equality with
+the stored deterministic report without repairing it.
+Five candidate-parity tests and 34 performance-harness tests pass in the
+isolated worktree. Merge and complete regression remain intentionally deferred
+until independent OSS releases the production checkout and its memory
+reservation.
 
 ## Final Closure Rule
 
