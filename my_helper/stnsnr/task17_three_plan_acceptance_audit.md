@@ -121,6 +121,11 @@ seed SHA, and fixture SHA. This is preparation support only; the spawn-worker
 descriptor and measured execution remain pending until the active independent
 OSS process has terminated.
 
+The future row runner can now reopen one row identity exactly once, resolve its
+single bound slice, strict-decode the persisted execution plan, and rederive
+the selected non-checkpoint task closure plus plan hash. Missing, duplicated,
+or changed row/slice bindings fail before any runner child is launched.
+
 ## Final Closure Rule
 
 The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
