@@ -71,6 +71,16 @@ broader ledger label.
 | Step 11, current status and final commit | `Final three-plan requirement audit` |
 | Final performance checklist, physical preparation through exact boundaries | The parity, jitter, OSS, cache, performance, resume, resource, and boundary-policy rows collectively retain every checklist clause |
 
+A 2026-07-25 structural replay found 24 unique ledger rows: 10 accepted,
+two active, 12 pending, and no blocked row. The YAML-core and postprocess source
+plans contain no unchecked implementation item. The dual-frequency source plan
+contains 26 deliberately open items: the 10 production Step headings listed
+above and 16 final performance-checklist clauses covered by the last mapping
+row. No source-plan checkbox is orphaned behind an absent ledger gate, and no
+duplicate ledger name can make one production requirement appear closed twice.
+This is structure-only evidence; every active or pending row still requires
+the terminal production evidence named in the matrix.
+
 ## Current YAML Preflight
 
 The current repository workflow resolves only `direct_voxel_model.yaml` and
