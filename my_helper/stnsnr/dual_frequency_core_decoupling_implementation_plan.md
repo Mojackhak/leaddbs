@@ -6295,6 +6295,18 @@ Analyzer reported no issue in the changed helper and example scripts. Real-data
 scene execution remains correctly blocked until Steps 2 and 3 publish the
 canonical model-set tree.
 
+A later public-only source audit on 2026-07-25 found that publication roots and
+indexed result artifacts reject run-store components, but the interactive
+fiber-scene adapter still accepted an absolute `study_base_path` or declared
+connectome geometry path containing `.runs`, `tasks`, `work`, or
+`runtime_work`. Those files are rendering provenance rather than fitted-result
+arrays, but accepting them still contradicts the explicit no-run-store scene
+contract. The adapter now rejects both paths before reading them. End-to-end
+fixtures cover a run-store study base and a run-store connectome geometry while
+retaining a valid canonical publication root. Both negative fixtures, both
+unchanged positive scene-input fixtures, and the complete 40-test visualization
+suite pass with warnings treated as errors.
+
 - [x] **Step 5: Run publication-only replay and downstream acceptance**
 
 Replay the completed formal parent and completed final-in-sample extension into

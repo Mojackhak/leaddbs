@@ -27,7 +27,10 @@ from my_helper.fiber.core.viz.published_artifacts import (
     PublicationCatalog,
     PublishedArtifactError,
 )
-from my_helper.fiber.core.viz.scene_example_inputs import prepare_scene_example_input
+from my_helper.fiber.core.viz.scene_example_inputs import (
+    SceneExampleInputError,
+    prepare_scene_example_input,
+)
 from my_helper.fiber.core.viz.spatial import plot_sweet_sour_slices
 from my_helper.fiber.core.viz.voxel_sections import plot_signed_voxel_sections
 from my_helper.fiber.core.viz.voxel_section_postprocess import (
@@ -822,6 +825,61 @@ def test_scene_example_prepares_selected_scored_fibers(tmp_path: Path) -> None:
     np.testing.assert_allclose(payload["scores"].reshape(-1), [0.8, -0.6, 0.4, -0.2])
     np.testing.assert_array_equal(payload["idx"].reshape(-1), [2, 2, 2, 2])
     assert payload["fibers"].shape == (8, 3)
+
+
+def test_scene_example_rejects_run_store_study_base(tmp_path: Path) -> None:
+    direct_root, _ = _scene_example_publications(tmp_path)
+    manifest_path = direct_root / "model_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    source = Path(manifest["study_base_path"])
+    forbidden = tmp_path / ".runs" / "inputs" / "study_base.json"
+    forbidden.parent.mkdir(parents=True)
+    forbidden.write_bytes(source.read_bytes())
+    manifest["study_base_path"] = str(forbidden)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        SceneExampleInputError,
+        match="study base cannot resolve through a run store",
+    ):
+        prepare_scene_example_input(
+            direct_root,
+            tmp_path / "outputs",
+            scale_id="pdq39_score",
+            model_family="reference_voxel",
+        )
+
+
+def test_scene_example_rejects_run_store_connectome_geometry(
+    tmp_path: Path,
+) -> None:
+    _, fiber_root = _scene_example_publications(tmp_path)
+    manifest_path = fiber_root / "model_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    study_path = Path(manifest["study_base_path"])
+    study = json.loads(study_path.read_text(encoding="utf-8"))
+    streamlines = study["study"]["spot_model_sources"]["connectomes"][0][
+        "streamlines"
+    ]
+    source = Path(streamlines["path"])
+    forbidden = tmp_path / ".runs" / "connectomes" / "connectome.mat"
+    forbidden.parent.mkdir(parents=True)
+    forbidden.write_bytes(source.read_bytes())
+    streamlines["path"] = str(forbidden)
+    study_path.write_text(json.dumps(study), encoding="utf-8")
+    manifest["study_base_sha256"] = _sha256(study_path)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        SceneExampleInputError,
+        match="geometry cannot resolve through a run store",
+    ):
+        prepare_scene_example_input(
+            fiber_root,
+            tmp_path / "outputs",
+            scale_id="pdq39_score",
+            model_family="reference_fiber",
+        )
 
 
 def test_signed_voxel_sections_match_the_accepted_layer_and_layout_contract(

@@ -30,6 +30,7 @@ _MODEL_FAMILIES = {
     "reference_fiber": "fiber",
     "addon_fiber": "fiber",
 }
+_FORBIDDEN_SOURCE_PARTS = frozenset({".runs", "tasks", "work", "runtime_work"})
 
 
 class SceneExampleInputError(RuntimeError):
@@ -164,6 +165,10 @@ def _study_sources(
             "published model manifest lacks study-base path or SHA-256"
         )
     path = Path(str(raw_path)).expanduser().resolve()
+    if any(part in _FORBIDDEN_SOURCE_PARTS for part in path.parts):
+        raise SceneExampleInputError(
+            "published study base cannot resolve through a run store"
+        )
     if not path.is_file() or _sha256_file(path) != expected_sha:
         raise SceneExampleInputError("published study-base identity cannot be verified")
     payload = _read_json(path)
@@ -206,6 +211,10 @@ def _connectome_path(sources: Mapping[str, Any], connectome_id: str) -> Path:
     if not isinstance(streamlines, Mapping) or not streamlines.get("path"):
         raise SceneExampleInputError(f"connectome {connectome_id} lacks a geometry path")
     path = Path(str(streamlines["path"])).expanduser().resolve()
+    if any(part in _FORBIDDEN_SOURCE_PARTS for part in path.parts):
+        raise SceneExampleInputError(
+            f"connectome {connectome_id} geometry cannot resolve through a run store"
+        )
     if not path.is_file():
         raise SceneExampleInputError(f"connectome geometry is missing: {path}")
     declared_sha = str(streamlines.get("sha256", "")).lower()
