@@ -2434,6 +2434,52 @@ def prepare(request_path: Path, benchmark_root: Path) -> dict[str, object]:
     }
 
 
+def _open_prepared_benchmark(
+    request_path: Path,
+    benchmark_root: Path,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Open one marker-complete benchmark root without repairing it."""
+
+    request, request_sha256 = _load_request(request_path)
+    root = benchmark_root.expanduser().resolve()
+    resolved = _read_json(
+        root / "benchmark_plan_resolved.json",
+        "resolved benchmark plan",
+    )
+    marker = _read_json(
+        root / "benchmark_root.json",
+        "benchmark root marker",
+    )
+    expected_marker_fields = {
+        "schema_version",
+        "plan_id",
+        "request_sha256",
+        "resolved_plan_sha256",
+        "row_contracts",
+        "benchmark_root",
+    }
+    if (
+        resolved.get("schema_version") != _RESOLVED_SCHEMA
+        or set(marker) != expected_marker_fields
+        or marker.get("schema_version") != _MARKER_SCHEMA
+        or marker.get("plan_id") != request["plan_id"]
+        or marker.get("request_sha256") != request_sha256
+        or marker.get("benchmark_root") != str(root)
+        or marker.get("resolved_plan_sha256")
+        != _canonical_sha256(resolved)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "prepared benchmark root identity differs"
+        )
+    row_contracts = marker.get("row_contracts")
+    if not isinstance(row_contracts, list):
+        raise PerformanceMatrixHarnessError(
+            "prepared benchmark row-contract marker is invalid"
+        )
+    _validate_row_contracts(root, resolved, row_contracts)
+    return resolved, marker
+
+
 def validate_existing(
     request_path: Path,
     benchmark_root: Path,

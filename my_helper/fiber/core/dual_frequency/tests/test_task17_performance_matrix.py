@@ -804,6 +804,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 )
                 row["row_id"] = harness._row_id(plan_identity, row)
             resolved = {
+                "schema_version": harness._RESOLVED_SCHEMA,
                 "maximum_task_tree_rss_bytes": 64 * 1024**3,
                 "rows": rows,
             }
@@ -811,6 +812,54 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             self.assertEqual(len(closure), 72)
             harness._publish_row_contracts(root, resolved, closure)
             harness._validate_row_contracts(root, resolved, closure)
+            authority = root / "authority"
+            for name in ("parent", "oss", "work"):
+                (authority / name).mkdir(parents=True)
+            request = {
+                "schema_version": harness._REQUEST_SCHEMA,
+                "plan_id": "prepared-plan",
+                "accepted_parent_root": str(authority / "parent"),
+                "accepted_independent_oss_root": str(authority / "oss"),
+                "study_base": str(authority / "study.json"),
+                "direct_voxel_model": str(authority / "direct.yaml"),
+                "normative_fiber_model": str(authority / "fiber.yaml"),
+                "workflow_profile": str(authority / "workflow.yaml"),
+                "conda_environment": "leaddbs",
+                "working_directory": str(authority / "work"),
+                "maximum_task_tree_rss_bytes": 64 * 1024**3,
+                "real_cold_solver_authorization": None,
+            }
+            for field in (
+                "study_base",
+                "direct_voxel_model",
+                "normative_fiber_model",
+                "workflow_profile",
+            ):
+                Path(request[field]).write_text("{}\n", encoding="utf-8")
+            request_path = authority / "request.json"
+            request_path.write_text(
+                json.dumps(request),
+                encoding="utf-8",
+            )
+            marker = {
+                "schema_version": harness._MARKER_SCHEMA,
+                "plan_id": "prepared-plan",
+                "request_sha256": harness._sha256_file(request_path),
+                "resolved_plan_sha256": harness._canonical_sha256(resolved),
+                "row_contracts": closure,
+                "benchmark_root": str(root.resolve()),
+            }
+            harness._atomic_json(
+                root / "benchmark_plan_resolved.json",
+                resolved,
+            )
+            harness._atomic_json(root / "benchmark_root.json", marker)
+            reopened, reopened_marker = harness._open_prepared_benchmark(
+                request_path,
+                root,
+            )
+            self.assertEqual(reopened, resolved)
+            self.assertEqual(reopened_marker, marker)
             missing = root / closure[0]["relative_path"]
             missing.unlink()
             with self.assertRaisesRegex(
