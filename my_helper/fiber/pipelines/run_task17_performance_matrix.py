@@ -921,6 +921,133 @@ def _prepare_injected_oss_fixture(
     }
 
 
+def _empty_cache_proof(cache_root: Path) -> dict[str, object]:
+    """Create or verify one empty row-local scientific cache root."""
+
+    root = cache_root.expanduser().resolve()
+    if root.exists() and (not root.is_dir() or any(root.iterdir())):
+        raise PerformanceMatrixHarnessError(
+            "benchmark cold cache root is not empty"
+        )
+    root.mkdir(parents=True, exist_ok=True)
+    document = {
+        "schema_version": "dual_frequency_task17_empty_cache_v1",
+        "cache_root": str(root),
+        "entry_count": 0,
+    }
+    return {
+        **document,
+        "proof_sha256": _canonical_sha256(document),
+    }
+
+
+def _isolated_cache_entry_descriptors(
+    cache_root: Path,
+) -> tuple[dict[str, str], ...]:
+    """Enumerate and fully validate one benchmark-local isolated cache."""
+
+    cache = ContentAddressedCache(cache_root)
+    shared = cache.root / "shared_exposure_v2"
+    if not shared.is_dir():
+        return ()
+    descriptors: list[dict[str, str]] = []
+    for kind_root in sorted(shared.iterdir(), key=lambda path: path.name):
+        if not kind_root.is_dir() or kind_root.is_symlink():
+            raise PerformanceMatrixHarnessError(
+                "isolated cache contains an invalid kind entry"
+            )
+        kind = kind_root.name
+        for entry_root in sorted(kind_root.iterdir(), key=lambda path: path.name):
+            if not entry_root.is_dir() or entry_root.is_symlink():
+                raise PerformanceMatrixHarnessError(
+                    "isolated cache contains an invalid scientific entry"
+                )
+            identity = entry_root.name
+            entry = cache.resolve_identity(kind, identity)
+            if entry is None or entry.path != entry_root.resolve():
+                raise PerformanceMatrixHarnessError(
+                    "isolated cache entry failed full verification"
+                )
+            descriptors.append(
+                {
+                    "kind": kind,
+                    "scientific_identity": identity,
+                    "manifest_sha256": _sha256_file(entry.manifest_path),
+                }
+            )
+    return tuple(descriptors)
+
+
+def _publish_warm_seed_manifest(
+    path: Path,
+    *,
+    cache_root: Path,
+    slice_id: str,
+) -> dict[str, object]:
+    """Freeze one nonempty isolated cache as an unmeasured warm seed."""
+
+    entries = _isolated_cache_entry_descriptors(cache_root)
+    if not entries:
+        raise PerformanceMatrixHarnessError(
+            "benchmark warm seed cache contains no entries"
+        )
+    document = {
+        "schema_version": "dual_frequency_task17_warm_seed_v1",
+        "slice_id": str(slice_id),
+        "cache_root": str(cache_root.expanduser().resolve()),
+        "entries": list(entries),
+    }
+    document["seed_sha256"] = _canonical_sha256(document)
+    _atomic_json(path.expanduser().resolve(), document)
+    return document
+
+
+def _copy_warm_seed(
+    manifest_path: Path,
+    *,
+    destination_cache_root: Path,
+    expected_slice_id: str,
+) -> dict[str, object]:
+    """Revalidate and copy one exact warm seed into a measured row cache."""
+
+    manifest = _read_json(
+        manifest_path.expanduser().resolve(),
+        "benchmark warm seed manifest",
+    )
+    expected_fields = {
+        "schema_version",
+        "slice_id",
+        "cache_root",
+        "entries",
+        "seed_sha256",
+    }
+    unsigned = {
+        key: value for key, value in manifest.items() if key != "seed_sha256"
+    }
+    if (
+        set(manifest) != expected_fields
+        or manifest.get("schema_version")
+        != "dual_frequency_task17_warm_seed_v1"
+        or manifest.get("slice_id") != expected_slice_id
+        or manifest.get("seed_sha256") != _canonical_sha256(unsigned)
+        or not isinstance(manifest.get("entries"), list)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark warm seed manifest identity differs"
+        )
+    source_root = Path(str(manifest["cache_root"])).expanduser().resolve()
+    current = _isolated_cache_entry_descriptors(source_root)
+    if list(current) != manifest["entries"]:
+        raise PerformanceMatrixHarnessError(
+            "benchmark warm seed cache closure differs"
+        )
+    return _copy_verified_cache_entries(
+        source_cache_root=source_root,
+        destination_cache_root=destination_cache_root,
+        entries=current,
+    )
+
+
 def _validate_oss_parent(
     parent_root: Path,
     parent_manifest: Mapping[str, object],

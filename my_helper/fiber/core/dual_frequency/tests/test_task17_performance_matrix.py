@@ -296,6 +296,32 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     decision_key.digest,
                 )
             )
+            empty_proof = harness._empty_cache_proof(
+                root / "empty-row-cache"
+            )
+            self.assertEqual(empty_proof["entry_count"], 0)
+            warm_manifest_path = root / "warm-seed.json"
+            warm_manifest = harness._publish_warm_seed_manifest(
+                warm_manifest_path,
+                cache_root=cache.root,
+                slice_id="slice-a",
+            )
+            self.assertEqual(len(warm_manifest["entries"]), 3)
+            copied_warm = harness._copy_warm_seed(
+                warm_manifest_path,
+                destination_cache_root=root / "warm-row-cache",
+                expected_slice_id="slice-a",
+            )
+            self.assertEqual(len(copied_warm["entries"]), 3)
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "identity differs",
+            ):
+                harness._copy_warm_seed(
+                    warm_manifest_path,
+                    destination_cache_root=root / "wrong-slice-cache",
+                    expected_slice_id="slice-b",
+                )
             with self.assertRaisesRegex(
                 harness.PerformanceMatrixHarnessError,
                 "destination must be empty",
