@@ -106,6 +106,16 @@ checkpoint closure, copied-root reuse, corruption rejection, and the rule that
 failed or partial runs retain recovery state. Production identical resume and
 deletion-rebuild acceptance remain separate pending gates.
 
+The complete isolated fault harness and local resource-guard modules were
+replayed again on 2026-07-25. All 15 fault cases and all 11 guard cases passed.
+For harness tests that launch nested `conda run`, warnings-as-errors belongs on
+the outer interpreter through `python -W error`; the launcher must clear the
+inherited `PYTHONWARNINGS` environment variable. Exporting that variable causes
+the base Conda interpreter to terminate on its own deprecation warning before
+the declared synthetic fault command starts, which changes the observed exit
+code and is a launcher failure rather than a harness rejection. This invocation
+boundary changes no production command or warning policy.
+
 ## Repository Entrypoint Preflight
 
 The following repository-owned entrypoints parse successfully in Conda
