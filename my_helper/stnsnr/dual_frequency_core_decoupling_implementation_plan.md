@@ -7374,8 +7374,8 @@ the segment must still satisfy complete task-tree RSS `< 64 GiB`, swap growth
 `< 1 byte`, terminal gate closure, and the full 590-task outcome contract
 before independent OSS can be accepted.
 
-A current resolved-configuration audit confirms that this lineage records 14
-workers, expensive-producer authorization for the independent OSS miss, and
+A 2026-07-22 resolved-configuration audit confirmed that this lineage recorded
+14 workers, expensive-producer authorization for the independent OSS miss, and
 `delete_run_cache_on_success` false. The checked-in workflow keeps its generic
 default at three workers and expensive producers disabled; the later combined
 lineage must therefore pass only the 14-worker resource override and must omit
@@ -7385,7 +7385,8 @@ prevented its `finally` completion write. No process from that segment remains,
 later segments exist in the same append-only lineage, and no scientific row
 from that attempt is accepted. Final audit must classify it as interrupted
 historical provenance, not as the active writer or a terminal acceptance
-segment; `segment_0010` is the sole current execution segment.
+segment. At that dated snapshot, `segment_0010` was the sole execution segment;
+later segment records below supersede that operational status.
 
 A 2026-07-22 operational audit later found that `segment_0010` retained only
 intermittent process-tree snapshots and no surviving one-second resource guard.
@@ -7407,16 +7408,13 @@ an ordinary sample, observed swap minimum and maximum both matched the
 6844978299-byte baseline, and the captured task-tree RSS peak had risen safely
 to 48970170368 bytes, still `< 64 GiB`.
 
-The user subsequently required every operational monitor to use a two-hour
-interval. This supersedes the one-second stop guard and the temporary ten-second
-interactive poll for the remainder of the execution. Before termination, the
+The user subsequently required model-driven checks and reports to use a
+two-hour interval. At that intermediate point the one-second stop guard and the
+temporary ten-second interactive poll were stopped. Before termination, the
 guard had accumulated more than 3200 continuous samples, retained the same
 48970170368-byte RSS peak, observed swap growth `< 1` byte, and fired no stop
-event. Later checks sample VAL availability, process state, RSS, CPU, and swap
-once every two hours. This lower-frequency policy can detect an unmount or a
-transient resource excursion up to two hours late and cannot establish a
-continuous peak between snapshots; that limitation must remain explicit in
-final resource acceptance.
+event. This temporary absence of a continuous guard was immediately superseded
+by the local-observation decision below and is not the final resource policy.
 
 The user then distinguished local observation from Codex activity. A local
 one-second Python guard consumes no model token and is reauthorized; ten-second
