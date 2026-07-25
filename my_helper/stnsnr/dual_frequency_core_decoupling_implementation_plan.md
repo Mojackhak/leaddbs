@@ -6013,6 +6013,45 @@ repairing any file, then compares the recomputed report with the existing
 `fault_acceptance.json`. A missing or changed report fails; validation must not
 call a path that rewrites the report before comparison.
 
+The production invocation is frozen to one plan document and one disjoint
+acceptance root. Generate the plan only after canonical OSS-v2 and combined-v2
+are terminal, because its read-only closure must bind their actual manifests,
+indexes, payload hashes, accepted parent, and copied scientific-cache entries.
+The plan path is
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-plan-v1.json`;
+the harness root is
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-v1`.
+The plan remains outside the marked harness root so initialization can prove
+that the root is absent or contains only a matching resumable transaction.
+After an independent review of the generated plan and its six-case closure,
+run:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_fault_acceptance.py \
+  --plan /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-plan-v1.json \
+  --acceptance-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-v1 \
+  init
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_fault_acceptance.py \
+  --plan /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-plan-v1.json \
+  --acceptance-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-v1 \
+  run
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_fault_acceptance.py \
+  --plan /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-plan-v1.json \
+  --acceptance-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-v1 \
+  validate
+```
+
+Repeat `run` once after terminal success and then repeat `validate`. The second
+run must reuse all six completed cases only after revalidating their immutable
+inputs, quarantines, commands, outputs, comparisons, and read-only roots.
+Neither invocation may alter the accepted parent, canonical publications, or
+shared production cache.
+
 Performance instrumentation implementation checkpoint on 2026-07-24:
 
 - the executor retains five-second scheduler windows in memory and publishes
