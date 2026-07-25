@@ -139,6 +139,11 @@ canonical existing working directory as its immutable child execution
 environment; neither can be supplied again by a later `run` invocation.
 The child-side validator requires both the canonical working directory and the
 active Conda environment or prefix name to match before a row RunStore opens.
+Cold-cache preparation now emits a canonical zero-entry proof. Unmeasured
+ordinary warm seeds may enumerate only their initially empty benchmark-local
+cache, fully validate each resulting entry, publish a slice-bound nonempty
+entry closure, and direct-copy that exact closure into an empty measured-row
+cache. Changed slice IDs, manifests, or entry sets fail before measurement.
 
 ## Final Closure Rule
 
