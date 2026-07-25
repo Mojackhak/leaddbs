@@ -20,6 +20,7 @@ import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
+from urllib.parse import unquote, urlparse
 
 import numpy as np
 import yaml
@@ -51,7 +52,11 @@ from dual_frequency.cache import ArtifactStore, ContentAddressedCache  # noqa: E
 from dual_frequency.catalog import CatalogStatus  # noqa: E402
 from dual_frequency.config import WorkflowOverrides  # noqa: E402
 from dual_frequency.contracts import (  # noqa: E402
+    ArtifactRef,
+    FinalSelectionRecord,
     OSSAxisEquivalenceGroupRecord,
+    PreparedExposureRecord,
+    SensitiveRecord,
     TaskKey,
 )
 from dual_frequency.runtime.oss_axis_equivalence import (  # noqa: E402
@@ -318,6 +323,498 @@ def _atomic_json(path: Path, document: Mapping[str, object]) -> None:
     finally:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
+
+
+def _artifact_file(
+    artifact: ArtifactRef,
+    *,
+    label: str,
+) -> Path:
+    """Resolve and verify one immutable local artifact reference."""
+
+    if not isinstance(artifact, ArtifactRef):
+        raise PerformanceMatrixHarnessError(f"{label} is not an artifact")
+    parsed = urlparse(artifact.uri)
+    if parsed.scheme != "file" or parsed.netloc:
+        raise PerformanceMatrixHarnessError(
+            f"{label} must use a local file URI"
+        )
+    path = Path(unquote(parsed.path)).resolve()
+    if not path.is_file() or _sha256_file(path) != artifact.sha256:
+        raise PerformanceMatrixHarnessError(f"{label} SHA differs")
+    return path
+
+
+def _candidate_artifact_descriptor(
+    artifact: ArtifactRef,
+    *,
+    feature_axis_sha256: str,
+    label: str,
+) -> dict[str, object]:
+    """Convert one verified NPY artifact to candidate-parity evidence."""
+
+    path = _artifact_file(artifact, label=label)
+    if artifact.dtype is None or artifact.shape is None:
+        raise PerformanceMatrixHarnessError(
+            f"{label} lacks array metadata"
+        )
+    try:
+        value = np.load(path, allow_pickle=False, mmap_mode="r")
+    except (OSError, ValueError) as exc:
+        raise PerformanceMatrixHarnessError(
+            f"{label} is not a readable NPY array"
+        ) from exc
+    if (
+        value.dtype.name != artifact.dtype
+        or value.shape != artifact.shape
+    ):
+        raise PerformanceMatrixHarnessError(
+            f"{label} array metadata differs"
+        )
+    return {
+        "path": str(path),
+        "sha256": artifact.sha256,
+        "dtype": artifact.dtype,
+        "shape": list(artifact.shape),
+        "feature_axis_sha256": str(feature_axis_sha256),
+    }
+
+
+def _atomic_selected_ids(
+    path: Path,
+    values: np.ndarray,
+) -> Path:
+    """Publish one immutable benchmark-local ordered feature-ID array."""
+
+    destination = path.expanduser().resolve()
+    selected = np.asarray(values, dtype=np.int64)
+    if (
+        selected.ndim != 1
+        or selected.size < 1
+        or np.any(selected[1:] <= selected[:-1])
+    ):
+        raise PerformanceMatrixHarnessError(
+            "candidate-parity selected feature IDs are invalid"
+        )
+    if destination.exists():
+        try:
+            existing = np.load(destination, allow_pickle=False)
+        except (OSError, ValueError) as exc:
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity selected-ID artifact is unreadable"
+            ) from exc
+        if (
+            existing.dtype != np.dtype(np.int64)
+            or not np.array_equal(existing, selected)
+        ):
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity selected-ID artifact differs"
+            )
+        return destination
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=destination.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            np.save(handle, selected, allow_pickle=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return destination
+
+
+def _completed_parent_records(
+    parent_root: Path,
+) -> tuple[
+    dict[str, PreparedExposureRecord],
+    dict[str, FinalSelectionRecord | SensitiveRecord],
+]:
+    """Decode the exact prepared and selected configured endpoint closure."""
+
+    root = parent_root.expanduser().resolve()
+    status_path = root / "task_status.csv"
+    try:
+        with status_path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            expected_fields = (
+                "task_id",
+                "endpoint_id",
+                "service_id",
+                "status",
+                "reason",
+            )
+            if tuple(reader.fieldnames or ()) != expected_fields:
+                raise PerformanceMatrixHarnessError(
+                    "accepted parent task-status fields differ"
+                )
+            rows = tuple(reader)
+    except OSError as exc:
+        raise PerformanceMatrixHarnessError(
+            "accepted parent task-status table is unreadable"
+        ) from exc
+    prepare_services = {
+        "prepare_reference_voxel_exposure",
+        "prepare_addon_voxel_exposure",
+        "prepare_reference_fiber_sidecar",
+        "prepare_addon_fiber_sidecars",
+    }
+    selection_services = {
+        "realize_reference_final",
+        "realize_addon_final",
+        "evaluate_sensitive_connectome_at_formal_source",
+        "evaluate_sensitive_addon_at_formal_final",
+    }
+    prepared: dict[str, PreparedExposureRecord] = {}
+    selected: dict[str, FinalSelectionRecord | SensitiveRecord] = {}
+    for row in rows:
+        service = str(row.get("service_id", ""))
+        if service not in prepare_services | selection_services:
+            continue
+        if row.get("status") != "completed":
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity parent task is not completed"
+            )
+        task_id = str(row.get("task_id", ""))
+        endpoint_id = str(row.get("endpoint_id", ""))
+        if (
+            not task_id.startswith("task_")
+            or not endpoint_id.startswith("endpoint_")
+        ):
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity parent task identity differs"
+            )
+        state = _read_json(
+            root / "tasks" / f"{task_id}.json",
+            "candidate-parity parent task state",
+        )
+        if state.get("task_id") != task_id or state.get("status") != "completed":
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity parent task state differs"
+            )
+        payload = state.get("result")
+        if not isinstance(payload, Mapping):
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity parent task result is missing"
+            )
+        try:
+            record = ServiceResult.from_dict(payload).decode_record()
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity parent task record is invalid"
+            ) from exc
+        destination: dict[str, object]
+        if service in prepare_services:
+            if not isinstance(record, PreparedExposureRecord):
+                raise PerformanceMatrixHarnessError(
+                    "candidate-parity prepared record type differs"
+                )
+            destination = prepared
+        else:
+            if not isinstance(record, (FinalSelectionRecord, SensitiveRecord)):
+                raise PerformanceMatrixHarnessError(
+                    "candidate-parity selection record type differs"
+                )
+            destination = selected
+        if endpoint_id in destination:
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity endpoint task is duplicated"
+            )
+        destination[endpoint_id] = record
+    if (
+        len(prepared) != 224
+        or len(selected) != 224
+        or set(prepared) != set(selected)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "candidate-parity configured endpoint closure differs"
+        )
+    return prepared, selected
+
+
+def _selected_source_evidence(
+    selection: FinalSelectionRecord | SensitiveRecord,
+) -> tuple[float, int, object, tuple[ArtifactRef, ...]]:
+    """Return the selected threshold, feature axis, and source artifacts."""
+
+    if isinstance(selection, FinalSelectionRecord):
+        final = selection.final_model
+        if final is None:
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity final endpoint has no realized model"
+            )
+        source = final.selected_source
+        if source is None and final.selected_branch is not None:
+            source = final.selected_branch.source
+        if (
+            source is None
+            or source.selected_tau is None
+            or source.selected_coverage is None
+        ):
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity final source lacks a selected threshold"
+            )
+        return (
+            float(source.selected_tau),
+            int(source.selected_coverage),
+            final.valid_feature_axis.axis,
+            tuple(source.artifacts),
+        )
+    if (
+        selection.input_status != "valid"
+        or selection.feature_axis is None
+    ):
+        raise PerformanceMatrixHarnessError(
+            "candidate-parity sensitive endpoint is not valid"
+        )
+    return (
+        float(selection.evaluated_tau),
+        int(selection.evaluated_coverage),
+        selection.feature_axis.axis,
+        tuple(selection.artifacts),
+    )
+
+
+def _candidate_parity_plan_document(
+    *,
+    parent_root: Path,
+    benchmark_root: Path,
+) -> dict[str, object]:
+    """Build the exact 224-row configured parity plan and selected-ID inputs."""
+
+    root = benchmark_root.expanduser().resolve() / "candidate_parity"
+    prepared, selections = _completed_parent_records(parent_root)
+    parent_id_cache: dict[str, np.ndarray] = {}
+    rows: list[dict[str, object]] = []
+    for endpoint_id in sorted(prepared):
+        exposure = prepared[endpoint_id]
+        selection = selections[endpoint_id]
+        endpoint = exposure.endpoint
+        if getattr(selection, "endpoint", None) != endpoint:
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity prepared and selected endpoints differ"
+            )
+        if not isinstance(exposure.exposure, ArtifactRef):
+            raise PerformanceMatrixHarnessError(
+                "candidate-parity parent exposure is not a concrete artifact"
+            )
+        tau, coverage, selected_axis, artifacts = _selected_source_evidence(
+            selection
+        )
+        if endpoint.model_family.endswith("voxel"):
+            matches = tuple(
+                item for item in artifacts if item.kind == "selected_feature_indices"
+            )
+            if len(matches) != 1:
+                raise PerformanceMatrixHarnessError(
+                    "candidate-parity voxel source index artifact differs"
+                )
+            index_path = _artifact_file(
+                matches[0],
+                label=f"{endpoint_id} selected feature indices",
+            )
+            indices = np.load(index_path, allow_pickle=False, mmap_mode="r")
+            if (
+                indices.dtype != np.dtype(np.int64)
+                or indices.ndim != 1
+                or indices.size != selected_axis.count
+                or np.any(indices[1:] <= indices[:-1])
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "candidate-parity voxel selected indices are invalid"
+                )
+            parent_ids = parent_id_cache.get(exposure.feature_ids.sha256)
+            if parent_ids is None:
+                parent_id_path = _artifact_file(
+                    exposure.feature_ids,
+                    label=f"{endpoint_id} parent feature IDs",
+                )
+                parent_ids = np.load(
+                    parent_id_path,
+                    allow_pickle=False,
+                    mmap_mode="r",
+                )
+                if (
+                    parent_ids.dtype != np.dtype(np.int64)
+                    or parent_ids.ndim != 1
+                    or parent_ids.size != exposure.feature_axis.count
+                    or np.any(parent_ids[1:] <= parent_ids[:-1])
+                ):
+                    raise PerformanceMatrixHarnessError(
+                        "candidate-parity parent feature IDs are invalid"
+                    )
+                parent_id_cache[exposure.feature_ids.sha256] = parent_ids
+            if (
+                indices.size < 1
+                or indices[0] < 0
+                or indices[-1] >= parent_ids.size
+            ):
+                raise PerformanceMatrixHarnessError(
+                    "candidate-parity voxel selected indices are out of bounds"
+                )
+            selected_path = _atomic_selected_ids(
+                root / "selected_feature_ids" / f"{endpoint_id}.npy",
+                np.asarray(parent_ids[indices], dtype=np.int64),
+            )
+            selected_descriptor = {
+                "path": str(selected_path),
+                "sha256": _sha256_file(selected_path),
+                "dtype": "int64",
+                "shape": [int(indices.size)],
+                "feature_axis_sha256": selected_axis.sha256,
+            }
+        else:
+            matches = tuple(
+                item
+                for item in artifacts
+                if item.kind == "normative_fiber_valid_union_ids"
+            )
+            if len(matches) != 1:
+                raise PerformanceMatrixHarnessError(
+                    "candidate-parity fiber valid-union artifact differs"
+                )
+            selected_descriptor = _candidate_artifact_descriptor(
+                matches[0],
+                feature_axis_sha256=selected_axis.sha256,
+                label=f"{endpoint_id} selected fiber IDs",
+            )
+        rows.append(
+            {
+                "row_id": endpoint_id,
+                "model_family": endpoint.model_family,
+                "tau": tau,
+                "coverage": coverage,
+                "parent_exposure": _candidate_artifact_descriptor(
+                    exposure.exposure,
+                    feature_axis_sha256=exposure.feature_axis.sha256,
+                    label=f"{endpoint_id} parent exposure",
+                ),
+                "parent_feature_ids": _candidate_artifact_descriptor(
+                    exposure.feature_ids,
+                    feature_axis_sha256=exposure.feature_axis.sha256,
+                    label=f"{endpoint_id} parent feature IDs",
+                ),
+                "selected_feature_ids": selected_descriptor,
+            }
+        )
+    return {
+        "schema_version": "dual_frequency_candidate_parity_plan_v2",
+        "rows": rows,
+    }
+
+
+def _prepare_candidate_parity(
+    *,
+    parent_root: Path,
+    benchmark_root: Path,
+) -> dict[str, object]:
+    """Generate and execute the immutable 224-row configured parity plan."""
+
+    from my_helper.fiber.pipelines.run_task17_candidate_parity import (
+        run as run_candidate_parity,
+    )
+
+    root = benchmark_root.expanduser().resolve() / "candidate_parity"
+    plan = _candidate_parity_plan_document(
+        parent_root=parent_root,
+        benchmark_root=benchmark_root,
+    )
+    plan_path = root / "plan.json"
+    report_path = root / "report.json"
+    _atomic_json(plan_path, plan)
+    run_candidate_parity(plan_path, report_path)
+    report = _read_json(report_path, "configured candidate-parity report")
+    if (
+        report.get("row_count") != 224
+        or report.get("candidate_false_negative_count") != 0
+        or report.get("full_candidate_mismatch_count") != 0
+        or report.get("fold_candidate_mismatch_count") != 0
+    ):
+        raise PerformanceMatrixHarnessError(
+            "configured candidate parity did not pass"
+        )
+    return {
+        "schema_version": "dual_frequency_task17_candidate_parity_binding_v1",
+        "plan_path": str(plan_path),
+        "plan_sha256": _sha256_file(plan_path),
+        "report_path": str(report_path),
+        "report_sha256": _sha256_file(report_path),
+        "row_count": 224,
+    }
+
+
+def _candidate_parity_binding(
+    benchmark_root: Path,
+) -> dict[str, object]:
+    """Reopen the immutable configured parity plan and passing report."""
+
+    root = benchmark_root.expanduser().resolve()
+    parity_root = root / "candidate_parity"
+    plan_path = (parity_root / "plan.json").resolve()
+    report_path = (parity_root / "report.json").resolve()
+    if (
+        root not in plan_path.parents
+        or root not in report_path.parents
+        or not plan_path.is_file()
+        or not report_path.is_file()
+    ):
+        raise PerformanceMatrixHarnessError(
+            "configured candidate-parity publication is missing"
+        )
+    plan = _read_json(plan_path, "configured candidate-parity plan")
+    report = _read_json(report_path, "configured candidate-parity report")
+    plan_rows = plan.get("rows")
+    report_rows = report.get("rows")
+    if (
+        plan.get("schema_version")
+        != "dual_frequency_candidate_parity_plan_v2"
+        or not isinstance(plan_rows, list)
+        or len(plan_rows) != 224
+        or not isinstance(report_rows, list)
+        or len(report_rows) != 224
+        or report.get("schema_version")
+        != "dual_frequency_candidate_parity_v1"
+        or Path(str(report.get("plan_path", ""))).resolve() != plan_path
+        or report.get("plan_sha256") != _sha256_file(plan_path)
+        or report.get("row_count") != 224
+        or report.get("candidate_false_negative_count") != 0
+        or report.get("full_candidate_mismatch_count") != 0
+        or report.get("fold_candidate_mismatch_count") != 0
+    ):
+        raise PerformanceMatrixHarnessError(
+            "configured candidate-parity publication differs"
+        )
+    plan_ids = tuple(
+        str(item.get("row_id", ""))
+        for item in plan_rows
+        if isinstance(item, Mapping)
+    )
+    report_ids = tuple(
+        str(item.get("row_id", ""))
+        for item in report_rows
+        if isinstance(item, Mapping)
+    )
+    if (
+        len(plan_ids) != 224
+        or len(set(plan_ids)) != 224
+        or sorted(plan_ids) != sorted(report_ids)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "configured candidate-parity row closure differs"
+        )
+    return {
+        "schema_version": "dual_frequency_task17_candidate_parity_binding_v1",
+        "plan_path": str(plan_path),
+        "plan_sha256": _sha256_file(plan_path),
+        "report_path": str(report_path),
+        "report_sha256": _sha256_file(report_path),
+        "row_count": 224,
+    }
 
 
 def _runner_ready(
@@ -3108,6 +3605,10 @@ def prepare(request_path: Path, benchmark_root: Path) -> dict[str, object]:
     root.mkdir(parents=True, exist_ok=True)
     marker_path = root / "benchmark_root.json"
     if marker_path.exists():
+        expected_marker = {
+            **marker,
+            "candidate_parity": _candidate_parity_binding(root),
+        }
         stored_plan = _read_json(
             root / "benchmark_plan_resolved.json",
             "resolved benchmark plan",
@@ -3116,7 +3617,7 @@ def prepare(request_path: Path, benchmark_root: Path) -> dict[str, object]:
             marker_path,
             "benchmark root marker",
         )
-        if stored_plan != resolved or stored_marker != marker:
+        if stored_plan != resolved or stored_marker != expected_marker:
             raise PerformanceMatrixHarnessError(
                 "prepared benchmark plan differs from current authority"
             )
@@ -3137,7 +3638,24 @@ def prepare(request_path: Path, benchmark_root: Path) -> dict[str, object]:
         resolved,
         marker["row_contracts"],
     )
-    _atomic_json(marker_path, marker)
+    parent = resolved.get("accepted_parent")
+    if not isinstance(parent, Mapping):
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark parent binding is invalid"
+        )
+    candidate_parity = _prepare_candidate_parity(
+        parent_root=Path(str(parent.get("root", ""))),
+        benchmark_root=root,
+    )
+    if candidate_parity != _candidate_parity_binding(root):
+        raise PerformanceMatrixHarnessError(
+            "configured candidate-parity binding differs after publication"
+        )
+    committed_marker = {
+        **marker,
+        "candidate_parity": candidate_parity,
+    }
+    _atomic_json(marker_path, committed_marker)
     return {
         "status": "prepared",
         "benchmark_root": str(root),
@@ -3169,6 +3687,7 @@ def _open_prepared_benchmark(
         "resolved_plan_sha256",
         "row_contracts",
         "benchmark_root",
+        "candidate_parity",
     }
     if (
         resolved.get("schema_version") != _RESOLVED_SCHEMA
@@ -3179,6 +3698,8 @@ def _open_prepared_benchmark(
         or marker.get("benchmark_root") != str(root)
         or marker.get("resolved_plan_sha256")
         != _canonical_sha256(resolved)
+        or marker.get("candidate_parity")
+        != _candidate_parity_binding(root)
     ):
         raise PerformanceMatrixHarnessError(
             "prepared benchmark root identity differs"
@@ -3989,7 +4510,11 @@ def validate_existing(
         root / "benchmark_root.json",
         "benchmark root marker",
     )
-    if stored_plan != resolved or stored_marker != marker:
+    expected_marker = {
+        **marker,
+        "candidate_parity": _candidate_parity_binding(root),
+    }
+    if stored_plan != resolved or stored_marker != expected_marker:
         raise PerformanceMatrixHarnessError(
             "prepared benchmark plan differs from current authority"
         )

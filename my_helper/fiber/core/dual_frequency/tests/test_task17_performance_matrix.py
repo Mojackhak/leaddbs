@@ -1046,6 +1046,41 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     environment={"CONDA_DEFAULT_ENV": "base"},
                 )
 
+    def test_candidate_selected_ids_are_immutable_and_ordered(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "selected.npy"
+            values = np.asarray([2, 5, 9], dtype=np.int64)
+            self.assertEqual(
+                harness._atomic_selected_ids(path, values),
+                path.resolve(),
+            )
+            self.assertTrue(
+                np.array_equal(
+                    np.load(path, allow_pickle=False),
+                    values,
+                )
+            )
+            self.assertEqual(
+                harness._atomic_selected_ids(path, values.copy()),
+                path.resolve(),
+            )
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "differs",
+            ):
+                harness._atomic_selected_ids(
+                    path,
+                    np.asarray([2, 6, 9], dtype=np.int64),
+                )
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "invalid",
+            ):
+                harness._atomic_selected_ids(
+                    Path(temporary) / "unordered.npy",
+                    np.asarray([2, 2, 9], dtype=np.int64),
+                )
+
     def test_row_ids_are_stable_and_key_specific(self) -> None:
         first = {
             "benchmark_class": "direct_voxel",
@@ -1183,6 +1218,35 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 json.dumps(request),
                 encoding="utf-8",
             )
+            parity_root = root / "candidate_parity"
+            parity_rows = [
+                {"row_id": f"endpoint_{index:04d}"}
+                for index in range(224)
+            ]
+            parity_plan_path = parity_root / "plan.json"
+            harness._atomic_json(
+                parity_plan_path,
+                {
+                    "schema_version": (
+                        "dual_frequency_candidate_parity_plan_v2"
+                    ),
+                    "rows": parity_rows,
+                },
+            )
+            parity_report_path = parity_root / "report.json"
+            harness._atomic_json(
+                parity_report_path,
+                {
+                    "schema_version": "dual_frequency_candidate_parity_v1",
+                    "plan_path": str(parity_plan_path.resolve()),
+                    "plan_sha256": harness._sha256_file(parity_plan_path),
+                    "row_count": 224,
+                    "full_candidate_mismatch_count": 0,
+                    "fold_candidate_mismatch_count": 0,
+                    "candidate_false_negative_count": 0,
+                    "rows": parity_rows,
+                },
+            )
             marker = {
                 "schema_version": harness._MARKER_SCHEMA,
                 "plan_id": "prepared-plan",
@@ -1190,6 +1254,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "resolved_plan_sha256": harness._canonical_sha256(resolved),
                 "row_contracts": closure,
                 "benchmark_root": str(root.resolve()),
+                "candidate_parity": harness._candidate_parity_binding(root),
             }
             harness._atomic_json(
                 root / "benchmark_plan_resolved.json",

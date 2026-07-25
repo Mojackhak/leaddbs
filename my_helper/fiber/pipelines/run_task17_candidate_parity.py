@@ -15,7 +15,7 @@ import tempfile
 import numpy as np
 
 
-_ROW_FIELDS = frozenset(
+_ROW_FIELDS_V1 = frozenset(
     {
         "row_id",
         "model_family",
@@ -25,6 +25,17 @@ _ROW_FIELDS = frozenset(
         "parent_feature_ids",
         "optimized_exposure",
         "optimized_feature_ids",
+    }
+)
+_ROW_FIELDS_V2 = frozenset(
+    {
+        "row_id",
+        "model_family",
+        "tau",
+        "coverage",
+        "parent_exposure",
+        "parent_feature_ids",
+        "selected_feature_ids",
     }
 )
 _ARTIFACT_FIELDS = frozenset(
@@ -169,8 +180,22 @@ def _validate_optimized_exposure(
     return positions
 
 
-def _row_parity(raw: object, *, base: Path) -> dict[str, object]:
-    if not isinstance(raw, Mapping) or set(raw) != _ROW_FIELDS:
+def _row_parity(
+    raw: object,
+    *,
+    base: Path,
+    plan_schema: str,
+    candidate_cache: dict[
+        tuple[str, str, float, int],
+        tuple[np.ndarray, tuple[np.ndarray, ...]],
+    ],
+) -> dict[str, object]:
+    expected_fields = (
+        _ROW_FIELDS_V1
+        if plan_schema == "dual_frequency_candidate_parity_plan_v1"
+        else _ROW_FIELDS_V2
+    )
+    if not isinstance(raw, Mapping) or set(raw) != expected_fields:
         raise CandidateParityError("candidate parity row fields differ")
     row_id = str(raw["row_id"]).strip()
     family = str(raw["model_family"]).strip()
@@ -206,67 +231,180 @@ def _row_parity(raw: object, *, base: Path) -> dict[str, object]:
         base=base,
         label=f"{row_id} parent feature IDs",
     )
-    optimized, optimized_evidence = _artifact(
-        raw["optimized_exposure"],
-        base=base,
-        label=f"{row_id} optimized exposure",
-    )
-    optimized_ids_raw, optimized_ids_evidence = _artifact(
-        raw["optimized_feature_ids"],
-        base=base,
-        label=f"{row_id} optimized feature IDs",
-    )
-    if (
-        parent.ndim != 2
-        or optimized.ndim != 2
-        or parent.dtype != np.dtype(np.float32)
-        or optimized.dtype != np.dtype(np.float32)
-    ):
+    if parent.ndim != 2 or parent.dtype != np.dtype(np.float32):
         raise CandidateParityError(
             "candidate parity exposures must be float32 matrices"
         )
     parent_ids = _ordered_ids(parent_ids_raw, "parent feature IDs")
-    optimized_ids = _ordered_ids(
-        optimized_ids_raw,
-        "optimized feature IDs",
-    )
     if (
         parent.shape[1] != parent_ids.size
-        or optimized.shape[1] != optimized_ids.size
         or parent_evidence["feature_axis_sha256"]
         != parent_ids_evidence["feature_axis_sha256"]
-        or optimized_evidence["feature_axis_sha256"]
-        != optimized_ids_evidence["feature_axis_sha256"]
     ):
         raise CandidateParityError(
             "candidate parity feature axes differ"
         )
-    positions = _validate_optimized_exposure(
-        parent,
-        parent_ids,
-        optimized,
-        optimized_ids,
+    if plan_schema == "dual_frequency_candidate_parity_plan_v1":
+        optimized, optimized_evidence = _artifact(
+            raw["optimized_exposure"],
+            base=base,
+            label=f"{row_id} optimized exposure",
+        )
+        optimized_ids_raw, optimized_ids_evidence = _artifact(
+            raw["optimized_feature_ids"],
+            base=base,
+            label=f"{row_id} optimized feature IDs",
+        )
+        if (
+            optimized.ndim != 2
+            or optimized.dtype != np.dtype(np.float32)
+        ):
+            raise CandidateParityError(
+                "candidate parity exposures must be float32 matrices"
+            )
+        optimized_ids = _ordered_ids(
+            optimized_ids_raw,
+            "optimized feature IDs",
+        )
+        if (
+            optimized.shape[1] != optimized_ids.size
+            or optimized_evidence["feature_axis_sha256"]
+            != optimized_ids_evidence["feature_axis_sha256"]
+        ):
+            raise CandidateParityError(
+                "candidate parity feature axes differ"
+            )
+        positions = _validate_optimized_exposure(
+            parent,
+            parent_ids,
+            optimized,
+            optimized_ids,
+        )
+        optimized_counts = _coverage_counts(optimized, float(tau))
+        optimized_artifacts = {
+            "optimized_exposure": optimized_evidence,
+            "optimized_feature_ids": optimized_ids_evidence,
+        }
+    else:
+        optimized_ids_raw, optimized_ids_evidence = _artifact(
+            raw["selected_feature_ids"],
+            base=base,
+            label=f"{row_id} selected feature IDs",
+        )
+        optimized_ids = _ordered_ids(
+            optimized_ids_raw,
+            "selected feature IDs",
+        )
+        positions = np.searchsorted(parent_ids, optimized_ids)
+        if (
+            np.any(positions >= parent_ids.size)
+            or not np.array_equal(parent_ids[positions], optimized_ids)
+        ):
+            raise CandidateParityError(
+                "selected feature IDs are not an exact parent subset"
+            )
+        optimized_counts = None
+        optimized_artifacts = {
+            "selected_feature_ids": optimized_ids_evidence,
+        }
+    cache_key = (
+        str(parent_evidence["sha256"]),
+        str(parent_ids_evidence["sha256"]),
+        float(tau),
+        int(coverage),
     )
-    parent_counts = _coverage_counts(parent, float(tau))
-    optimized_counts = _coverage_counts(optimized, float(tau))
-    full_parent = parent_counts >= coverage
-    full_optimized = optimized_counts >= coverage
-    full_mismatch = int(
-        np.count_nonzero(full_optimized != full_parent[positions])
+    if optimized_counts is not None:
+        parent_counts = _coverage_counts(parent, float(tau))
+        full_parent = parent_counts >= coverage
+        full_candidate_ids = np.asarray(parent_ids[full_parent])
+        fold_candidate_ids = tuple(
+            np.asarray(
+                parent_ids[
+                    (
+                        parent_counts
+                        - (np.asarray(parent[heldout]) >= float(tau))
+                    )
+                    >= coverage
+                ]
+            )
+            for heldout in range(parent.shape[0])
+        )
+    else:
+        cached_candidates = candidate_cache.get(cache_key)
+        if cached_candidates is None:
+            parent_counts = _coverage_counts(parent, float(tau))
+            full_parent = parent_counts >= coverage
+            full_candidate_ids = np.asarray(parent_ids[full_parent])
+            fold_candidate_ids = tuple(
+                np.asarray(
+                    parent_ids[
+                        (
+                            parent_counts
+                            - (
+                                np.asarray(parent[heldout])
+                                >= float(tau)
+                            )
+                        )
+                        >= coverage
+                    ]
+                )
+                for heldout in range(parent.shape[0])
+            )
+            candidate_cache[cache_key] = (
+                full_candidate_ids,
+                fold_candidate_ids,
+            )
+        else:
+            full_candidate_ids, fold_candidate_ids = cached_candidates
+            parent_counts = None
+            full_parent = None
+    full_mismatch = (
+        int(
+            np.count_nonzero(
+                (optimized_counts >= coverage)
+                != full_parent[positions]
+            )
+        )
+        if optimized_counts is not None
+        else 0
     )
-    full_missing = _missing_count(parent_ids[full_parent], optimized_ids)
+    full_missing = _missing_count(full_candidate_ids, optimized_ids)
     fold_mismatch = 0
     fold_missing = 0
     fold_rows: list[dict[str, int]] = []
     for heldout in range(parent.shape[0]):
-        parent_heldout = np.asarray(parent[heldout]) >= float(tau)
-        optimized_heldout = np.asarray(optimized[heldout]) >= float(tau)
-        parent_fold = (parent_counts - parent_heldout) >= coverage
-        optimized_fold = (optimized_counts - optimized_heldout) >= coverage
-        mismatch = int(
-            np.count_nonzero(optimized_fold != parent_fold[positions])
+        mismatch = (
+            int(
+                np.count_nonzero(
+                    (
+                        (
+                            optimized_counts
+                            - (
+                                np.asarray(optimized[heldout])
+                                >= float(tau)
+                            )
+                        )
+                        >= coverage
+                    )
+                    != (
+                        (
+                            parent_counts
+                            - (
+                                np.asarray(parent[heldout])
+                                >= float(tau)
+                            )
+                        )
+                        >= coverage
+                    )[positions]
+                )
+            )
+            if optimized_counts is not None
+            else 0
         )
-        missing = _missing_count(parent_ids[parent_fold], optimized_ids)
+        missing = _missing_count(
+            fold_candidate_ids[heldout],
+            optimized_ids,
+        )
         fold_mismatch += mismatch
         fold_missing += missing
         fold_rows.append(
@@ -283,7 +421,7 @@ def _row_parity(raw: object, *, base: Path) -> dict[str, object]:
         "coverage": coverage,
         "subject_count": int(parent.shape[0]),
         "parent_feature_count": int(parent.shape[1]),
-        "optimized_feature_count": int(optimized.shape[1]),
+        "optimized_feature_count": int(optimized_ids.size),
         "full_candidate_mismatch_count": full_mismatch,
         "fold_candidate_mismatch_count": fold_mismatch,
         "candidate_false_negative_count": full_missing + fold_missing,
@@ -293,8 +431,7 @@ def _row_parity(raw: object, *, base: Path) -> dict[str, object]:
         "artifacts": {
             "parent_exposure": parent_evidence,
             "parent_feature_ids": parent_ids_evidence,
-            "optimized_exposure": optimized_evidence,
-            "optimized_feature_ids": optimized_ids_evidence,
+            **optimized_artifacts,
         },
     }
 
@@ -336,15 +473,28 @@ def run(plan_path: Path, output: Path | None = None) -> Path:
     plan = _read_json(plan_path, "candidate parity plan")
     if set(plan) != {"schema_version", "rows"}:
         raise CandidateParityError("candidate parity plan fields differ")
-    if (
-        plan.get("schema_version")
-        != "dual_frequency_candidate_parity_plan_v1"
-    ):
+    plan_schema = str(plan.get("schema_version", ""))
+    if plan_schema not in {
+        "dual_frequency_candidate_parity_plan_v1",
+        "dual_frequency_candidate_parity_plan_v2",
+    }:
         raise CandidateParityError("candidate parity plan schema differs")
     raw_rows = plan.get("rows")
     if not isinstance(raw_rows, list) or not raw_rows:
         raise CandidateParityError("candidate parity plan rows differ")
-    rows = [_row_parity(row, base=plan_path.parent) for row in raw_rows]
+    candidate_cache: dict[
+        tuple[str, str, float, int],
+        tuple[np.ndarray, tuple[np.ndarray, ...]],
+    ] = {}
+    rows = [
+        _row_parity(
+            row,
+            base=plan_path.parent,
+            plan_schema=plan_schema,
+            candidate_cache=candidate_cache,
+        )
+        for row in raw_rows
+    ]
     row_ids = [str(row["row_id"]) for row in rows]
     if len(set(row_ids)) != len(row_ids):
         raise CandidateParityError("candidate parity row IDs are duplicated")

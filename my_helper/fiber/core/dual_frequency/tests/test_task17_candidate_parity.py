@@ -90,6 +90,42 @@ class Task17CandidateParityTest(unittest.TestCase):
         )
         return path
 
+    def _selected_id_plan(self, optimized_positions: list[int]) -> Path:
+        parent_axis = "parent-axis"
+        selected_axis = "selected-axis"
+        document = {
+            "schema_version": "dual_frequency_candidate_parity_plan_v2",
+            "rows": [
+                {
+                    "row_id": "configured-fiber",
+                    "model_family": "reference_fiber",
+                    "tau": 2.0,
+                    "coverage": 2,
+                    "parent_exposure": self._artifact(
+                        "parent_exposure.npy",
+                        self.parent_exposure,
+                        parent_axis,
+                    ),
+                    "parent_feature_ids": self._artifact(
+                        "parent_ids.npy",
+                        self.parent_ids,
+                        parent_axis,
+                    ),
+                    "selected_feature_ids": self._artifact(
+                        "selected_ids.npy",
+                        self.parent_ids[optimized_positions],
+                        selected_axis,
+                    ),
+                }
+            ],
+        }
+        path = self.root / "selected_id_plan.json"
+        path.write_text(
+            json.dumps(document, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return path
+
     def test_full_and_every_fold_have_zero_false_negatives(self) -> None:
         plan = self._plan([0, 1, 2])
         output = parity.run(plan)
@@ -105,6 +141,23 @@ class Task17CandidateParityTest(unittest.TestCase):
     def test_reports_parent_candidate_missing_from_optimized_axis(self) -> None:
         report = json.loads(
             parity.run(self._plan([0, 1])).read_text(encoding="utf-8")
+        )
+        self.assertGreater(report["candidate_false_negative_count"], 0)
+
+    def test_selected_id_plan_avoids_redundant_exposure_copy(self) -> None:
+        output = parity.run(self._selected_id_plan([0, 1, 2]))
+        report = json.loads(output.read_text(encoding="utf-8"))
+        row = report["rows"][0]
+        self.assertEqual(report["candidate_false_negative_count"], 0)
+        self.assertEqual(row["optimized_feature_count"], 3)
+        self.assertIn("selected_feature_ids", row["artifacts"])
+        self.assertNotIn("optimized_exposure", row["artifacts"])
+
+    def test_selected_id_plan_reports_missing_fold_candidates(self) -> None:
+        report = json.loads(
+            parity.run(
+                self._selected_id_plan([0, 1])
+            ).read_text(encoding="utf-8")
         )
         self.assertGreater(report["candidate_false_negative_count"], 0)
 
