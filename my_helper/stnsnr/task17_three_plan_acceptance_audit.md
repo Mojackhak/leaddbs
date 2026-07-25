@@ -132,6 +132,17 @@ truecolor, and sets RAS colors to `#F2000E`, `#0E6AAF`, and `#0CA228` without
 changing the reference arrow-style parameters. Real canonical scene execution
 and visual review remain required after the publication gates close.
 
+The local display-smoothing stage was revalidated without opening the canonical
+publication on 2026-07-25. Its 226-file closure contains 112 NIfTI payloads and
+112 matching metadata documents; 108 payloads changed bytes and all 112 retain
+their original finite support. Every payload size, payload SHA, metadata SHA,
+relative path, algorithm, support policy, and input/output finite-voxel count
+matches the repair manifest. The repair-manifest SHA-256 remains
+`dff3ab60616b2bd9d77075bc6781f6ef928db666f1052ac31d5f02f4088f6b5c`,
+and the staged artifact-index SHA-256 is
+`9ea5003edcd97242d79d3e6cfbf92b770ab157cd1c54c21fe7d963b897331f9c`.
+Canonical source-state comparison and promotion remain pending.
+
 The same isolated checkpoint repeated the fault-acceptance, resource-guard,
 strict and pre-instrumentation resource-validation, artifact/static audit,
 performance-acceptance, byte-ledger, counter, and probe suites. All 99 tests and
