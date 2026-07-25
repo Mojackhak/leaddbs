@@ -256,6 +256,57 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _numerical_payload(value: object) -> object:
+    """Remove only run-local locations from one scientific result payload."""
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): _numerical_payload(item)
+            for key, item in value.items()
+            if key not in {"uri", "generation_path"}
+        }
+    if isinstance(value, (list, tuple)):
+        return [_numerical_payload(item) for item in value]
+    return _plain(value)
+
+
+def _selected_numerical_identity(
+    store: _TaskStateStore,
+    task_ids: Sequence[str],
+) -> str:
+    """Hash the normalized selected-task scientific result closure."""
+
+    rows: list[dict[str, object]] = []
+    for task_id in sorted(str(value) for value in task_ids):
+        state = store.read_task_state(task_id)
+        if (
+            not isinstance(state, Mapping)
+            or state.get("status") != "completed"
+            or not isinstance(state.get("result"), Mapping)
+        ):
+            raise PerformanceMatrixHarnessError(
+                "selected numerical task state is incomplete"
+            )
+        result = dict(state["result"])
+        try:
+            ServiceResult.from_dict(result).decode_record()
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise PerformanceMatrixHarnessError(
+                "selected numerical task result is invalid"
+            ) from exc
+        rows.append(
+            {
+                "task_id": task_id,
+                "result": _numerical_payload(result),
+            }
+        )
+    if not rows:
+        raise PerformanceMatrixHarnessError(
+            "selected numerical task closure is empty"
+        )
+    return _canonical_sha256(rows)
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -3817,6 +3868,30 @@ def _workflow_bundle_from_resolved(
     return service, bundle
 
 
+def _benchmark_resolved_snapshot(
+    service: WorkflowService,
+    validated: object,
+    *,
+    workers: int,
+) -> dict[str, object]:
+    """Record the actual row worker ceiling in the isolated run snapshot."""
+
+    snapshot = service._resolved_snapshot(validated)
+    execution = snapshot.get("execution")
+    if (
+        not isinstance(execution, Mapping)
+        or workers not in _WORKERS
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark resolved execution snapshot differs"
+        )
+    snapshot["execution"] = {
+        **dict(execution),
+        "workers": workers,
+    }
+    return snapshot
+
+
 def _warm_seed_rows(
     resolved: Mapping[str, object],
 ) -> tuple[dict[str, object], ...]:
@@ -3967,7 +4042,11 @@ def _execute_unmeasured_warm_seed(
     store = RunStore.open(
         run_root,
         identity,
-        resolved_configuration=service._resolved_snapshot(validated),
+        resolved_configuration=_benchmark_resolved_snapshot(
+            service,
+            validated,
+            workers=int(row["workers"]),
+        ),
         configuration_sources=service._configuration_sources(validated),
         allowed_artifact_roots=(
             parent_root,
@@ -4078,6 +4157,10 @@ def _execute_unmeasured_warm_seed(
         ),
         "selected_task_ids": list(selected_ids),
         "restored_task_ids": sorted(installed),
+        "numerical_identity_sha256": _selected_numerical_identity(
+            store,
+            selected_ids,
+        ),
     }
     execution_result["result_sha256"] = _canonical_sha256(execution_result)
     _atomic_json(
@@ -4150,7 +4233,11 @@ def _execute_row_child(
         plan_hash=plan_hash(execution_plan),
         parent_run_id=str(parent["run_id"]),
     )
-    snapshot = service._resolved_snapshot(validated)
+    snapshot = _benchmark_resolved_snapshot(
+        service,
+        validated,
+        workers=int(row["workers"]),
+    )
     sources = service._configuration_sources(validated)
     store = RunStore.open(
         run_root,
@@ -4291,6 +4378,10 @@ def _execute_row_child(
         "segment_plan_sha256": descriptor["plan_hash"],
         "selected_task_ids": list(selected_ids),
         "restored_task_ids": sorted(installed),
+        "numerical_identity_sha256": _selected_numerical_identity(
+            store,
+            selected_ids,
+        ),
         "task_statuses": {
             task_id: outcomes[task_id].status for task_id in sorted(outcomes)
         },
@@ -4766,6 +4857,280 @@ def _run_row_attempt(
             _stop_process_group(runner)
         if probe is not None:
             _stop_process_group(probe)
+
+
+def _row_io_classification(
+    run_root: Path,
+    segment: Mapping[str, object],
+) -> str:
+    """Classify one row only from its run-owned scheduler windows."""
+
+    root = run_root.expanduser().resolve()
+    relative = Path(str(segment.get("scheduler_windows_path", "")))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise PerformanceMatrixHarnessError(
+            "benchmark scheduler-window path is unsafe"
+        )
+    path = (root / relative).resolve()
+    if (
+        root not in path.parents
+        or not path.is_file()
+        or _sha256_file(path)
+        != segment.get("scheduler_windows_sha256")
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark scheduler-window SHA differs"
+        )
+    document = _read_json(path, "benchmark scheduler windows")
+    rows = document.get("rows")
+    if (
+        document.get("schema_version")
+        != "dual_frequency_scheduler_windows_v1"
+        or document.get("segment_id") != segment.get("segment_id")
+        or not isinstance(rows, list)
+        or not rows
+        or segment.get("scheduler_window_count") != len(rows)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark scheduler-window closure differs"
+        )
+    storage_limited: list[bool] = []
+    for row in rows:
+        if (
+            not isinstance(row, Mapping)
+            or type(row.get("storage_limited")) is not bool
+        ):
+            raise PerformanceMatrixHarnessError(
+                "benchmark scheduler storage classification differs"
+            )
+        storage_limited.append(bool(row["storage_limited"]))
+    return "storage_limited" if any(storage_limited) else "compute_bound"
+
+
+def _matrix_row_entry(
+    *,
+    benchmark_root: Path,
+    row: Mapping[str, object],
+) -> dict[str, object]:
+    """Convert one SHA-validated terminal row transaction to matrix input."""
+
+    root = benchmark_root.expanduser().resolve()
+    row_id = str(row.get("row_id", ""))
+    row_root = root / "rows" / row_id
+    contract_path = row_root / "row_contract.json"
+    result = _validate_row_result(
+        row_root,
+        _sha256_file(contract_path),
+    )
+    if result is None:
+        raise PerformanceMatrixHarnessError(
+            "benchmark matrix row is not terminal"
+        )
+    base = {
+        **_row_key_payload(row),
+        "status": result["status"],
+        "not_run_reason": result["not_run_reason"],
+    }
+    if result["status"] == "not_run":
+        preflight = row_root / "real_cold_solver_preflight.json"
+        return {
+            **base,
+            "preflight_path": str(preflight),
+            "preflight_sha256": _sha256_file(preflight),
+            "run_root": None,
+            "segment_id": None,
+            "probe_csv": None,
+            "probe_sha256": None,
+            "configuration_sha256": None,
+            "numerical_identity_sha256": None,
+            "io_classification": None,
+            "counter_path": None,
+            "counter_sha256": None,
+        }
+    attempt = int(result["attempt"])
+    attempt_root = row_root / "attempts" / f"attempt_{attempt:04d}"
+    child_path = attempt_root / "attempt_result.json"
+    child = _read_json(child_path, "benchmark row child result")
+    unsigned_child = {
+        key: value for key, value in child.items() if key != "result_sha256"
+    }
+    numerical_identity = str(
+        child.get("numerical_identity_sha256", "")
+    ).lower()
+    if (
+        child.get("row_id") != row_id
+        or child.get("attempt") != attempt
+        or child.get("result_sha256") != _canonical_sha256(unsigned_child)
+        or len(numerical_identity) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in numerical_identity
+        )
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark row child numerical identity differs"
+        )
+    run_root = Path(str(child["run_root"])).expanduser().resolve()
+    segment_id, _segment_path, segment = _finished_execution_segment(
+        run_root
+    )
+    probe = attempt_root / "probe.csv"
+    _terminal_probe_summary(probe)
+    counter = (
+        run_root
+        / "execution_segments"
+        / f"performance_counters_{segment_id}.json"
+    )
+    configuration = run_root / "configuration_resolved.yaml"
+    if not counter.is_file() or not configuration.is_file():
+        raise PerformanceMatrixHarnessError(
+            "benchmark matrix row terminal evidence is missing"
+        )
+    return {
+        **base,
+        "preflight_path": None,
+        "preflight_sha256": None,
+        "run_root": str(run_root),
+        "segment_id": segment_id,
+        "probe_csv": str(probe),
+        "probe_sha256": _sha256_file(probe),
+        "configuration_sha256": _sha256_file(configuration),
+        "numerical_identity_sha256": numerical_identity,
+        "io_classification": _row_io_classification(
+            run_root,
+            segment,
+        ),
+        "counter_path": str(counter),
+        "counter_sha256": _sha256_file(counter),
+    }
+
+
+def _publish_matrix_manifest(
+    *,
+    benchmark_root: Path,
+    resolved: Mapping[str, object],
+) -> dict[str, object]:
+    """Commit the exact terminal 72-row matrix and acceptance report."""
+
+    from my_helper.fiber.pipelines.validate_task17_performance_acceptance import (
+        validate as validate_performance,
+    )
+
+    root = benchmark_root.expanduser().resolve()
+    raw_rows = resolved.get("rows")
+    connectomes = resolved.get("configured_connectomes")
+    maximum_rss = resolved.get("maximum_task_tree_rss_bytes")
+    if (
+        not isinstance(raw_rows, list)
+        or len(raw_rows) != 72
+        or not isinstance(connectomes, list)
+        or type(maximum_rss) is not int
+    ):
+        raise PerformanceMatrixHarnessError(
+            "resolved performance matrix closure differs"
+        )
+    rows = [
+        _matrix_row_entry(
+            benchmark_root=root,
+            row=row,
+        )
+        for row in raw_rows
+        if isinstance(row, Mapping)
+    ]
+    if len(rows) != 72:
+        raise PerformanceMatrixHarnessError(
+            "terminal performance matrix row closure differs"
+        )
+    manifest = {
+        "schema_version": "dual_frequency_task17_performance_matrix_v1",
+        "configured_connectomes": list(connectomes),
+        "chosen_default_workers": 3,
+        "max_rss_bytes": maximum_rss,
+        "rows": rows,
+    }
+    manifest_path = root / "performance_matrix.json"
+    _atomic_json(manifest_path, manifest)
+    try:
+        acceptance = validate_performance(manifest_path)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise PerformanceMatrixHarnessError(
+            "terminal performance matrix acceptance failed"
+        ) from exc
+    acceptance_path = root / "performance_acceptance.json"
+    _atomic_json(acceptance_path, acceptance)
+    return {
+        "status": "completed",
+        "matrix_path": str(manifest_path),
+        "matrix_sha256": _sha256_file(manifest_path),
+        "acceptance_path": str(acceptance_path),
+        "acceptance_sha256": _sha256_file(acceptance_path),
+        "row_count": 72,
+    }
+
+
+def _run_matrix(
+    request_path: Path,
+    benchmark_root: Path,
+) -> dict[str, object]:
+    """Resume all missing seeds and rows, then publish terminal acceptance."""
+
+    resolved, marker = _open_prepared_benchmark(
+        request_path,
+        benchmark_root,
+    )
+    root = benchmark_root.expanduser().resolve()
+    for seed_row in _warm_seed_rows(resolved):
+        _execute_unmeasured_warm_seed(
+            resolved=resolved,
+            row=seed_row,
+            benchmark_root=root,
+        )
+    authorization = resolved.get("real_cold_solver_authorization")
+    rows = resolved.get("rows")
+    if not isinstance(authorization, Mapping) or not isinstance(rows, list):
+        raise PerformanceMatrixHarnessError(
+            "resolved benchmark execution closure differs"
+        )
+    parity = marker.get("candidate_parity")
+    if not isinstance(parity, Mapping):
+        raise PerformanceMatrixHarnessError(
+            "configured candidate-parity binding is missing"
+        )
+    candidate_parity_path = Path(
+        str(parity.get("report_path", ""))
+    ).expanduser().resolve()
+    for raw in rows:
+        if not isinstance(raw, Mapping):
+            raise PerformanceMatrixHarnessError(
+                "resolved benchmark row is invalid"
+            )
+        row = dict(raw)
+        row_root = root / "rows" / str(row["row_id"])
+        _contract_path, contract_sha256 = _ensure_row_contract(
+            row_root,
+            _row_contract(resolved, row),
+        )
+        if _validate_row_result(row_root, contract_sha256) is not None:
+            continue
+        if row.get("planned_status") == "not_run":
+            _publish_not_run_row(
+                row_root,
+                contract_sha256=contract_sha256,
+                row=row,
+                authorization=authorization,
+            )
+            continue
+        _run_row_attempt(
+            request_path=request_path,
+            benchmark_root=root,
+            resolved=resolved,
+            row=row,
+            candidate_parity_path=candidate_parity_path,
+        )
+    return _publish_matrix_manifest(
+        benchmark_root=root,
+        resolved=resolved,
+    )
 
 
 def validate_existing(

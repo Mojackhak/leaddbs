@@ -977,6 +977,62 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             ):
                 harness._terminal_probe_summary(path)
 
+    def test_numerical_payload_removes_only_run_local_locations(self) -> None:
+        normalized = harness._numerical_payload(
+            {
+                "record": {
+                    "uri": "file:///row-a/value.npy",
+                    "generation_path": "work/task_a/attempt-1/generation",
+                    "sha256": "a" * 64,
+                    "path_semantics": "scientific-token",
+                }
+            }
+        )
+        self.assertEqual(
+            normalized,
+            {
+                "record": {
+                    "sha256": "a" * 64,
+                    "path_semantics": "scientific-token",
+                }
+            },
+        )
+
+    def test_io_classification_comes_from_run_scheduler_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "execution_segments" / "scheduler.json"
+            path.parent.mkdir()
+            document = {
+                "schema_version": "dual_frequency_scheduler_windows_v1",
+                "segment_id": "segment_0001",
+                "rows": [{"storage_limited": False}],
+            }
+            path.write_text(
+                json.dumps(document),
+                encoding="utf-8",
+            )
+            segment = {
+                "segment_id": "segment_0001",
+                "scheduler_windows_path": str(path.relative_to(root)),
+                "scheduler_windows_sha256": harness._sha256_file(path),
+                "scheduler_window_count": 1,
+            }
+            self.assertEqual(
+                harness._row_io_classification(root, segment),
+                "compute_bound",
+            )
+            document["rows"][0]["storage_limited"] = True
+            path.write_text(
+                json.dumps(document),
+                encoding="utf-8",
+            )
+            segment["scheduler_windows_sha256"] = harness._sha256_file(path)
+            self.assertEqual(
+                harness._row_io_classification(root, segment),
+                "storage_limited",
+            )
+
     def test_finished_execution_segment_requires_exactly_one_segment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

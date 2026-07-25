@@ -8989,6 +8989,23 @@ fail-closed until its spawned-worker fixture descriptor can be implemented
 after independent OSS terminates. The candidate-parity plus harness suite now
 passes 33 tests.
 
+Matrix-level resume and terminal publication are now implemented internally.
+The runner reopens the marker and candidate report, prepares every missing
+seed, visits all 72 stable rows sequentially, reuses only a terminal row whose
+contract and complete evidence SHA closure still validate, and creates a new
+monotonic attempt for every partial row. Only the four unauthorized real-cold
+pPAM rows may publish `not_run`; every other execution error remains partial.
+Each executed row derives `io_classification` from its run-owned scheduler
+windows and derives one normalized numerical identity from the exact selected
+task-result closure after removing only run-local artifact URIs and scratch
+generation paths. It then binds the actual resolved worker snapshot, finished
+segment, probe, counter sidecar, and numerical identity into the matrix row.
+After all rows are terminal, the harness atomically publishes the exact
+72-row matrix, invokes the repository validator, and publishes its immutable
+acceptance report. The public `run` operation remains closed only because
+injected spawned-worker execution is still fail-closed. Candidate-parity plus
+harness coverage now passes 35 tests.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
