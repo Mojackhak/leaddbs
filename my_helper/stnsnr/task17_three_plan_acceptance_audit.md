@@ -99,6 +99,13 @@ validation, planning, execution, resume, main publication, and sensitivity
 publication across their real module boundaries. Synthetic fixtures do not
 replace configured-data or formal-run acceptance.
 
+The cache, run-cache cleanup, and sensitivity-checkpoint suites were repeated
+at the same checkpoint. All 58 tests and 20 subtests passed with warnings
+treated as errors. They cover content-addressed cache validation, portable
+checkpoint closure, copied-root reuse, corruption rejection, and the rule that
+failed or partial runs retain recovery state. Production identical resume and
+deletion-rebuild acceptance remain separate pending gates.
+
 ## Repository Entrypoint Preflight
 
 The following repository-owned entrypoints parse successfully in Conda
