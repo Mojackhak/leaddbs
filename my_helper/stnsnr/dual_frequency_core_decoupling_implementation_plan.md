@@ -9019,10 +9019,14 @@ avoiding a closure-wide rehash in every process. The provider must remain a
 `StudyRuntimeInputProvider` instance because the OSS gate enforces that
 capability boundary. Warm-seed and measured-row parents derive the descriptor
 only from their already validated fixture document. Ordinary rows continue to
-construct the unchanged null descriptor. Focused tests must prove null-default
-compatibility, invalid-descriptor rejection, permitted-row reconstruction,
-forbidden-row rejection, and injected warm/row context construction before the
-public `run` operation opens.
+construct the unchanged null descriptor. Null-default compatibility must execute
+`initialize_worker` without a fixture and prove that it constructs the ordinary
+provider with its production OSS toolchain unchanged; inspecting only the
+dataclass default is insufficient. Focused tests must also prove
+invalid-descriptor rejection, permitted-row reconstruction, forbidden-row
+rejection, and injected warm/row context construction before the public `run`
+operation opens. At the current isolated checkpoint, all five candidate-parity
+tests and 35 performance-harness tests pass.
 
 The public boundary then exposes only the already implemented `_run_matrix`
 orchestration as `run`. Read-only `validate` must keep its prepared-plan checks

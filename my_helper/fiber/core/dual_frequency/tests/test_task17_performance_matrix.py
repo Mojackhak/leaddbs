@@ -316,6 +316,53 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 [2, 7],
             )
 
+    def test_worker_initialization_without_fixture_uses_production_provider(
+        self,
+    ) -> None:
+        class _Provider:
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.marker = "ordinary-provider"
+
+            def oss_producer_toolchain(self) -> str:
+                return "production-toolchain"
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            artifact_root = root / "artifacts"
+            artifact_root.mkdir()
+            scientific_cache = root / "scientific-cache"
+            scientific_cache.mkdir()
+            spec = SpawnWorkerSpec(
+                study=object(),
+                configuration=object(),
+                catalog=(),
+                work_root=root / "work",
+                artifact_roots=(artifact_root, scientific_cache),
+                cache_root=scientific_cache,
+            )
+            with (
+                patch.object(process_worker.os, "setsid"),
+                patch(
+                    "dual_frequency.runtime.input_provider."
+                    "StudyRuntimeInputProvider",
+                    _Provider,
+                ),
+                patch(
+                    "dual_frequency.workflow.registry.build_default_registry",
+                    return_value="registry",
+                ),
+            ):
+                process_worker.initialize_worker(spec)
+            self.assertIs(type(process_worker._PROVIDER), _Provider)
+            self.assertEqual(
+                process_worker._PROVIDER.marker,
+                "ordinary-provider",
+            )
+            self.assertEqual(
+                process_worker._PROVIDER.oss_producer_toolchain(),
+                "production-toolchain",
+            )
+
     def test_accepted_oss_cache_closure_binds_only_gate_referenced_rows(
         self,
     ) -> None:
