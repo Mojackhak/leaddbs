@@ -109,6 +109,13 @@ isolated fault harness is implemented, but its production plan and sequence
 have not run. Those gaps remain part of their `PENDING` ledger rows. The
 existence of implementation tests or lower-level telemetry cannot close them.
 
+On 2026-07-25, the documented isolated module-path launcher was repeated under
+Conda `leaddbs` with warnings treated as errors. The complete visualization
+suite plus the extension-publication and display-smoothing suites passed all 51
+selected tests. This revalidates the offline implementation boundary but does
+not replace canonical publication, the 112-endpoint render, identical resume,
+or visual review.
+
 The benchmark cache-seed layer now converts the accepted OSS closure into an
 exact deduplicated entry list, requires an empty and disjoint row-local cache,
 copies only the bound row and decision identities, and reopens every copied
