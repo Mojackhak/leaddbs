@@ -5448,6 +5448,21 @@ label added after execution:
 - the real pPAM cache-hit seed comes only from the independently accepted OSS
   closure, copied into a row-local root and fully verified before measurement.
 
+`prepare` resolves the accepted OSS gate records from the terminal independent
+OSS lineage and records their exact group IDs, decision IDs, final/Omega row
+identities, cache-entry manifest SHAs, and one canonical closure SHA in the
+resolved benchmark plan. Every referenced entry must resolve under the
+configured shared scientific-cache root and pass its ordinary cache, row, and
+decision validators. Directory enumeration, newest-entry selection, and
+unreferenced compatible rows are forbidden. The resolved plan records the
+shared-cache source path only as a read-only accepted input; measured rows never
+open that path after their row-local seed has been copied and verified.
+Injected rows derive deterministic ten-sample states from the accepted
+probability rows by activating the first `probability * 10` samples for each
+fiber. The accepted pass decision must prove identical probabilities on the
+final-axis subset before that derivation is accepted. This reconstruction is
+benchmark-only and cannot publish into the production shared cache.
+
 The harness records the empty-cache proof or warm-seed manifest SHA, copied
 entry closure, and first producer/cache-resolution events in each row
 transaction. It keeps source inputs read-only and moves any replaced
