@@ -5336,6 +5336,34 @@ spreadsheet assembled from terminal logs:
 - `validate_task17_performance_acceptance.py` joins those measurements to
   scheduler windows and validates the complete declared benchmark matrix.
 
+**Production-harness gap found on 2026-07-25.** The probe, byte-ledger
+initializer and builder, counter builder, static audits, and terminal matrix
+validator are implemented, but no repository-owned entrypoint currently
+orchestrates the configured 72-row matrix. In particular, no command derives a
+row's benchmark class, connectome, cache state, solver mode, worker count, run
+root, and execution segment from one immutable benchmark request before
+launching the runner and probe. A manually assembled matrix can therefore bind
+valid source files while assigning an unproved row label. That is not accepted
+production evidence.
+
+Before the configured matrix runs, add one repository-owned benchmark harness
+and a versioned benchmark-plan schema. The harness must enumerate the exact
+validator key closure, create a distinct immutable run and evidence directory
+for every executed row, initialize the live byte ledger before the runner,
+attach the probe immediately after the runner PID becomes available, build the
+terminal byte ledger and all counter sidecars, and write the matrix manifest
+from those verified outputs. The benchmark class and cache/solver state must be
+derived from the frozen row request and checked against the resolved run plan
+and terminal segment rather than copied from an operator-authored result row.
+It must support exact resume of terminal rows, reject a partial or differently
+configured row directory, and never convert an execution failure into a
+`not_run` row. Only the explicitly unauthorized real-cold OSS solver rows may
+be `not_run`, using their repository-owned preflight evidence. Focused tests
+must prove complete key enumeration, row-label/run-plan mismatch rejection,
+probe attachment, terminal evidence construction, identical resume, and
+fail-closed partial-row recovery before the 72-row production matrix is
+launched.
+
 The executor retains scheduler samples in memory at five-second cadence and
 publishes them once, atomically, when the execution segment closes. Each sample
 contains UTC start and finish times, ready and running task counts,
