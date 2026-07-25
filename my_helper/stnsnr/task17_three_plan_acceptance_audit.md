@@ -81,6 +81,28 @@ duplicate ledger name can make one production requirement appear closed twice.
 This is structure-only evidence; every active or pending row still requires
 the terminal production evidence named in the matrix.
 
+The final performance checklist expands to the following non-overlapping
+evidence map:
+
+| Final checklist clause | Required ledger evidence |
+| --- | --- |
+| One physical preparation before endpoint and scale fan-out | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Distinct voxel and fiber bilateral formulas reused across scales | `Shared physical preparation and configured-data parity` |
+| One logical connectome traversal with measured raw-boundary overlap and exact `Omega_max` | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Layer-1 jitter schedule and exposure with Layer-2 endpoint statistics | `Independent spatial jitter computation`; `Cold/warm performance and scheduler acceptance` |
+| Exact final-axis OSS equivalence before pPAM | `Independent OSS axis equivalence and pPAM` |
+| Once-per-process target-cache verification without checksum rereads | `Cold/warm performance and scheduler acceptance`; `Resume and copied-cache implementation` |
+| Stable OSS scientific identities and cache-first historical promotion | `Independent OSS axis equivalence and pPAM`; `Production identical resume acceptance` |
+| Spawned CPU work, disjoint units, persistent ready queue, and one public worker ceiling | `Resource scheduling and guard contract`; `Cold/warm performance and scheduler acceptance` |
+| Pure-data spawned commands, read-only shared artifacts, and parent-only mutation | `Resource scheduling and guard contract`; `Cold/warm performance and scheduler acceptance` |
+| Path-free fiber hot loops and point-byte-balanced whole-fiber partitions | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Single-write large payloads and immutable indexed views | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Vectorized numerical parity without duplicate operators or unused retained matrices | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Historical RNG schedules and worker-count invariance | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance`; `Production identical resume acceptance` |
+| Dependency-skip reevaluation and scientific-identity-safe resource overrides | `Production identical resume acceptance`; `Independent OSS axis equivalence and pPAM`; `Cache-first combined jitter and OSS replay` |
+| Managed-memory, task-tree RSS, swap, solver, local guard, and two-hour Codex boundaries | `Resource scheduling and guard contract`; `Cold/warm performance and scheduler acceptance` |
+| Exact tau and Coverage boundaries, reference overlap, strict support QC, and pPAM `p(A) > 0.5` | `Boundary and computability policy`; `Shared physical preparation and configured-data parity`; `Independent OSS axis equivalence and pPAM` |
+
 ## Current YAML Preflight
 
 The current repository workflow resolves only `direct_voxel_model.yaml` and
