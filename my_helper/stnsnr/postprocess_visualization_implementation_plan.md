@@ -229,6 +229,20 @@ created no output root and read no run-store path. This closes the promoted
 input gate but does not authorize the full render before OSS-v2 and combined-v2
 become terminal.
 
+A fresh repository-local static audit on 2026-07-26 confirmed that
+`default_nifti2patch_config.m`, `default_plot_patch_config.m`,
+`ea_nifti2patch.m`, `ea_plot_patch_leaddbs.m`, `ea_add_ras_triad.m`,
+`ea_refresh_ras_triad.m`, and `ea_export_figure_transparent.m` remain
+byte-identical to their declared MyLFP source files. The old
+`my_helper/fiber/core/visualization/` directory is absent, and production code
+does not import or add the MyLFP checkout at runtime. Both interactive examples
+still resolve canonical publication inputs, the voxel example requests
+0.5-millimeter inward sampling, the RAS colors remain `#F2000E`, `#0E6AAF`,
+and `#0CA228`, and the signed voxel and fiber paths retain independent `vik`
+colorbars with grayscale truecolor anatomy. The complete visualization suite
+passed all 42 tests under Conda `leaddbs`. This is implementation evidence only;
+the final real-scene review and full 112-endpoint render remain pending.
+
 ## Goal
 
 Add one reusable visualization package under
