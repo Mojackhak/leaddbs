@@ -9319,6 +9319,15 @@ env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
 `prepare` is forbidden while the OSS source is nonterminal. `run` resumes only
 the immutable prepared root, and `validate` performs no repair.
 
+After the documentation merges, a fresh 2026-07-26 replay of the complete
+performance harness passed 36 tests with warnings treated as errors, including
+the public parser and dispatch, exact 72-row closure, spawned-worker fixture,
+terminal read-only validation, row resume, byte-ledger binding, and accepted
+OSS cache closure. The implementation remains isolated until independent OSS
+terminates and every process exits. It must then be merged into the production
+checkout and pass the complete regression again before the production matrix
+is prepared or executed.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
