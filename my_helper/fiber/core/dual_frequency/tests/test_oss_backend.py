@@ -80,6 +80,7 @@ from dual_frequency.runtime.ppam_observed_workspace import (
     PPAMObservedWorkspaceError,
     cleanup_ppam_observed_workspace_record,
     load_ppam_observed_state,
+    ppam_observed_input_identity,
     ppam_observed_workspace_record,
     publish_ppam_operator_scratch,
     reopen_ppam_workspace_from_record,
@@ -1175,6 +1176,36 @@ class PPAMActivationBackendTest(unittest.TestCase):
             "lower",
         ).astype(np.float32)
         np.testing.assert_allclose(full_weights, expected_weights, rtol=1e-6, atol=1e-6)
+
+    def test_ppam_observed_identity_is_outcome_specific(self) -> None:
+        request = self._request()
+        binary = binary_activation(self.probabilities)
+        changed = dataclasses.replace(
+            request,
+            outcome=np.asarray(request.outcome, dtype=np.float64)[::-1].copy(),
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            first_request, first_binary = self._published_request(
+                root / "first",
+                request,
+                binary,
+            )
+            changed_request, changed_binary = self._published_request(
+                root / "changed",
+                changed,
+                binary,
+            )
+
+        self.assertEqual(first_binary.sha256, changed_binary.sha256)
+        self.assertNotEqual(
+            first_request.outcome.sha256,
+            changed_request.outcome.sha256,
+        )
+        self.assertNotEqual(
+            ppam_observed_input_identity(first_request, first_binary),
+            ppam_observed_input_identity(changed_request, changed_binary),
+        )
 
     def test_permutation_blocks_match_single_interval_in_reverse_order(self) -> None:
         request = dataclasses.replace(
