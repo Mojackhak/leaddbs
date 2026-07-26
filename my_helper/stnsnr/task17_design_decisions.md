@@ -1332,3 +1332,65 @@ classification rather than a cache, OSS numerical, or resource-contract
 failure. The failed workspace and every published cache remain preserved.
 Resume may retry the failed add-on gate in a new guarded segment without
 replaying the now-stable reference group or any completed add-on cache.
+
+## Decision 43: Produce Only Omega-Max OSS Rows
+
+The user rejected per-physical-condition final-axis versus `Omega_max`
+production as redundant after the completed production evidence showed exact
+numerical containment. At the supersession boundary, 34 reference pairs and 11
+add-on pairs had stable scientific cache identities. Every one of the 45
+paired decisions passed with maximum probability difference `0`, sample-state
+mismatch count `0`, and activation-count mismatch count `0`. The paired cache
+therefore provides 45 directly reusable stable `Omega_max` rows. Fifteen
+add-on physical conditions remain missing from the frozen 26-condition add-on
+inventory.
+
+This evidence changes the production architecture, not the pPAM scientific
+definition:
+
+1. A production physical condition creates or restores exactly one
+   `Omega_max` OSS row. It never invokes the solver for the final feature axis.
+2. A final feature row is a virtual canonical-ID indexed view of the
+   `Omega_max` row. It is not a separately produced or published OSS cache
+   entry.
+3. The production DAG contains one group-level `Omega_max` preparation task
+   before endpoint pPAM fan-out. It contains no per-condition equivalence
+   decision task or decision cache.
+4. Group completion records the exact ordered closure of stable `Omega_max`
+   row identities. Resume fully validates that closure, reuses every valid
+   row, and produces only a genuinely missing `Omega_max` row.
+5. Historical final rows and equivalence decisions remain immutable evidence.
+   They neither gate the new lineage nor authorize a missing `Omega_max` row.
+6. Structural checks remain mandatory: the final IDs must be ordered unique
+   positive integers, the `Omega_max` IDs must be ordered unique positive
+   integers, and every final ID must map exactly once into `Omega_max`.
+7. Numerical subset invariance becomes a versioned certification test. The
+   certification must cover representative reference and add-on conditions,
+   both sides, component-frequency modes, small and large axes, and
+   multi-chunk concatenation. It reruns when the OSS scientific backend
+   version, explicit scientific settings, canonical fiber ordering, subset
+   mapping, or external result adapter changes.
+
+The new production record is `OSSSharedOmegaGroupRecord`. It binds the model
+family, final and `Omega_max` axes, portable `Omega_max` descriptor, endpoint
+closure, exact `omega_row_ids`, and one atomic group summary. The compiler
+service is `prepare_oss_omega_max_rows`; old
+`OSSAxisEquivalenceGroupRecord` values remain decodable for historical
+lineages but are not emitted by a new plan.
+
+The stopped dual-production lineage
+`task17-oss-v1-inclusive-formal-20260719` remains resumable only as historical
+evidence and must not restart. A new independent OSS lineage uses the same
+completed main parent and shared scientific cache. Its reference preparation
+must be cache-only across all 34 `Omega_max` rows; its add-on preparation must
+reuse the 11 completed stable `Omega_max` rows and invoke the single solver
+token only for the 15 missing rows. No final-row solver call or new axis
+decision publication is permitted.
+
+Acceptance requires a focused invariant-certification suite, cache-hit and
+legacy-promotion fixtures, one-missing-row producer proof, copied-cache resume,
+corrupt-row rejection, exact group-closure validation, downstream pPAM
+subsetting parity, and the complete dual-frequency regression. Production
+resume remains guarded by the pinned VAL mount generation, task-tree RSS
+`< 64 GiB`, swap growth `< 1` byte, one solver token, and atomic cache
+publication.

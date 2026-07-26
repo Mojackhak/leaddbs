@@ -9240,6 +9240,64 @@ active worker entered MATLAB preprocessing for genuinely missing add-on work.
 This is startup evidence only; terminal closure and resource acceptance still
 require the complete segment.
 
+### Decision 43 implementation boundary: Omega-max-only OSS production
+
+At 2026-07-26 16:31 PDT the user superseded the paired final-axis versus
+`Omega_max` production gate as redundant. `segment_0021` was stopped with a
+bounded SIGTERM. The runner, persistent worker, OSS bootstrap child, and guard
+all exited; VAL remained mounted and every checkpoint, cache entry, and
+`runtime_work` directory was preserved. The in-flight chunk remained
+unpublished. The final stable historical boundary is 34 reference pass pairs
+and 11 add-on pass pairs. All 45 decisions report maximum probability
+difference `0`, state mismatch count `0`, and activation-count mismatch count
+`0`.
+
+The production implementation is now frozen as follows:
+
+- compile `prepare_oss_omega_max_rows` once per normative-fiber physical group;
+- emit `OSSSharedOmegaGroupRecord`, never a new
+  `OSSAxisEquivalenceGroupRecord`;
+- construct only the `Omega_max` runtime request for each endpoint and
+  deduplicate it by the scale-independent physical key;
+- prove structurally that every final ID has one exact ordered position in the
+  declared `Omega_max` axis;
+- resolve or promote each stable `Omega_max` row before considering an
+  expensive producer;
+- on a true authorized miss, call `produce_with_evidence` exactly once for the
+  `Omega_max` request and publish only its row product;
+- commit `omega_max_rows.json` last with the exact ordered `omega_row_ids`
+  closure, endpoint closure, both axis identities, and portable
+  `Omega_max` descriptor;
+- make endpoint pPAM depend on the group record, reopen the declared
+  `Omega_max` descriptor, materialize only cache hits, and select final
+  columns by canonical ID; and
+- retain historical paired records and decisions as read-only certification
+  evidence, never as a new-lineage completion denominator.
+
+The replacement independent lineage must reuse 34 reference and 11 add-on
+stable `Omega_max` rows. The frozen add-on inventory contains 26 physical
+conditions, so only 15 add-on `Omega_max` rows may invoke the solver. A
+reference solver call, a final-axis solver call, a newly published final row,
+or a newly published axis-equivalence decision is an immediate acceptance
+failure.
+
+Numerical inclusion moves to a versioned certification suite. It must retain
+the current probability, sample-state, activation-count, canonical-ID,
+ordering, multi-chunk, both-side, and reference/add-on fixtures. The suite
+reruns when the stable OSS scientific backend version, explicit settings,
+fiber ordering, subset mapper, or external-result adapter changes. Ordinary
+worker-count, chunk-size, scheduler, guard, publication, or documentation
+changes do not invalidate completed `Omega_max` rows and do not trigger the
+certification.
+
+Code acceptance requires the focused preparation, cache, codec, executor,
+planner, pPAM, copied-cache, corruption, and certification tests followed by
+the complete dual-frequency regression with warnings treated as errors.
+Production acceptance requires a new guarded lineage, exact cache-only
+reference closure, only 15 missing add-on solver rows, terminal downstream
+pPAM work, identical resume, artifact-index and reporting closure, canonical
+OSS-v2 publication, task-tree RSS `< 64 GiB`, and swap growth `< 1` byte.
+
 The combined-extension cache-first launch boundary was revalidated on
 2026-07-26 without reading or writing VAL. Ten focused tests covered executor
 authorization propagation, historical accepted-OSS resume, OSS row-cache copy
@@ -9367,7 +9425,7 @@ unchecked until both columns are complete.
 | 2 | Direct-copy SHA cache, process-local verification reuse, persisted indexed views for reference and all raw add-on matrices, bounded consumers, copied-root checkpoint replay, and corruption tests pass. | Measure configured-data parity and production-scale logical-versus-physical write reduction from the post-refactor replay. |
 | 3 | Shared bilateral sampling plans, scale-neutral physical rows, endpoint row/column views, and direct-voxel parity fixtures pass. | Record configured full-matrix parity and production physical-row counters. |
 | 4 | Point-balanced HDF5 traversal, exact inclusive minimum-grid `Omega_max`, shared geometry, bounded fallback, and real-HDF5 path fixtures pass. | Record configured connectome parity and production chunk/resource counters. |
-| 5 | Jitter v8 is complete; physical blocks are cache-first; the OSS decision gate, O(1) rows, exact subset mapping, and lazy toolchain boundary pass local tests. The current whole-tree implementation fingerprint incorrectly changes row lookup identity after execution-only edits; Decision 39 freezes the stable semantic identity and legacy-promotion repair. | Finish both production OSS groups, prove every decision passes, implement and test cache-only promotion of their terminal reference and add-on rows, rerun the 392 dependency-derived downstream tasks, and accept independent OSS reporting and publication. |
+| 5 | Jitter v8 is complete; physical blocks are cache-first; 45 historical paired decisions prove exact numerical containment and provide reusable stable `Omega_max` rows. Decision 39 freezes stable semantic identity and legacy promotion. Decision 43 supersedes the paired production gate with one Omega-max-only row per physical condition and canonical-ID endpoint views. | Implement and test `OSSSharedOmegaGroupRecord` plus `prepare_oss_omega_max_rows`, start a replacement lineage, reuse all 45 stable Omega-max rows, produce only 15 missing add-on rows, run the dependency-derived pPAM tasks, and accept independent OSS reporting and publication. |
 | 6 | Portable sensitivity bases, exact resume, extension-v2 replay, missing-parent checks, and self-contained publication fixtures pass. | Publish canonical independent OSS and combined extension-v2 trees from terminal children. |
 | 7 | Persistent spawn scheduling, pure-data commands, parent-owned state mutation, resource ledger, timeout/retry boundaries, one solver token, and 64-GiB guard fixtures pass. | Retain terminal live RSS, CPU, swap, worker, resume, and generation evidence across independent OSS and combined execution. |
 | 9 | Formal and bootstrap schedules, scratch, durable blocks, ordered aggregation, pPAM blocks, jitter blocks, fixed historical RNG, and selective resume pass local regression. | Accept the production downstream pPAM block closure and combined cache-only replay. |
@@ -9388,13 +9446,14 @@ performance-contract review was added on 2026-07-16:
 | 3. Dependency/fallback | PASS | Task 5 defines the exhaustive readiness/source/Delta/fallback truth table; Tasks 11-12 integrate it without bidirectional fallback. |
 | 4. Round/interface/provenance | PASS | Tasks 2, 6-8, and 13-16 cover every Round, typed requests/arrays/artifacts, project import isolation, standalone CLI, connectome roles, and resolved configuration artifacts. |
 | 5. Bounded acceptance | PASS | Task 1 requires an exact reviewed task allowlist; Tasks 9-14 use only applicable completed fixtures; Task 16 blocks expensive misses and parity expansion. |
-| 6. Shared physical preparation and resources | DESIGN PASS / PARTIAL IMPLEMENTATION | Code audit plus primary literature/official runtime guidance map Task 17 to the authorized mixed threshold policy, distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. The OSS axis gate, exact subset path, row-decision resume, and O(1) row manifest are implemented and synthetically accepted; formal real OSS decisions and the remaining full Task 17 audit remain open. |
+| 6. Shared physical preparation and resources | DESIGN PASS / PARTIAL IMPLEMENTATION | Code audit plus primary literature/official runtime guidance map Task 17 to the authorized mixed threshold policy, distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. Decision 43 retains exact subset mapping but supersedes final-axis row production and row-decision resume. The Omega-max-only group record and producer path, replacement formal OSS lineage, and remaining full Task 17 audit are open. |
 
 This record validates closure of the generic-core implementation and design
-closure of the performance refactor. Task 17 remains open. The OSS axis-gate
-subsystem is implemented, but no test count implies completion of the remaining
-formal real OSS execution, combined extension, publication, or full resource
-audit.
+closure of the performance refactor. Task 17 remains open. The historical OSS
+axis-gate subsystem remains valid certification evidence, but Decision 43
+requires an Omega-max-only production subsystem. No test count implies
+completion of the replacement formal OSS execution, combined extension,
+publication, or full resource audit.
 
 ---
 
@@ -9428,19 +9487,20 @@ audit.
   exact minimum-grid `Omega_max`.
 - [ ] Jitter schedules and physical exposure are scale-independent Layer-1
   resources; endpoint jitter statistics remain Layer 2.
-- [ ] OSS/pPAM moves to formal-connectome `Omega_max` only after exact final-axis
-  ten-state/count/probability equivalence; every endpoint final axis is an exact
-  canonical-ID subset.
+- [ ] OSS/pPAM production creates or restores one formal-connectome
+  `Omega_max` row per physical condition; every endpoint final axis is an exact
+  canonical-ID subset and versioned representative regression certifies
+  numerical subset invariance.
 - [ ] Target cache verifies each used entry once per process and performs no
   within-process payload checksum reread; bounded semantic/axis/toolchain digests remain
   permitted under the authority contract.
-- [ ] OSS row and decision cache identities use the stable scientific contract
-  rather than the complete repository implementation fingerprint; verified
-  historical rows and pass decisions promote cache-first without an expensive
-  producer, while implementation drift is retained only as execution
-  attestation. The isolated implementation and complete regression pass; merge
-  and production cache-only promotion remain pending until the active solver is
-  terminal.
+- [ ] OSS row identities use the stable scientific contract rather than the
+  complete repository implementation fingerprint; verified historical
+  `Omega_max` rows promote cache-first without an expensive producer, while
+  historical decision caches remain immutable certification evidence only.
+  The new group record commits the exact ordered `omega_row_ids` closure.
+  Omega-max-only implementation, complete regression, and production reuse
+  remain pending.
 - [ ] CPU-heavy work uses spawned processes, large disjoint work units, and a
   persistent event-driven ready queue; `execution.workers` is the one public
   global CPU ceiling and nested pools cannot bypass it.

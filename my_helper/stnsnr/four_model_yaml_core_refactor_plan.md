@@ -1865,6 +1865,34 @@ solver token. Public activation matrices and endpoint fitting always use the
 exact realized final feature axis. The corrected independent OSS and combined
 plans contain 590 and 1194 tasks, respectively.
 
+### Task 17 Omega-max-only supersession
+
+Decision 43 supersedes the preceding production axis-gate contract. The
+paired final-axis computation was an implementation certification and is no
+longer part of the formal physical-row DAG. The retained production evidence
+contains 34 reference and 11 add-on paired decisions; all 45 have maximum
+probability difference `0`, sample-state mismatch count `0`, and
+activation-count mismatch count `0`. These historical pairs remain immutable
+evidence but are not a prerequisite for a new physical condition.
+
+Each new independent or combined OSS lineage now prepares exactly one
+formal-connectome `Omega_max` row per deduplicated physical condition. The
+final feature axis must be an exact canonical-ID subset, and endpoint pPAM
+uses an immutable indexed view of that shared row. No final-axis solver call,
+final-row cache, or per-condition equivalence-decision cache is produced.
+Numerical subset invariance is enforced by versioned representative regression
+fixtures and reruns only when the OSS scientific backend, explicit scientific
+settings, canonical fiber ordering, subset mapper, or result adapter changes.
+
+The group-level authority is `OSSSharedOmegaGroupRecord`, produced by
+`prepare_oss_omega_max_rows`. It commits the exact stable `omega_row_ids`
+closure after all expected rows fully validate. Resume accepts directly copied
+stable rows, promotes an unambiguous compatible historical row without a
+solver call, rejects corruption or ambiguity, and invokes the expensive
+producer only for a truly missing `Omega_max` row. The stopped v1 paired
+lineage is historical; the replacement lineage reuses all 34 reference and 11
+add-on stable `Omega_max` rows and has 15 add-on rows left to produce.
+
 ### Canonical model-set full-payload validation
 
 Final acceptance requires one repository-owned read-only validator for the two
@@ -2085,7 +2113,7 @@ on 2026-07-15. A sixth performance-contract pass was added on 2026-07-16:
 | 3. Dependency and fallback | PASS | Reference dependency failure is distinct from ready input with no source; invalid DeltaReferenceScore still runs no-delta; fallback remains one-way. |
 | 4. Round, cache, activation, and interface | PASS | All nondeferred Rounds, including add-on direct Round 9, are mapped; sensitive connectomes cannot become final; generic runtime accepts structured inputs and has no project reverse dependency. |
 | 5. Numerical acceptance and wording | PASS | Frozen counts were verified; exact reviewed task allowlist is required; unfinished/failed/partial predecessor paths have no numerical parity requirement. |
-| 6. Shared physical preparation and resources | DESIGN PASS / PARTIAL IMPLEMENTATION | Portable SHA manifests, shared preparation, persistent process scheduling, support-preserving jitter, conditional `Omega_max` reuse, final-axis retention, and bounded resource admission are implemented. The real independent OSS gate is still running; combined execution, canonical sensitivity replay, and final resource/resume acceptance remain open. |
+| 6. Shared physical preparation and resources | DESIGN PASS / PARTIAL IMPLEMENTATION | Portable SHA manifests, shared preparation, persistent process scheduling, support-preserving jitter, stable `Omega_max` row reuse, canonical-ID endpoint views, and bounded resource admission are implemented or frozen by Decision 43. The superseded paired OSS lineage is stopped and preserved; `OSSSharedOmegaGroupRecord`, Omega-max-only execution, the replacement independent OSS lineage, combined execution, canonical sensitivity replay, and final resource/resume acceptance remain open. |
 
 The linked implementation plan maps the accepted generic-core requirements to
 completed code and evidence. Task 17 maps the remaining performance
