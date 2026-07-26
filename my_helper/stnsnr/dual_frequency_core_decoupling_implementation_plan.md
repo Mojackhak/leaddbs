@@ -8160,6 +8160,38 @@ matched the identities recorded by the two extension manifests. Independent
 OSS execution, OSS-v2 publication, combined execution, and combined-v2
 publication remain open.
 
+The first frozen repository-owned validation later rejected both jitter-v2
+roots before writing an acceptance report. Each root contains 170 indexed
+payloads and 226 regular files after excluding `artifact_index.csv`,
+`extension_manifest.json`, AppleDouble files, and `.DS_Store`. The exact
+difference is 56
+`<scale>/<role>/sensitivity/spatial_jitter/spatial_jitter_metrics.json.metadata.json`
+sidecars per domain. No indexed path is missing. The sidecars were created by
+the same publisher at the same publication timestamp and correctly bind their
+payload SHA-256, size, artifact kind, and source artifact. The defect is that
+`_PublicationWriter.artifact` records only the copied payload after installing
+both files.
+
+The repair contract is narrow. Terminal extension-v2 artifact replay must
+record the immutable metadata sidecar in the same artifact index and retain
+the payload row separately; main model calculation, sensitivity calculation,
+cache identities, result identities, and source run stores do not change. A
+publisher regression must require the index paths to equal the complete
+regular-file closure after excluding only the index and manifest commit files
+and filesystem sidecars. The standalone validator must then pass the generated
+fixture without special-casing metadata sidecars.
+
+The two existing jitter-v2 roots cannot accept a changed immutable index in
+place. After the code and complete regression pass, archive only each invalid
+`artifact_index.csv` and `extension_manifest.json` through a uniquely named
+VAL Trash transaction, retain their SHA-256 values in the repair evidence, and
+rerun the frozen unfiltered `publish-extension` command. Existing scientific
+payloads and metadata sidecars must reopen byte-identically; only the rebuilt
+index gains the 56 metadata rows in each domain. Repeat the replay once, prove
+the index and manifest bytes remain unchanged, and run the frozen validator
+with its atomic acceptance output. Do not remove, rewrite, or recompute the
+completed jitter child or any endpoint scientific payload.
+
 A read-only threshold audit during the same running segment confirmed that the
 formal resolved YAML contains the requested voxel tau grid of 150, 180, 200,
 220, 250, and 300 with pre-specified tau 200, and the requested fiber tau grid
