@@ -7524,17 +7524,35 @@ active independent OSS process continues under its already-running temporary
 guard; only successor launches use the checked-in command, so this
 implementation change cannot alter the current segment.
 
-The checked-in guard is now implemented with the frozen CLI and CSV contract.
-Eleven focused guard tests cover ordinary descendant-tree aggregation,
-independently confirmed clean runner exit, compatibility with both terminal
-validators, unmount, RSS, and swap stops, malformed-header rejection, output
+The user-confirmed short disconnect during `segment_0019` exposed a narrower
+mount-observation gap. A volume can disappear and remount at the same path
+between two approximately one-second samples, so a path-presence Boolean alone
+cannot distinguish the replacement mount. Decision 41 freezes one
+non-writing mount identity at guard startup: the mounted source path, its
+device-node device, inode, special-device, mode, and creation-time fields, plus
+the mount-root device, inode, and creation-time fields. Every later sample
+reopens that identity. An absent mount or any changed identity records the
+existing `val_unmounted_sigterm` event and terminates the runner tree. An
+unreadable or ambiguous identity fails closed. This adds no VAL probe file,
+keeps the seven-column guard CSV unchanged, and does not enter scientific,
+cache, task, resume, or publication identity. Focused coverage must prove an
+unchanged mount, an absent mount, and a rapid same-path remount with a changed
+device-node identity.
+
+The checked-in guard is now implemented with the frozen CLI and CSV contract
+plus Decision 41 mount-generation pinning. Twelve focused guard tests cover
+ordinary descendant-tree aggregation, independently confirmed clean runner
+exit, compatibility with both terminal validators, absent and same-path
+replacement mounts, RSS and swap stops, malformed-header rejection, output
 placement outside the guarded mount, fail-closed process-evidence handling, a
 live runner omitted from one process snapshot, PID absence versus permission
 denial, and descendant-only termination. The joint guard and two
-resource-validator replay passed 33 tests under Conda `leaddbs`. These tests
-use temporary process snapshots and do not replace the active independent OSS
-guard or its production evidence. The checked-in guard becomes the required
-external observer for combined execution.
+resource-validator replay passed 45 tests plus two subtests under Conda
+`leaddbs`. A local macOS smoke resolved `/Volumes/VAL` to `/dev/disk4s2` and
+returned complete device-node and mount-root identity fields without writing
+the volume. These checks do not replace a terminal independent OSS guard or
+its production evidence. The identity-pinning guard is required for every
+successor guard epoch and combined execution.
 
 After this PID-evidence correction, the complete isolated-package
 dual-frequency test directory passed 609 tests in 72.466 seconds under Conda

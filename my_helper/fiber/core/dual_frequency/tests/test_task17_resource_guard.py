@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from my_helper.fiber.pipelines.run_task17_resource_guard import (
+    MountIdentity,
     ProcessRow,
     ResourceGuardError,
     _pid_exists,
@@ -28,7 +29,7 @@ class Task17ResourceGuardTest(unittest.TestCase):
         root: Path,
         snapshots: list[tuple[ProcessRow, ...]],
         swaps: list[int],
-        mounts: list[bool],
+        mounts: list[bool | MountIdentity | None],
         *,
         max_rss_bytes: int = 1000,
     ) -> tuple[int, list[dict[str, str]], list[tuple[int, ...]]]:
@@ -47,8 +48,25 @@ class Task17ResourceGuardTest(unittest.TestCase):
         def swap_reader() -> int:
             return swaps.pop(0)
 
-        def mount_reader(_path: Path) -> bool:
-            return mounts.pop(0)
+        stable_mount = MountIdentity(
+            source_path="/dev/disk4s2",
+            source_device=1,
+            source_inode=2,
+            source_rdev=3,
+            source_mode=4,
+            source_ctime_ns=5,
+            mount_device=6,
+            mount_inode=7,
+            mount_ctime_ns=8,
+        )
+
+        def mount_identity_reader(_path: Path) -> MountIdentity | None:
+            value = mounts.pop(0)
+            if value is True:
+                return stable_mount
+            if value is False:
+                return None
+            return value
 
         def terminator(rows, runner_pid: int) -> None:
             terminations.append(
@@ -64,7 +82,7 @@ class Task17ResourceGuardTest(unittest.TestCase):
             interval_seconds=1.0,
             process_reader=process_reader,
             swap_reader=swap_reader,
-            mount_reader=mount_reader,
+            mount_identity_reader=mount_identity_reader,
             pid_reader=lambda _pid: False,
             terminator=terminator,
             sleeper=lambda _seconds: None,
@@ -107,6 +125,35 @@ class Task17ResourceGuardTest(unittest.TestCase):
             )
         self.assertEqual(status, 2)
         self.assertEqual(rows[-1]["event"], "val_unmounted_sigterm")
+        self.assertEqual(terminations, [(100,)])
+
+    def test_same_path_remount_records_stop_and_terminates(self) -> None:
+        replacement_mount = MountIdentity(
+            source_path="/dev/disk4s2",
+            source_device=1,
+            source_inode=20,
+            source_rdev=3,
+            source_mode=4,
+            source_ctime_ns=50,
+            mount_device=6,
+            mount_inode=7,
+            mount_ctime_ns=8,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            status, rows, terminations = self._run(
+                Path(temporary),
+                [
+                    (ProcessRow(100, 1, 100, 1.0),),
+                    (ProcessRow(100, 1, 100, 1.0),),
+                ],
+                [10, 10, 10],
+                [True, replacement_mount],
+            )
+        self.assertEqual(status, 2)
+        self.assertEqual(
+            [row["event"] for row in rows],
+            ["sample", "val_unmounted_sigterm"],
+        )
         self.assertEqual(terminations, [(100,)])
 
     def test_clean_output_is_accepted_by_both_resource_validators(self) -> None:
