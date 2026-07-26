@@ -2006,6 +2006,17 @@ declared connectome requires at least one fold candidate fiber. The production
 workflow explicitly retains successful cache content, while omitted generic
 storage policy still defaults to cleanup after complete publication.
 
+A fresh 2026-07-26 static replay passed all 33 directly collected
+configuration, application-CLI, two-scale four-model DAG, and goal-acceptance
+tests with warnings treated as errors. It reopens the frozen production source
+profiles, normalized run and scientific identities, explicit scale and worker
+overrides, cleanup policy, connectome binding, public entrypoint isolation,
+reviewed task allowlist, absence of project coupling or literal subject
+allowlists, and both scale paths through the same catalog and DAG compiler.
+No independent YAML-core implementation gap remains; the open production
+evidence is the Task 17 sensitivity, resource, and postprocess closure tracked
+by the linked plans.
+
 A repository-owned production-source guard must also bind the exact source
 files rather than relying only on temporary modified-profile fixtures. The
 approved SHA-256 values are
