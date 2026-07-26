@@ -9117,6 +9117,17 @@ without expensive-producer authorization, while a real cache miss stops before
 the physical or OSS producer. Production combined execution remains gated on
 terminal independent OSS and must omit `--allow-expensive-producers`.
 
+The guard and resource-acceptance boundary was also replayed on 2026-07-26
+without reading or writing VAL. All 44 tests passed with warnings treated as
+errors. The closure covers unmount, RSS, and swap termination; confinement to
+the declared runner process tree; permission and missing-process failures;
+guard-output placement; strict multi-epoch segment identity; scheduler memory,
+I/O, runnable, timestamp, and admission derivations; terminal task closure;
+current guard event spelling; pre-instrumentation maximum-row derivation;
+commit-window containment; probability tolerance; and rejection of stopped,
+stale, instrumented, or mismatched evidence. Production acceptance still
+requires the terminal `segment_0019` document and its complete guard epoch.
+
 The benchmark parent transaction is now implemented without exposing the
 public `run` operation prematurely. For each prepared ordinary,
 real-cache-hit, or authorized real-solver row, the parent launches the bound
