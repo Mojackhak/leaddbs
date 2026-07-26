@@ -6102,53 +6102,22 @@ copied-cache-output drift, and read-only report validation. Complete
 dual-frequency discovery passes 690 tests with warnings treated as errors.
 The production-scale fault plan and sequence remain pending.
 
-Production review on 2026-07-26 found that the generic harness is not yet a
-safe production entrypoint by itself. No repository-owned command currently
-derives the six-case `dual_frequency_task17_fault_plan_v1` document from the
-accepted parent, terminal sensitivity children, canonical publications, and
-shared-cache closure. A hand-authored JSON file is not acceptable because it
-could select a convenient synthetic task, omit a protected descendant, bind a
-nonterminal one-shot result, or fail to enumerate the complete read-only
-parent/publication trees.
-
-Before the production sequence runs, add
-`build_task17_fault_acceptance_plan.py`. Its only write is one atomically
-published immutable plan below the caller-selected acceptance root. The
-builder must:
-
-1. require the accepted parent, independent jitter, independent OSS, and
-   combined manifests to be terminal `completed`, and require the canonical
-   main, final-in-sample, jitter-v2, OSS-v2, and combined-v2 publications to
-   pass their repository-owned validators;
-2. enumerate the complete accepted-parent and canonical-publication
-   read-only file closure, excluding only filesystem-generated AppleDouble and
-   `.DS_Store` files, with sorted path and SHA-256 rows;
-3. derive one real cache payload, one real permutation/bootstrap shard, and
-   one real feature-axis artifact from indexed terminal artifacts, require
-   three distinct contained files, and copy only the declared minimum closure
-   needed by the three corruption probes;
-4. derive one deterministic nonterminal injected-failure task and its complete
-   descendant closure from the serialized production plan rather than accept
-   caller-supplied task IDs;
-5. derive the missing-parent rebuild input, distinct rebuilt main-run ID,
-   rebuilt sensitivity command, copied-cache command without
-   `--allow-expensive-producers`, and one-shot comparison rows from terminal
-   scientific artifacts and their declared tolerances;
-6. bind every command as an argument array whose writable paths remain below
-   the marked isolated acceptance root, bind the Conda `leaddbs` environment
-   and repository working directory, and reject any output/run ID that could
-   resolve into the production run, publication, or cache roots; and
-7. reopen the finished plan, rederive every row, and require byte-identical
-   content before the generic harness may execute `init`, `run`, and
-   read-only `validate`.
-
-The builder must support a validation-only operation that rederives the plan
-without rewriting it. Production acceptance therefore requires two separate
-proofs: builder validation establishes that the plan is the exact configured
-six-case plan, and harness validation establishes that all six cases completed
-without changing any read-only production input. Implementation and
-production execution remain pending until the terminal OSS and combined
-authorities exist.
+Production review on 2026-07-26 confirmed that the frozen fault-plan document
+and the generic harness already form the repository-owned production entry
+boundary. A separate plan-builder program is not required by this contract.
+The production `dual_frequency_task17_fault_plan_v1` JSON may be prepared only
+after the independent OSS, combined, and canonical extension authorities are
+terminal. Before `init`, review and freeze its exact six-case selection,
+complete accepted-parent and canonical-publication file closure, copied cache
+closure, task and descendant identities, command arrays, distinct rebuilt
+lineage, and one-shot comparison rows. The harness then independently checks
+the plan SHA, exact field and case-ID closure, complete read-only tree
+enumeration, copied input hashes, command confinement, case-specific terminal
+postconditions, and byte-identical report during `validate`. Those checks make
+an incomplete or changed plan fail closed without adding a second generator
+whose output would still require the same review. Production plan preparation
+and execution remain pending until the terminal OSS and combined authorities
+exist.
 
 - [ ] **Step 11: Update current status and commit**
 
@@ -7745,8 +7714,8 @@ Do not invoke the pre-instrumentation validator for such a segment. If the
 terminal segment lacks the strict instrumentation fields, identify the guard
 CSV whose single epoch contains the terminal maximum-row and owning-decision
 commits, then generate and validate the bounded pre-instrumentation evidence
-with these commands. The currently active candidate is `segment_0018`, with
-`/private/tmp/task17-oss-segment_0018-resource-guard.csv` as its matching guard.
+with these commands. The currently active candidate is `segment_0019`, with
+`/private/tmp/task17-oss-segment_0019-resource-guard.csv` as its matching guard.
 Those values may replace the placeholders below only if that segment becomes
 terminal and satisfies the selected validator contract. If the lineage needs
 another resume, use the actual later terminal segment and its matching guard;
@@ -9124,12 +9093,18 @@ its newest committed decision was published at 2026-07-26T08:28:36Z and has
 zero probability, state, and activation-count mismatch.
 
 After remount, a create/read/remove probe passed and the Samsung T7 again
-reported a 10000000000-bit/s USB link. These checks establish current storage
-availability but do not authorize an automatic restart. Resume requires
-explicit user confirmation, must create a new `segment_0019`, and must attach
-a new guard CSV for that epoch. It must reuse the complete reference and
-add-on cache entries, recompute only the unpublished in-flight row, and retain
-`segment_0018` plus its guard unchanged as interruption evidence.
+reported a 10000000000-bit/s USB link. The user then explicitly authorized
+continuation. `segment_0019` started at 2026-07-26T14:49:21.648100Z through
+`--resume` with 14 workers, one solver token, and its own checked-in guard.
+Startup restored the 34-decision reference closure and the 12 completed add-on
+decisions without a reference solver call. At 2026-07-26T15:05:25.248089Z,
+the current add-on solver was executing `sample_09`; the guard reported a
+6198018048-byte task-tree RSS, a 17354375168-byte epoch peak, unchanged
+3115057152-byte swap, and no stop event. This remains intermediate evidence:
+the final add-on `row_decision_ids` closure, downstream task completion, and
+strict resource acceptance still require the terminal segment. The immutable
+`segment_0018` record and its guard remain the authoritative interruption
+evidence, and only the unpublished in-flight work may be recomputed.
 
 The benchmark parent transaction is now implemented without exposing the
 public `run` operation prematurely. For each prepared ordinary,
