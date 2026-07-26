@@ -1460,6 +1460,9 @@ for rho and the formal permutation p value; descriptive nominal p values and
 the remaining diagnostics stay available in the indexed report without
 overloading the figure. Missing, nonfinite, internally inconsistent, or
 unpaired evidence must fail that endpoint before any figure is published.
+This contract is published as paired-fit postprocess schema v2 so an older v1
+component cannot be reused merely because its source and style request hash is
+unchanged.
 
 Validation completed on 2026-07-18:
 
