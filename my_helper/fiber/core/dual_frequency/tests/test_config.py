@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import tempfile
 import unittest
 from dataclasses import FrozenInstanceError
@@ -40,6 +41,77 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(len(resolved.scientific_configuration_hash), 64)
         with self.assertRaises(FrozenInstanceError):
             resolved.selected_scales = ()
+
+    def test_production_source_profiles_are_frozen(self) -> None:
+        expected_sha256 = {
+            "workflow.yaml": (
+                "a508b484e99280d9db43d0f25d9528f7fddc274b28e200b64a3609bea5d0336a"
+            ),
+            "direct_voxel_model.yaml": (
+                "0a8d9a6654dd13001ceed147fccc80b474740377b15ddd41e02447794080569f"
+            ),
+            "normative_fiber_model.yaml": (
+                "439c59b3cc2052d6de47886bfc80010780bd3f9677c6b85c38f93930682af27b"
+            ),
+        }
+        for filename, expected in expected_sha256.items():
+            with self.subTest(filename=filename):
+                observed = hashlib.sha256(
+                    (CONFIG_ROOT / filename).read_bytes()
+                ).hexdigest()
+                self.assertEqual(observed, expected)
+
+        workflow = self._workflow_document()
+        direct = self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml")
+        fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
+        self.assertEqual(
+            workflow["model_profiles"],
+            {
+                "direct_voxel": "direct_voxel_model.yaml",
+                "normative_fiber": "normative_fiber_model.yaml",
+            },
+        )
+        self.assertFalse(workflow["storage"]["delete_run_cache_on_success"])
+
+        direct_source = direct["shared"]["source"]
+        self.assertEqual(
+            direct_source["pre_specified"],
+            {"tau_v_per_m": 200, "coverage_subjects_min": 5},
+        )
+        self.assertEqual(
+            direct_source["scan"]["tau_v_per_m"],
+            [150, 180, 200, 220, 250, 300],
+        )
+        self.assertEqual(
+            direct_source["scan"]["coverage_subjects_min"],
+            [5, 6, 7, 8, 10, 12],
+        )
+        self.assertEqual(
+            direct["shared"]["hard_computability"]["n_subjects_min"],
+            12,
+        )
+
+        fiber_source = fiber["source"]
+        self.assertEqual(
+            fiber_source["pre_specified"],
+            {"tau_v_per_m": 400, "coverage_subjects_min": 5},
+        )
+        self.assertEqual(
+            fiber_source["scan"]["tau_v_per_m"],
+            [200, 350, 400, 450, 600, 800],
+        )
+        self.assertEqual(
+            fiber_source["scan"]["coverage_subjects_min"],
+            [5, 6, 7, 8, 10, 12],
+        )
+        self.assertEqual(fiber["hard_computability"]["n_subjects_min"], 12)
+        self.assertEqual(
+            [
+                entry["fold_candidate_fibers_min"]
+                for entry in fiber["connectomes"]["entries"]
+            ],
+            [1, 1, 1],
+        )
 
     def test_requires_explicit_scale_selection(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "--scale or --all-available"):

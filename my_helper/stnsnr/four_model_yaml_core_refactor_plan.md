@@ -1891,6 +1891,22 @@ declared connectome requires at least one fold candidate fiber. The production
 workflow explicitly retains successful cache content, while omitted generic
 storage policy still defaults to cleanup after complete publication.
 
+A repository-owned production-source guard must also bind the exact source
+files rather than relying only on temporary modified-profile fixtures. The
+approved SHA-256 values are
+`a508b484e99280d9db43d0f25d9528f7fddc274b28e200b64a3609bea5d0336a`
+for `workflow.yaml`,
+`0a8d9a6654dd13001ceed147fccc80b474740377b15ddd41e02447794080569f`
+for `direct_voxel_model.yaml`, and
+`439c59b3cc2052d6de47886bfc80010780bd3f9677c6b85c38f93930682af27b`
+for `normative_fiber_model.yaml`. The guard must additionally reopen the
+ordered tau and Coverage grids, pre-specified cells, 12-subject floors, all
+three fold-candidate minima, model-profile references, and retained-cache
+policy so that a changed document cannot pass through a digest-only fixture.
+The complete configuration test module, including this source guard, passed
+all 20 tests and 13 subtests under Conda `leaddbs` with warnings treated as
+errors.
+
 A second focused frozen-parameter replay on 2026-07-22 passed 22 tests plus 12
 subtests across configuration and final-in-sample inference. Direct voxel
 retains the ordered tau grid 150, 180, 200, 220, 250, and 300 with the
