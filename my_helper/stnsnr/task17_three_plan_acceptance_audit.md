@@ -101,6 +101,13 @@ backticked mapping reference named an existing evidence row or an allowed
 status token. The new guard and the existing bounded goal-acceptance suite
 then passed all 11 tests together under Conda `leaddbs`.
 
+After the current main branch was merged into
+`task17-perf-injected-worker`, the isolated performance-matrix suite and the
+new plan-audit guard passed all 38 tests together with warnings treated as
+errors. The parser selects the table by its `Source-plan item` header, so the
+separate detailed checklist table below remains evidence rather than being
+miscounted as a second source mapping.
+
 A 2026-07-25 structural replay found 24 unique ledger rows: 10 accepted,
 two active, 12 pending, and no blocked row. The YAML-core and postprocess source
 plans contain no unchecked implementation item. The dual-frequency source plan
