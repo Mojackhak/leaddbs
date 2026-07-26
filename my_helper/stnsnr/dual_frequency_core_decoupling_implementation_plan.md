@@ -9060,6 +9060,26 @@ about 7513522176 bytes, swap baseline 3579188347 bytes, and current swap
 3366851707 bytes. Thus RSS remained `< 64 GiB` and swap growth remained `< 1`
 byte. No automatic restart or code hot-load occurred.
 
+That paragraph is intermediate evidence, not the terminal state of
+`segment_0018`. At 2026-07-26T10:00:16.144105Z, VAL became unmounted and the
+checked-in guard recorded `val_unmounted_sigterm`. It terminated the runner and
+all descendants before the in-flight row or decision was published. A
+post-event audit found no remaining runner, persistent worker, solver, or
+guard. The durable task ledger contains 393 completed tasks, one interrupted
+add-on equivalence-gate marker, 196 dependency skips, and no terminal failed
+task. The stable reference closure remains 34 pass decisions and 68 complete
+rows. The stable add-on cache remains 12 pass decisions and 24 complete rows;
+its newest committed decision was published at 2026-07-26T08:28:36Z and has
+zero probability, state, and activation-count mismatch.
+
+After remount, a create/read/remove probe passed and the Samsung T7 again
+reported a 10000000000-bit/s USB link. These checks establish current storage
+availability but do not authorize an automatic restart. Resume requires
+explicit user confirmation, must create a new `segment_0019`, and must attach
+a new guard CSV for that epoch. It must reuse the complete reference and
+add-on cache entries, recompute only the unpublished in-flight row, and retain
+`segment_0018` plus its guard unchanged as interruption evidence.
+
 The benchmark parent transaction is now implemented without exposing the
 public `run` operation prematurely. For each prepared ordinary,
 real-cache-hit, or authorized real-solver row, the parent launches the bound
