@@ -1947,6 +1947,19 @@ service probes all row keys first and checks expensive authorization only when
   the frozen ten-sample contract. The publication boundary rejects values that
   are outside `[0, 1]` or do not lie on the 0.1 probability lattice within
   floating-point tolerance.
+- The term pPAM spans two deliberately separate layers. Physical pPAM is the
+  ten-sample activated-count probability on the prepared axis. It is produced
+  once per unique physical OSS row on `Omega_max`, cached, and reused across
+  every compatible endpoint. Its strict `p(A) > 0.5` binary exposure may
+  likewise be derived once on that axis; endpoint column selection is not a new
+  physical simulation. Statistical pPAM is endpoint-local: it binds the
+  selected columns to that endpoint's outcome, baseline, nuisance design,
+  outcome direction, realized branch, and scoring settings, then independently
+  estimates full-sample and LOOCV fiber weights, predictions, and the
+  Freedman-Lane permutation null. These outcome-dependent products cannot be
+  shared across scales. Moving them into the physical cache would bind that
+  cache to a clinical endpoint and eliminate, rather than extend, cross-scale
+  physical reuse.
 - A smoke permutation P value is emitted only when all requested permutations
   complete with finite statistics. Incomplete null distributions retain the
   explicit failure/completion status and emit a null P value; they cannot use a
