@@ -27,10 +27,46 @@ MOVED_PRODUCTION_ENTRYPOINT = Path(
 LEGACY_CONFIGURED_ENTRYPOINT = Path(
     "my_helper/fiber/projects/stnsnr/legacy/run_configured_outcome_models.py"
 )
+WORKTREE_LOCAL_REFERENCES = frozenset(
+    {
+        Path(
+            "my_helper/fiber/projects/stnsnr/acceptance/"
+            "approved_task_allowlist.json"
+        )
+    }
+)
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _primary_checkout_root() -> Path:
+    git_marker = REPOSITORY_ROOT / ".git"
+    if git_marker.is_dir():
+        return REPOSITORY_ROOT
+    if not git_marker.is_file():
+        raise AssertionError(f"missing Git metadata: {git_marker}")
+    marker = git_marker.read_text(encoding="utf-8").strip()
+    prefix = "gitdir: "
+    if not marker.startswith(prefix):
+        raise AssertionError(f"invalid Git worktree marker: {git_marker}")
+    git_directory = Path(marker.removeprefix(prefix))
+    if not git_directory.is_absolute():
+        git_directory = (REPOSITORY_ROOT / git_directory).resolve()
+    for candidate in (git_directory, *git_directory.parents):
+        if candidate.name == ".git":
+            return candidate.parent
+    raise AssertionError(f"cannot resolve primary checkout from {git_directory}")
+
+
+def _reference_exists(reference: Path) -> bool:
+    if (REPOSITORY_ROOT / reference).exists():
+        return True
+    if reference not in WORKTREE_LOCAL_REFERENCES:
+        return False
+    primary_root = _primary_checkout_root()
+    return primary_root != REPOSITORY_ROOT and (primary_root / reference).is_file()
 
 
 def _open_items(path: Path) -> tuple[str, ...]:
@@ -164,7 +200,7 @@ class Task17PlanAuditTest(unittest.TestCase):
         missing = tuple(
             reference
             for reference in references
-            if not (REPOSITORY_ROOT / reference).exists()
+            if not _reference_exists(reference)
         )
         self.assertEqual(missing, (MOVED_PRODUCTION_ENTRYPOINT,))
         self.assertFalse((REPOSITORY_ROOT / MOVED_PRODUCTION_ENTRYPOINT).exists())

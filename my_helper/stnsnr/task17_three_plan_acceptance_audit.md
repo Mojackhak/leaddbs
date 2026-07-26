@@ -262,6 +262,10 @@ additional missing path, require the legacy destination, and continue to
 require the moved production entrypoint to remain absent. Its focused replay
 found the exact 121-reference closure, the expected sole missing source, and
 the existing legacy destination.
+In a linked Git worktree, the explicitly Git-ignored frozen
+`approved_task_allowlist.json` may resolve from the primary checkout; this
+exception applies only to that named local acceptance fixture and cannot hide
+any other missing source-plan path.
 
 A fresh production-only scan of all 93 Python files below the generic
 `dual_frequency` package found no project-name dispatch token and no import of
