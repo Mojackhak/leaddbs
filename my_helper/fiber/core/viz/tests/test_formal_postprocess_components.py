@@ -526,6 +526,41 @@ def _formal_fit_config(tmp_path: Path, output_name: str) -> Path:
     return path
 
 
+@pytest.mark.parametrize(
+    ("case", "message"),
+    (
+        ("missing_metric", "in_sample_pearson_r"),
+        ("missing_prediction_column", "loocv_baseline_prediction"),
+    ),
+)
+def test_formal_validate_only_enforces_complete_paired_source_contract(
+    tmp_path: Path,
+    case: str,
+    message: str,
+) -> None:
+    _paired_fit_catalog(tmp_path)
+    root = tmp_path / "direct_voxel_in_sample"
+    if case == "missing_metric":
+        relative = "scale_a/reference/sensitivity/final_in_sample/summary.json"
+        path = root / relative
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        summary.pop("in_sample_pearson_r")
+        path.write_text(json.dumps(summary), encoding="utf-8")
+    else:
+        relative = "scale_a/reference/sensitivity/final_in_sample/predictions.csv"
+        path = root / relative
+        predictions = pd.read_csv(path).drop(
+            columns=["loocv_baseline_prediction"]
+        )
+        predictions.to_csv(path, index=False)
+    _refresh_publication_index_entry(root, relative)
+
+    config_path = _formal_fit_config(tmp_path, f"preflight_{case}")
+    with pytest.raises(ValueError, match=message):
+        validate_formal_postprocess(config_path)
+    assert not (tmp_path / f"preflight_{case}").exists()
+
+
 def test_formal_endpoint_resolution_preserves_nondefault_selected_cells(
     tmp_path: Path,
 ) -> None:

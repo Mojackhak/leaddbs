@@ -24,6 +24,7 @@ from .fiber_section_postprocess import (
 )
 from .paired_fit_postprocess import (
     PAIRED_METRIC_FIELDS,
+    load_validated_paired_predictions,
     render_paired_fit_components,
     validate_paired_metrics,
 )
@@ -505,6 +506,12 @@ def _resolve_endpoints(
                 final_model=final_model,
                 summary=summary,
             )
+            if "paired_fit" in components:
+                validate_paired_metrics(summary)
+                load_validated_paired_predictions(
+                    core["predictions"].path,
+                    summary,
+                )
             endpoint_id = str(summary.get("endpoint_id", "")).strip()
             if not endpoint_id or endpoint_id in endpoint_ids:
                 raise ValueError(f"endpoint identity is missing or duplicated: {endpoint_id!r}")

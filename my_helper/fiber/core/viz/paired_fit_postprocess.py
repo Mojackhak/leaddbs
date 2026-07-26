@@ -346,6 +346,17 @@ def _validate_predictions(
         raise ValueError("paired-fit prediction values must all be finite")
 
 
+def load_validated_paired_predictions(
+    path: str | Path,
+    summary: Mapping[str, Any],
+) -> pd.DataFrame:
+    """Read and validate one complete paired prediction table."""
+
+    subjects = pd.read_csv(path)
+    _validate_predictions(subjects, summary)
+    return subjects
+
+
 def _validate_endpoint(
     spec: _ModelSpec,
     scale_id: str,
@@ -577,8 +588,10 @@ def render_paired_fit_components(
                     results.append(restored)
                     continue
 
-                subjects = pd.read_csv(sources["predictions"].path)
-                _validate_predictions(subjects, summary)
+                subjects = load_validated_paired_predictions(
+                    sources["predictions"].path,
+                    summary,
+                )
                 output_paths, relative_outputs = _relative_outputs(
                     root, leaf, style["formats"]
                 )
@@ -720,6 +733,7 @@ if __name__ == "__main__":
 __all__ = [
     "PAIRED_METRIC_FIELDS",
     "SCHEMA_VERSION",
+    "load_validated_paired_predictions",
     "render_paired_fit_components",
     "run_single_scale_paired_fit_postprocess",
     "validate_paired_metrics",
