@@ -69,6 +69,19 @@ results, 170 relative artifact-index rows, complete parent binding, and an
 unchanged manifest after identical replay. OSS-v2 and combined-v2 remain
 pending and continue to gate the formal render.
 
+The repository-owned static request guard must bind the exact
+`formal_postprocess.json` SHA-256
+`144ad7a1e775c1bf01f5d99df285a87b31bae7075aa3692d714201f1953e6ab0`,
+the four canonical main/final-in-sample publication aliases, their manifest
+types, `all_available`, the ordered `paired_fit`, `voxel_2d`, and `fiber_2d`
+component closure, the immutable formal output root, and all four shared
+resource paths. Every publication and output path must remain outside
+`.runs`, `tasks`, `work`, and `runtime_work`. This static guard reads no
+publication payload and cannot replace the later 28-scale, 112-endpoint
+canonical preflight or render.
+The focused static request guard and the formal component suite passed all
+eight tests together under Conda `leaddbs` with warnings treated as errors.
+
 A fresh read-only preflight on 2026-07-22 validated this durable request while
 the independent OSS lineage remained active. It resolved 28 scales, 112 final
 endpoints, four canonical main/final-in-sample publications, and the
