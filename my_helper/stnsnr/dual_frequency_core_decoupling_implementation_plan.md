@@ -7726,7 +7726,13 @@ Do not invoke the pre-instrumentation validator for such a segment. If the
 terminal segment lacks the strict instrumentation fields, identify the guard
 CSV whose single epoch contains the terminal maximum-row and owning-decision
 commits, then generate and validate the bounded pre-instrumentation evidence
-with these commands:
+with these commands. The currently active candidate is `segment_0018`, with
+`/private/tmp/task17-oss-segment_0018-resource-guard.csv` as its matching guard.
+Those values may replace the placeholders below only if that segment becomes
+terminal and satisfies the selected validator contract. If the lineage needs
+another resume, use the actual later terminal segment and its matching guard;
+never combine a segment record, guard CSV, or commit window from different
+epochs.
 
 ```bash
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
