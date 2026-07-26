@@ -383,6 +383,9 @@ def test_single_scale_paired_fit_index_retains_complete_metrics(
     index = pd.read_csv(output_root / "endpoint_index.csv")
     assert len(index.index) == 4
     assert set(PAIRED_METRIC_FIELDS).issubset(index.columns)
+    assert "complete paired in-sample and LOOCV metric" in (
+        output_root / "README.md"
+    ).read_text(encoding="utf-8")
     expected = _paired_metrics()
     assert index["in_sample_pearson_r"].tolist() == pytest.approx(
         [expected["in_sample_pearson_r"]] * 4

@@ -615,7 +615,8 @@ scales/{scale_id}/addon/fiber/
 ```
 
 Each directory contains PNG and PDF figures plus `result.json`. The root
-`endpoint_index.csv` provides a compact cross-model statistical index.
+`endpoint_index.csv` provides the complete paired in-sample and LOOCV metric
+set across the four final models.
 """
     (output_root / "README.md").write_text(text, encoding="utf-8")
 

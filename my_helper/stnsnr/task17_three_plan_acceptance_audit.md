@@ -802,7 +802,7 @@ validation compares all three copies. Formal read-only preflight now enforces
 the same source contract and rejects a prediction-table metric mismatch without
 substituting recalculated values. Forty-four focused tests and all 54
 visualization tests passed. A fresh complete dual-frequency and visualization
-regression then passed 846 tests and 329 subtests in 135.19 seconds with
+regression then passed 846 tests and 329 subtests in 132.83 seconds with
 warnings treated as errors, no failure, and no skip. This remains isolated
 merge-readiness evidence; the active OSS process and production checkout were
 not modified.
