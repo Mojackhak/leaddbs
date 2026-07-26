@@ -1914,12 +1914,12 @@ class ExecutorTest(unittest.TestCase):
             )
         )
         with (
-            tempfile.TemporaryDirectory() as temporary_directory,
             patch.object(
                 _ResourceLedger,
                 "_memory_state",
                 return_value=(128 * 1024**3, 128 * 1024**3),
             ),
+            tempfile.TemporaryDirectory() as temporary_directory,
         ):
             root = Path(temporary_directory) / "run"
             first = execute_plan(
