@@ -1865,6 +1865,48 @@ solver token. Public activation matrices and endpoint fitting always use the
 exact realized final feature axis. The corrected independent OSS and combined
 plans contain 590 and 1194 tasks, respectively.
 
+### Canonical model-set full-payload validation
+
+Final acceptance requires one repository-owned read-only validator for the two
+canonical main model sets after display-smoothing promotion. The entry point is
+`my_helper/fiber/pipelines/validate_task17_model_set_publication.py`. It accepts
+one or more `--publication-root` values and an optional `--output` report.
+
+For every root, the validator must require a terminal completed model manifest,
+safe root-local resolved-model and study-base bindings, exact declared
+SHA-256 values, one unique completed artifact-index row per relative payload,
+and no path traversal, run-store component, symlink, missing file, size
+mismatch, or payload-hash mismatch. The profile type, manifest schema, root
+location, scale count, ordered unique scale IDs, model-set ID, source run,
+study, scientific configuration, and study-base identities must agree across
+the direct-voxel and normative-fiber roots. Each domain must contain exactly
+one indexed reference and one indexed add-on `final_model.json` for every
+declared scale.
+
+The canonical main index intentionally inventories publication payloads rather
+than every metadata and manifest file below the root. Therefore this validator
+must verify every indexed payload byte and the required final-model closure,
+but it must not redefine the index as a complete directory-file inventory.
+Unindexed metadata sidecars cannot satisfy or replace an indexed payload row.
+The deterministic report records manifest and index SHA-256 values, artifact
+counts and bytes, final-model counts, and an ordered indexed-payload closure
+SHA-256. An explicit output uses atomic same-byte publication and rejects a
+changed collision.
+
+The frozen production invocation is:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_model_set_publication.py \
+  --publication-root /Volumes/VAL/STNSNr/summary/spot/direct_voxel/dual_frequency_four_model_v1 \
+  --publication-root /Volumes/VAL/STNSNr/summary/spot/normative_fiber/dual_frequency_four_model_v1 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-main-model-set-full-payload-validation-v1.json
+```
+
+Run the command twice. The second invocation must preserve the report bytes and
+mtime. This full hash pass is independent of the run store, calls no scientific
+producer, and is permitted whenever the OSS solver is not using VAL bandwidth.
+
 ## Deferred Work
 
 ```text
