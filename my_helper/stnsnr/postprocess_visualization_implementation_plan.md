@@ -1441,6 +1441,26 @@ and optimism fields. Standard `in_sample_r2`, `in_sample_relative_r2`,
 in-sample prediction, LOOCV prediction, and both baseline-prediction columns,
 with no empty cell and a row count matching its endpoint summary.
 
+The formal paired-fit publisher must enforce this complete source contract
+before rendering. A completed endpoint requires paired Spearman and Pearson
+statistics, descriptive nominal p values, plus-one two-sided permutation p
+values, model-family and all-endpoint BH values, standard R2,
+relative-R2/Q2, model error, baseline error, finite subject and permutation
+counts, matching subject masks, and all six declared optimism gaps. The
+in-sample and LOOCV permutation requests must use the same positive count, and
+both retained finite counts must cover their complete requests. The paired
+prediction table must contain subject ID, outcome, in-sample prediction,
+LOOCV prediction, in-sample baseline prediction, and LOOCV baseline prediction
+with the same complete subject count. The unsupported
+`in_sample_adjusted_r2` must not be published.
+
+Each endpoint `result.json` and the root `endpoint_index.csv` must expose the
+same complete paired metric set. The two fit panels retain compact annotations
+for rho and the formal permutation p value; descriptive nominal p values and
+the remaining diagnostics stay available in the indexed report without
+overloading the figure. Missing, nonfinite, internally inconsistent, or
+unpaired evidence must fail that endpoint before any figure is published.
+
 Validation completed on 2026-07-18:
 
 - the combined dual-frequency and visualization test suite passed with 466
