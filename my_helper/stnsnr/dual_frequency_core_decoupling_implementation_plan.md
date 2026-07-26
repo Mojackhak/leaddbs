@@ -7555,6 +7555,34 @@ the volume. These checks do not replace a terminal independent OSS guard or
 its production evidence. The identity-pinning guard is required for every
 successor guard epoch and combined execution.
 
+`segment_0020` exposed one remaining observation boundary. A physical
+disconnect can block a guard dependency long enough for the same device node
+and mount-root identity to return before the next comparison. The guard CSV
+then contains an unexplained sampling gap even though the before and after
+mount identities match. Decision 42 therefore makes the sampling deadline part
+of the fail-closed availability contract. The guard uses a monotonic clock and
+treats an interval greater than `max(3 seconds, 3 * interval_seconds)` between
+two completed observations as untrustworthy continuity. It records the
+existing `val_unmounted_sigterm` event, flushes the row, and terminates the
+runner tree. The deadline is internal, has no new YAML or CLI setting, keeps
+the seven-column CSV schema unchanged, and does not enter scientific, cache,
+task, resume, or publication identity. Focused coverage must prove an ordinary
+interval, a delayed live runner, a delayed runner exit, a non-finite or
+backward monotonic clock, and preservation of the existing mount, RSS, swap,
+and atomic-publication contracts.
+
+Decision 42 is implemented in the checked-in resource guard. The guard now
+checks the monotonic deadline after every complete process, swap, and mount
+observation, including the terminal runner observation. A delayed live runner
+is terminated, while a delayed runner exit is recorded as an untrusted
+availability event rather than a successful continuous epoch. Invalid initial
+or later monotonic evidence also terminates the declared runner fail closed.
+The guard, both resource validators, and plan audit passed 58 focused tests
+with warnings treated as errors. The complete package-qualified dual-frequency
+suite passed 753 tests in 121.681 seconds with warnings treated as errors. A
+real 3.2-second local delay smoke returned status 2, wrote
+`val_unmounted_sigterm`, and terminated the guarded child with `SIGTERM`.
+
 After this PID-evidence correction, the complete isolated-package
 dual-frequency test directory passed 609 tests in 72.466 seconds under Conda
 `leaddbs`. The authoritative invocation included both the repository root and
@@ -9162,6 +9190,21 @@ boundary. This remains intermediate evidence: the final add-on
 still require the actual terminal `segment_0020` or a later guarded resume.
 The immutable interrupted segments and their guards remain failure-recovery
 evidence, and only unpublished in-flight work may be recomputed.
+
+The user then reported another physical VAL disconnect during
+`segment_0020`. The append-only guard CSV contains a 9.169397-second gap from
+2026-07-26T17:25:56.476356Z to 2026-07-26T17:26:05.645753Z, but no automatic
+stop event because the remounted volume again resolved to `/dev/disk4s2` with
+the same observable identity. The runner, solver, current persistent worker,
+and guard were stopped manually; the guard closed with `runner_exit` at
+2026-07-26T17:53:52.058570Z. The task ledger remained 393 completed, one
+running add-on gate, and 196 dependency-derived skips. The in-flight row
+remained under its `.tmp-*` producer directory and did not become an atomic
+row-cache or decision publication. The previously validated reference closure
+of 34 decisions and 68 rows and add-on closure of nine decisions and 18 rows
+remain the only accepted stable cache boundary. `segment_0020` is interruption
+evidence and is ineligible for terminal resource acceptance. Any successor
+resume must use the Decision 42 sampling-deadline guard.
 
 The combined-extension cache-first launch boundary was revalidated on
 2026-07-26 without reading or writing VAL. Ten focused tests covered executor

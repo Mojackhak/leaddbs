@@ -7,6 +7,7 @@ import argparse
 import csv
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import math
 import os
 from pathlib import Path
 import re
@@ -27,6 +28,8 @@ _CSV_FIELDS = (
     "event",
 )
 _DEFAULT_RSS_LIMIT_BYTES = 64 * 1024**3
+_MIN_OBSERVATION_DEADLINE_SECONDS = 3.0
+_OBSERVATION_DEADLINE_INTERVALS = 3.0
 
 
 class ResourceGuardError(RuntimeError):
@@ -241,6 +244,16 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _monotonic_now(reader: Callable[[], float]) -> float:
+    try:
+        value = float(reader())
+    except (OSError, TypeError, ValueError, OverflowError) as exc:
+        raise ResourceGuardError("cannot read the monotonic clock") from exc
+    if not math.isfinite(value):
+        raise ResourceGuardError("monotonic clock is not finite")
+    return value
+
+
 def _write_row(writer: object, handle: object, row: Sequence[object]) -> None:
     try:
         writer.writerow(row)
@@ -277,6 +290,7 @@ def run_guard(
     terminator: Callable[[Sequence[ProcessRow], int], None] = _terminate_tree,
     sleeper: Callable[[float], None] = time.sleep,
     timestamp_reader: Callable[[], str] = _utc_now,
+    monotonic_reader: Callable[[], float] = time.monotonic,
 ) -> int:
     """Run until the runner exits or a resource contract triggers a stop."""
 
@@ -286,6 +300,10 @@ def run_guard(
         raise ResourceGuardError("RSS ceiling must be positive")
     if interval_seconds <= 0:
         raise ResourceGuardError("sample interval must be positive")
+    observation_deadline_seconds = max(
+        _MIN_OBSERVATION_DEADLINE_SECONDS,
+        _OBSERVATION_DEADLINE_INTERVALS * interval_seconds,
+    )
     destination = _validate_output_path(output, mount_path)
     baseline_swap = swap_reader()
     if baseline_swap < 0:
@@ -295,6 +313,11 @@ def run_guard(
         writer = csv.writer(handle)
         last_rows: tuple[ProcessRow, ...] = ()
         baseline_mount_identity: MountIdentity | None = None
+        try:
+            last_observation_monotonic = _monotonic_now(monotonic_reader)
+        except ResourceGuardError:
+            _fail_closed((), runner_pid, terminator)
+            raise
         while True:
             runner_present: bool | None = None
             try:
@@ -309,22 +332,6 @@ def run_guard(
                         raise ResourceGuardError(
                             "runner PID is live but absent from process snapshot"
                         )
-                    _write_row(
-                        writer,
-                        handle,
-                        (
-                            timestamp,
-                            0,
-                            peak_rss,
-                            0.0,
-                            swap_reader(),
-                            baseline_swap,
-                            "runner_exit",
-                        ),
-                    )
-                    return 0
-                rss_bytes = sum(row.rss_bytes for row in tree)
-                cpu_percent = sum(row.cpu_percent for row in tree)
                 used_swap = swap_reader()
                 if used_swap < 0:
                     raise ResourceGuardError("reported swap usage is negative")
@@ -334,12 +341,42 @@ def run_guard(
                     and current_mount_identity is not None
                 ):
                     baseline_mount_identity = current_mount_identity
+                observation_monotonic = _monotonic_now(monotonic_reader)
+                observation_gap_seconds = (
+                    observation_monotonic - last_observation_monotonic
+                )
+                if observation_gap_seconds < 0:
+                    raise ResourceGuardError("monotonic clock moved backward")
+                continuity_untrusted = (
+                    observation_gap_seconds > observation_deadline_seconds
+                    or current_mount_identity is None
+                    or current_mount_identity != baseline_mount_identity
+                )
+                if not runner_present:
+                    event = (
+                        "val_unmounted_sigterm"
+                        if continuity_untrusted
+                        else "runner_exit"
+                    )
+                    _write_row(
+                        writer,
+                        handle,
+                        (
+                            timestamp,
+                            0,
+                            peak_rss,
+                            0.0,
+                            used_swap,
+                            baseline_swap,
+                            event,
+                        ),
+                    )
+                    return 2 if continuity_untrusted else 0
+                rss_bytes = sum(row.rss_bytes for row in tree)
+                cpu_percent = sum(row.cpu_percent for row in tree)
                 peak_rss = max(peak_rss, rss_bytes)
                 event = "sample"
-                if (
-                    current_mount_identity is None
-                    or current_mount_identity != baseline_mount_identity
-                ):
+                if continuity_untrusted:
                     event = "val_unmounted_sigterm"
                 elif rss_bytes >= max_rss_bytes:
                     event = "rss_limit_sigterm"
@@ -361,6 +398,7 @@ def run_guard(
                 if event != "sample":
                     terminator(rows, runner_pid)
                     return 2
+                last_observation_monotonic = observation_monotonic
                 sleeper(interval_seconds)
             except ResourceGuardError:
                 if runner_present is not False:

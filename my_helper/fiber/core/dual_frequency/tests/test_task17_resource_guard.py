@@ -106,8 +106,14 @@ class Task17ResourceGuardTest(unittest.TestCase):
         mounts: list[bool | MountIdentity | None],
         *,
         max_rss_bytes: int = 1000,
+        monotonic_values: list[float] | None = None,
     ) -> tuple[int, list[dict[str, str]], list[tuple[int, ...]]]:
         terminations: list[tuple[int, ...]] = []
+        monotonic_times = iter(
+            monotonic_values
+            if monotonic_values is not None
+            else [float(index) for index in range(len(snapshots) + 1)]
+        )
         times = iter(
             (
                 "2026-07-23T00:00:00+00:00",
@@ -161,6 +167,7 @@ class Task17ResourceGuardTest(unittest.TestCase):
             terminator=terminator,
             sleeper=lambda _seconds: None,
             timestamp_reader=lambda: next(times),
+            monotonic_reader=lambda: next(monotonic_times),
         )
         with output.open("r", encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
@@ -180,7 +187,7 @@ class Task17ResourceGuardTest(unittest.TestCase):
                     (ProcessRow(900, 1, 800, 90.0),),
                 ],
                 [10, 10, 10],
-                [True],
+                [True, True],
             )
         self.assertEqual(status, 0)
         self.assertEqual([row["event"] for row in rows], ["sample", "runner_exit"])
@@ -240,7 +247,7 @@ class Task17ResourceGuardTest(unittest.TestCase):
                     (ProcessRow(900, 1, 100, 1.0),),
                 ],
                 [10, 10, 10],
-                [True],
+                [True, True],
             )
             strict = validate_instrumented_guard(
                 root / "guard.csv",
@@ -253,6 +260,111 @@ class Task17ResourceGuardTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(strict["status"], "validated")
         self.assertEqual(historical["status"], "validated")
+
+    def test_delayed_live_observation_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            status, rows, terminations = self._run(
+                Path(temporary),
+                [
+                    (ProcessRow(100, 1, 100, 1.0),),
+                    (ProcessRow(100, 1, 100, 1.0),),
+                ],
+                [10, 10, 10],
+                [True, True],
+                monotonic_values=[0.0, 1.0, 4.1],
+            )
+        self.assertEqual(status, 2)
+        self.assertEqual(
+            [row["event"] for row in rows],
+            ["sample", "val_unmounted_sigterm"],
+        )
+        self.assertEqual(terminations, [(100,)])
+
+    def test_delayed_runner_exit_is_not_accepted_as_continuous(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            status, rows, terminations = self._run(
+                Path(temporary),
+                [
+                    (ProcessRow(100, 1, 100, 1.0),),
+                    (ProcessRow(900, 1, 100, 1.0),),
+                ],
+                [10, 10, 10],
+                [True, True],
+                monotonic_values=[0.0, 1.0, 4.1],
+            )
+        self.assertEqual(status, 2)
+        self.assertEqual(
+            [row["event"] for row in rows],
+            ["sample", "val_unmounted_sigterm"],
+        )
+        self.assertEqual(terminations, [])
+
+    def test_nonfinite_monotonic_clock_fails_closed(self) -> None:
+        terminations: list[tuple[int, ...]] = []
+        monotonic_times = iter((0.0, float("nan")))
+
+        def terminator(rows, _runner_pid: int) -> None:
+            terminations.append(tuple(row.pid for row in rows))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(ResourceGuardError, "not finite"):
+                run_guard(
+                    runner_pid=100,
+                    output=root / "guard.csv",
+                    mount_path=root / "VAL",
+                    process_reader=lambda: (ProcessRow(100, 1, 100, 1.0),),
+                    swap_reader=lambda: 10,
+                    mount_identity_reader=lambda _path: MountIdentity(
+                        "/dev/disk4s2", 1, 2, 3, 4, 5, 6, 7, 8
+                    ),
+                    terminator=terminator,
+                    monotonic_reader=lambda: next(monotonic_times),
+                )
+        self.assertEqual(terminations, [(100,)])
+
+    def test_nonfinite_initial_monotonic_clock_fails_closed(self) -> None:
+        terminations: list[tuple[int, ...]] = []
+
+        def terminator(rows, _runner_pid: int) -> None:
+            terminations.append(tuple(row.pid for row in rows))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(ResourceGuardError, "not finite"):
+                run_guard(
+                    runner_pid=100,
+                    output=root / "guard.csv",
+                    mount_path=root / "VAL",
+                    swap_reader=lambda: 10,
+                    terminator=terminator,
+                    monotonic_reader=lambda: float("nan"),
+                )
+        self.assertEqual(terminations, [(100,)])
+
+    def test_backward_monotonic_clock_fails_closed(self) -> None:
+        terminations: list[tuple[int, ...]] = []
+        monotonic_times = iter((1.0, 0.0))
+
+        def terminator(rows, _runner_pid: int) -> None:
+            terminations.append(tuple(row.pid for row in rows))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(ResourceGuardError, "moved backward"):
+                run_guard(
+                    runner_pid=100,
+                    output=root / "guard.csv",
+                    mount_path=root / "VAL",
+                    process_reader=lambda: (ProcessRow(100, 1, 100, 1.0),),
+                    swap_reader=lambda: 10,
+                    mount_identity_reader=lambda _path: MountIdentity(
+                        "/dev/disk4s2", 1, 2, 3, 4, 5, 6, 7, 8
+                    ),
+                    terminator=terminator,
+                    monotonic_reader=lambda: next(monotonic_times),
+                )
+        self.assertEqual(terminations, [(100,)])
 
     def test_rss_boundary_records_stop_and_terminates(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
