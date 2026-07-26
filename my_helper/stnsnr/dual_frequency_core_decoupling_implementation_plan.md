@@ -8332,6 +8332,14 @@ only for the three configured exposure/coverage/overlap minima and remains
 excluded for support-QC and pPAM rules. No production YAML or running
 scientific identity changed during this replay.
 
+A clean-worktree replay on 2026-07-26 expanded this boundary slice to the
+complete activation-universe and fiber-scoring modules. It passed 21 tests plus
+11 subtests under Conda `leaddbs` with warnings treated as errors. The replay
+again proves inclusive tau, Coverage, reference-overlap, and minimum-grid
+`Omega_max` behavior while retaining strict `p(A) > 0.5` binary pPAM
+activation. It used only synthetic temporary fixtures and did not read,
+modify, or substitute for the active OSS lineage or its shared cache.
+
 Formal OSS progress evidence on 2026-07-22 reached 76 immutable row entries
 and 38 equivalence decisions in the reference group. Decision
 `4afb7c51694354cff528d04e8835ba1061d7d7551476f45ad7e0700ad6d87589`
