@@ -21,6 +21,12 @@ Status vocabulary:
   is not terminal;
 - `BLOCKED` is reserved for an external condition that prevents progress.
 
+The repository-owned plan-audit guard must retain exactly 24 uniquely named
+Evidence Matrix rows, reject an unknown status or malformed table row, and
+require the `Final three-plan requirement audit` row to remain non-accepted
+while any other row is non-accepted. Only a completely accepted matrix may
+mark that final row accepted.
+
 ## Evidence Matrix
 
 | Requirement | Status | Current authoritative evidence | Remaining acceptance action |
@@ -93,14 +99,15 @@ does not name an Evidence Matrix requirement. The other two source plans
 currently have no open checkbox; opening one without extending this ledger
 must therefore fail the same guard.
 
-`test_task17_plan_audit.py` implements this contract. On 2026-07-25 its three
-focused tests passed with warnings treated as errors: the 26 open
+`test_task17_plan_audit.py` implements this contract. Its five focused tests
+pass with warnings treated as errors: the 26 open
 dual-frequency items mapped to 26 unique ledger rows, the ten open Step
 numbers matched exactly, both other plans had no open checkbox, and every
 backticked mapping reference named an existing evidence row or an allowed
-status token. The new guard and the existing bounded goal-acceptance suite
-then passed all 12 tests together under Conda `leaddbs`, including the
-repository-path closure described below.
+status token. They also enforce the 24-row status/final-closure contract and
+the repository-path closure described below. The new guard and the existing
+bounded goal-acceptance suite then passed all 13 tests together under Conda
+`leaddbs`.
 
 ## Repository Entrypoint Preflight
 
