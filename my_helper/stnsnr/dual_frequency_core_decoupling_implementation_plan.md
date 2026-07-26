@@ -3131,17 +3131,6 @@ fixtures. Dedicated ledger tests continue to exercise the actual 48-GiB
 charge, 64-GiB managed ceiling, reserve predicate, and cumulative admission
 behavior; only orchestration fixtures isolate host availability.
 
-A later resume/cache audit under the active independent OSS workload exposed
-the same host-state leak in
-`test_resume_replays_historical_accepted_oss_gate_cache_only`. Its first pass
-intentionally authorizes the synthetic OSS producer before proving stable
-cache-only promotion on resume, so the real 48-GiB admission charge can block
-the in-memory service when host availability is low. Freeze this fixture's
-three executor invocations at 128 GiB total and available through
-`_ResourceLedger._memory_state`. This is a synthetic-fixture correction only:
-it does not change production admission, the cache-promotion contract,
-scientific results, or the active OSS process.
-
 The isolated synthetic end-to-end suite passed all seven scenarios while the
 formal OSS solver remained active. The complete dual-frequency suite then ran
 545 collected test items to exit status 0. This accepts the executor-level
@@ -3387,6 +3376,17 @@ worker. The profile may be validated while OSS runs but must not execute until
 the solver lineage releases VAL and connectome bandwidth. A second invocation
 with the configured worker count must be cache-only and byte-identical; it is
 not a second cold replay.
+
+The frozen scientific fixture SHA-256 is
+`7255126c155aa616faac1457103169597ecd9c8c9707976ecb26e71c617fba6c`.
+The frozen replay-workflow SHA-256 is
+`4ad144f4aa2c94a5d85ac89e84cf389474d8e82d31d4e642b8b5347d98cfb4cc`.
+The fixture deliberately excludes execution paths and worker ceilings; those
+remain owned by the workflow and the exact commands below. Before execution,
+both digests must match, the workflow must still select all models and
+connectomes through observed with one cold worker, and its cache and run roots
+must remain the dedicated acceptance roots. Any drift blocks replay rather
+than silently creating a different acceptance claim.
 
 Read-only validation and planning passed on 2026-07-22 for scale `adl`. The
 request resolves eight available endpoints, 46 dependency-complete tasks, the
@@ -4210,6 +4210,20 @@ while changed JSON or YAML content is rejected. A direct audit of
 as provenance and are not hidden resume gates. This accepts the three-gate
 resume implementation boundary; the active independent OSS lineage still
 requires terminal replay evidence after its two equivalence gates close.
+
+A 2026-07-25 isolated pre-merge replay exposed one test-only resource
+dependency. The historical accepted-OSS cache-only resume fixture created its
+initial expensive gate under the host's live available-memory measurement.
+While the production OSS process held memory, that synthetic first pass could
+not admit its 48-GiB grant and reported a scheduler deadlock before reaching
+the resume behavior under test. The fixture must pin `_ResourceLedger` to a
+synthetic 128-GiB total and available-memory state around all three invocations.
+This keeps the real 48-GiB solver charge and 64-GiB managed ceiling intact,
+makes the unit test independent of concurrent host load, and changes no
+production executor or resume gate. The fixture now pins that synthetic memory
+state. All eight focused resume tests and all 41 executor tests pass under
+Conda `leaddbs` with warnings treated as errors while the independent OSS
+process remains active.
 
 A current focused resource and determinism replay on 2026-07-22 passed 14 tests
 plus four subtests under Conda `leaddbs`. It verifies one closed pool generation
@@ -6021,6 +6035,45 @@ repairing any file, then compares the recomputed report with the existing
 `fault_acceptance.json`. A missing or changed report fails; validation must not
 call a path that rewrites the report before comparison.
 
+The production invocation is frozen to one plan document and one disjoint
+acceptance root. Generate the plan only after canonical OSS-v2 and combined-v2
+are terminal, because its read-only closure must bind their actual manifests,
+indexes, payload hashes, accepted parent, and copied scientific-cache entries.
+The plan path is
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-plan-v1.json`;
+the harness root is
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-v1`.
+The plan remains outside the marked harness root so initialization can prove
+that the root is absent or contains only a matching resumable transaction.
+After an independent review of the generated plan and its six-case closure,
+run:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_fault_acceptance.py \
+  --plan /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-plan-v1.json \
+  --acceptance-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-v1 \
+  init
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_fault_acceptance.py \
+  --plan /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-plan-v1.json \
+  --acceptance-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-v1 \
+  run
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_fault_acceptance.py \
+  --plan /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-plan-v1.json \
+  --acceptance-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-fault-v1 \
+  validate
+```
+
+Repeat `run` once after terminal success and then repeat `validate`. The second
+run must reuse all six completed cases only after revalidating their immutable
+inputs, quarantines, commands, outputs, comparisons, and read-only roots.
+Neither invocation may alter the accepted parent, canonical publications, or
+shared production cache.
+
 Performance instrumentation implementation checkpoint on 2026-07-24:
 
 - the executor retains five-second scheduler windows in memory and publishes
@@ -7436,8 +7489,8 @@ the segment must still satisfy complete task-tree RSS `< 64 GiB`, swap growth
 `< 1 byte`, terminal gate closure, and the full 590-task outcome contract
 before independent OSS can be accepted.
 
-A current resolved-configuration audit confirms that this lineage records 14
-workers, expensive-producer authorization for the independent OSS miss, and
+A 2026-07-22 resolved-configuration audit confirmed that this lineage recorded
+14 workers, expensive-producer authorization for the independent OSS miss, and
 `delete_run_cache_on_success` false. The checked-in workflow keeps its generic
 default at three workers and expensive producers disabled; the later combined
 lineage must therefore pass only the 14-worker resource override and must omit
@@ -7447,7 +7500,8 @@ prevented its `finally` completion write. No process from that segment remains,
 later segments exist in the same append-only lineage, and no scientific row
 from that attempt is accepted. Final audit must classify it as interrupted
 historical provenance, not as the active writer or a terminal acceptance
-segment; `segment_0010` is the sole current execution segment.
+segment. At that dated snapshot, `segment_0010` was the sole execution segment;
+later segment records below supersede that operational status.
 
 A 2026-07-22 operational audit later found that `segment_0010` retained only
 intermittent process-tree snapshots and no surviving one-second resource guard.
@@ -7469,16 +7523,13 @@ an ordinary sample, observed swap minimum and maximum both matched the
 6844978299-byte baseline, and the captured task-tree RSS peak had risen safely
 to 48970170368 bytes, still `< 64 GiB`.
 
-The user subsequently required every operational monitor to use a two-hour
-interval. This supersedes the one-second stop guard and the temporary ten-second
-interactive poll for the remainder of the execution. Before termination, the
+The user subsequently required model-driven checks and reports to use a
+two-hour interval. At that intermediate point the one-second stop guard and the
+temporary ten-second interactive poll were stopped. Before termination, the
 guard had accumulated more than 3200 continuous samples, retained the same
 48970170368-byte RSS peak, observed swap growth `< 1` byte, and fired no stop
-event. Later checks sample VAL availability, process state, RSS, CPU, and swap
-once every two hours. This lower-frequency policy can detect an unmount or a
-transient resource excursion up to two hours late and cannot establish a
-continuous peak between snapshots; that limitation must remain explicit in
-final resource acceptance.
+event. This temporary absence of a continuous guard was immediately superseded
+by the local-observation decision below and is not the final resource policy.
 
 The user then distinguished local observation from Codex activity. A local
 one-second Python guard consumes no model token and is reauthorized; ten-second
@@ -9340,20 +9391,124 @@ generation paths. It then binds the actual resolved worker snapshot, finished
 segment, probe, counter sidecar, and numerical identity into the matrix row.
 After all rows are terminal, the harness atomically publishes the exact
 72-row matrix, invokes the repository validator, and publishes its immutable
-acceptance report.
+acceptance report. At that intermediate checkpoint the public `run` operation
+remained closed because injected spawned-worker execution was fail-closed.
+Candidate-parity plus harness coverage then passed 35 tests.
 
-The follow-up implementation is complete in the isolated
-`task17-perf-injected-worker` worktree and intentionally remains outside the
-production checkout while independent OSS is active. It adds the injected
-spawned-worker descriptor and initialization path, exposes the public
-resumable `run` operation, and retains production-provider initialization when
-no fixture is selected. A fresh 2026-07-26 replay of the complete performance
-harness passed 36 tests with warnings treated as errors, including the public
-parser and dispatch, exact 72-row closure, spawned-worker fixture, terminal
-read-only validation, row resume, byte-ledger binding, and accepted OSS cache
-closure. After independent OSS terminates and every process exits, merge the
-isolated implementation into the production checkout and run the complete
-regression before preparing or executing the production matrix.
+The injected-worker implementation boundary was frozen before code changes.
+`SpawnWorkerSpec` receives one optional immutable
+`BenchmarkOSSInjectedFixtureSpec`; the default remains null. The descriptor
+contains the version, resolved fixture-cache root, accepted closure SHA, and
+sorted permitted row identities. A worker with a descriptor reconstructs the
+ordinary `StudyRuntimeInputProvider`, validates the descriptor and fixture
+root, and overrides only `oss_producer_toolchain` with the deterministic
+ten-sample benchmark toolchain. The pre-spawn child validates the complete
+fixture closure once; workers fully reopen only a requested permitted row,
+avoiding a closure-wide rehash in every process. The provider must remain a
+`StudyRuntimeInputProvider` instance because the OSS gate enforces that
+capability boundary. Warm-seed and measured-row parents derive the descriptor
+only from their already validated fixture document. Ordinary rows continue to
+construct the unchanged null descriptor. Null-default compatibility must execute
+`initialize_worker` without a fixture and prove that it constructs the ordinary
+provider with its production OSS toolchain unchanged; inspecting only the
+dataclass default is insufficient. Focused tests must also prove
+invalid-descriptor rejection, permitted-row reconstruction, forbidden-row
+rejection, and injected warm/row context construction before the public `run`
+operation opens. At the current isolated checkpoint, all five candidate-parity
+tests and 35 performance-harness tests pass.
+
+The public boundary then exposes only the already implemented `_run_matrix`
+orchestration as `run`. Read-only `validate` must keep its prepared-plan checks
+and, when either terminal file exists, require both `performance_matrix.json`
+and `performance_acceptance.json`, recompute strict acceptance without writing,
+and require exact equality with the stored report. A matrix without acceptance,
+acceptance without a matrix, or changed terminal report is partial and fails.
+
+This isolated implementation now passes five candidate-parity tests and 34
+performance-harness tests. It adds the null-default spawn descriptor, the
+worker-local injected provider, injected warm-seed and measured-row context
+construction, public `run`, and read-only terminal validation. The complete
+suite remains deferred until independent OSS exits because the active
+production memory reservation makes the system-derived executor admission test
+fail in both the unchanged main checkout and this isolated worktree; ignored
+template and frozen-acceptance data are also absent from the worktree.
+
+After the VAL-unmount guard terminated `segment_0018` and released its process
+tree, the complete isolated suite was executed natively with warnings treated
+as errors. The Git-ignored allowlist, frozen manifest, and MNI template segmask
+were exposed at their isolated-worktree paths through same-device hard links
+to the authoritative primary-checkout files. No payload bytes or tracked files
+were copied or changed. All 773 tests and 329 subtests passed, with no failure
+or skip, and both worktrees remained clean. The isolated implementation is
+therefore ready for a terminal scope review and merge, but the merge and its
+mandatory post-merge complete regression remain deferred until the independent
+OSS lineage is terminal.
+
+An additional offline integration preflight merged isolated head
+`2afd3e50e` into main head `2f2e2bd97` on the separate
+`task17-perf-merge-preflight` branch without a conflict. The integration
+worktree materialized the same ignored frozen allowlist, frozen manifest, and
+MNI template segmask used by the main checkout, then passed the complete
+dual-frequency and visualization regression: 834 tests and 329 subtests in
+132.78 seconds, with no failure or skip. This preflight did not modify the
+production checkout, active OSS process, or production payloads. It proves the
+reviewed merge closure is compatible with the current main source, but it does
+not replace the required production-checkout merge and complete regression
+after terminal independent OSS.
+
+The formal configured benchmark request is frozen at
+`config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
+It binds the completed v8 parent, the independent OSS lineage, the exact four
+input copies retained by the parent run, Conda `leaddbs`, the repository
+working directory, a 64-GiB RSS ceiling, and no real-cold solver
+authorization. Its separate benchmark root is
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725`.
+Only after independent OSS is terminal, the isolated implementation is merged,
+and the complete regression passes, execute:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_performance_matrix.py prepare \
+  --request my_helper/stnsnr/config/four_model_v1/acceptance/task17_performance_benchmark_request.json \
+  --benchmark-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_performance_matrix.py run \
+  --request my_helper/stnsnr/config/four_model_v1/acceptance/task17_performance_benchmark_request.json \
+  --benchmark-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_task17_performance_matrix.py validate \
+  --request my_helper/stnsnr/config/four_model_v1/acceptance/task17_performance_benchmark_request.json \
+  --benchmark-root /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725
+```
+
+`prepare` is forbidden while the OSS source is nonterminal. `run` resumes only
+the immutable prepared root, and `validate` performs no repair.
+
+After the documentation merges, a fresh 2026-07-26 replay of the complete
+performance harness passed 36 tests with warnings treated as errors, including
+the public parser and dispatch, exact 72-row closure, spawned-worker fixture,
+terminal read-only validation, row resume, byte-ledger binding, and accepted
+OSS cache closure. The implementation remains isolated until independent OSS
+terminates and every process exits. It must then be merged into the production
+checkout and pass the complete regression again before the production matrix
+is prepared or executed.
+
+The isolated branch was synchronized again with main after Decision 41 mount
+identity protection and the final OSS cache-promotion audit. At merge commit
+`ac4e36b5c`, main remains an ancestor and the net implementation closure
+contains exactly seven paths: the performance runner, the spawned-worker
+implementation and export, its focused test, the frozen benchmark request, and
+the two Task 17 evidence documents. A line-by-line production-path review
+confirmed that ordinary main and sensitivity worker construction still omit
+the optional benchmark fixture, while only benchmark warm-seed and measured
+rows derive it from an already validated fixture document. The combined
+performance acceptance, byte-ledger, counter, matrix, probe, resource-guard,
+and plan-audit set passed 91 tests with warnings treated as errors. This is
+pre-merge readiness evidence only; the terminal ancestry, path closure,
+request digest, and complete regression remain mandatory after independent
+OSS exits.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 

@@ -38,7 +38,7 @@ mark that final row accepted.
 | Canonical main model-set publication | ACCEPTED | Completed direct-voxel and normative-fiber model-set publications are the only allowed public parents, and postprocess preflight resolves them without a run-store fallback. Commit `3c45d57b7` adds the repository-owned full-payload validator. Five focused tests pass; complete dual-frequency discovery passes 772 tests and 329 subtests with warnings treated as errors. After display-smoothing promotion, the production validator hashed all 5690 indexed payloads and 1062720468 bytes, verified both terminal manifests, resolved profiles, study snapshots, root identities, 28-scale closures, and exactly 56 final models per domain. Direct-voxel and normative-fiber indexed-payload closure SHA-256 values are `cc48441d4109648c6e82c752f202763754c414460c6957ce689db932143a86db` and `a25d1936fc699ca4ea303ff87daa22bbe9775995fd350b330badd6acf901e3e6`. The atomic report SHA-256 is `8cf595681415820f5224fb7aeebe5023a702046cde3f0efefa485c3a559d782f`; a second full invocation preserved its bytes and mtime. | Reopen the retained report during final three-plan audit and require downstream publications to preserve these parent-manifest bindings. |
 | Final in-sample inference and publication | ACCEPTED | Both model-set domains contain the canonical final-in-sample v2 extension. A fresh public-only closure audit found 56 direct-voxel and 56 normative-fiber results with 112 globally unique endpoint IDs. Every result has the complete paired in-sample and LOOCV statistic set, matching subject masks and finite counts, 10000 requested and finite permutations on both sides, and a final-model ID, selected tau, and selected Coverage matching its indexed canonical final-model record. Both parent-manifest bindings are current, all four publication manifests are terminal, all indexed rows are completed, and the paired metadata contains no run-store or runtime-work path. The audit found no mismatch. | Confirm that the terminal paired-fit plots consume this exact 112-endpoint closure without substituting a run-store source. |
 | Shared physical preparation and configured-data parity | PENDING | Shared geometry, one-time physical exposure, inclusive fiber overlap, exact minimum-grid `Omega_max`, side-specific fiber peak reduction, cache-backed subject/feature views, copied-cache reuse, and bounded parity fixtures pass. A fresh provider/jitter/activation-universe/OSS-axis/toolchain replay passed 106 tests and 26 subtests with warnings treated as errors. These fixtures prove the implementation boundary but do not compare the complete configured production matrices. | After independent OSS releases the formal connectome and VAL I/O path, run the repository-owned configured-data post-refactor replay. Record complete matrix parity, worker-count determinism, physical-row counters, logical-versus-physical write reduction, and absence of endpoint matrix copies or repeated full-connectome traversal. |
-| Cold/warm performance and scheduler acceptance | PENDING | Persistent spawned scheduling, global CPU/memory/I/O/solver ledgers, parent-only state mutation, process-local cache verification, vectorized kernels, and deterministic RNG boundaries pass static tests. The repository-owned cumulative-CPU probe, five-second scheduler-window publication, exact 72-row matrix validator, source-evidence binding, deterministic report, worker/default decision, RSS/swap gates, and utilization-window gate are implemented. Every executed row binds the exact probe SHA; I/O classification is closed to compute-bound or storage-limited; and a non-default worker promotion requires matched compute-bound rows that are all faster than workers 3 while retaining both wall times in the report. All 28 counters derive from immutable task fragments, configured parity, artifact/static audit, terminal segment fields, and a SHA-bound source/scratch byte ledger; caller-entered counter values are rejected. Commit `f73d849d8` binds every scheduler sample to its contemporaneous managed-memory ceiling and validates the initial, minimum, maximum, and final segment closure. The benchmark harness validates the minimal operator request, accepted parent and independent OSS binding, exact source identities, maximum-burden scientific requests, measured/imported DAG task slices, protected-root separation, optional solver authorization, and the exact 72-row key closure. Its runner-readiness and measurement-start protocol binds the row, child PID, slice-plan SHA, imported task closures, byte-ledger path, and byte-ledger SHA before selected work may start. Stable row identities, immutable row contracts, monotonic attempt directories, terminal evidence SHAs, changed-contract rejection, and changed-evidence rejection are implemented. `prepare` writes the resolved plan, all 72 contracts, and only then the complete contract-SHA marker; read-only validation rejects missing, extra, changed, or path-aliased contract roots. The sole unauthorized real-cold solver branch publishes an immutable false-authorization preflight and terminal `not_run`; other rows cannot use that status. Every statistical slice includes its selected endpoint's base physical producer so a cold row can create the row-local shared-cache closure and a warm row can prove a cache hit without copying a selected-task result. Each resolved slice persists a closed executable plan with imported direct parents converted to checkpoint-only roots while preserving every selected task's original service, parameters, gates, and internal dependencies. pPAM injected, real-cache-hit, and real-solver rows have separate slice identities and all measure the OSS equivalence gate; the accepted OSS outcome is an injected/reference authority or cache seed, never a copied selected-task result. `prepare` decodes the exact two terminal OSS gate records, resolves only their referenced decision and final/Omega row entries from the configured shared cache, verifies stable scientific keys and final-axis probability parity, and binds every cache-manifest SHA plus a canonical closure SHA into the resolved plan. The benchmark-only injected toolchain reconstructs exact ten-sample activation counts from those accepted rows and rejects requests outside that closure. Ordinary and injected warm-seed production, child/probe launch, terminal row evidence, identical row resume, normalized numerical identity, scheduler-derived I/O classification, 72-row matrix publication, strict acceptance invocation, public `run`, and read-only terminal validation are implemented in the isolated worktree. Five candidate-parity tests pass, and a fresh complete performance-harness replay passes 36 tests with warnings treated as errors. No production matrix has run. | After independent OSS terminates, merge the isolated implementation and run the complete regression. Then execute the workers 1, 3, 6, and 12 cold/warm matrix without substituting skipped or default-zero rows. Retain every terminal counter sidecar, exact-resume proof, deterministic matrix, and acceptance report. |
+| Cold/warm performance and scheduler acceptance | PENDING | Persistent spawned scheduling, global CPU/memory/I/O/solver ledgers, parent-only state mutation, process-local cache verification, vectorized kernels, and deterministic RNG boundaries pass static tests. The repository-owned cumulative-CPU probe, five-second scheduler-window publication, exact 72-row matrix validator, source-evidence binding, deterministic report, worker/default decision, RSS/swap gates, and utilization-window gate are implemented. Every executed row binds the exact probe SHA; I/O classification is closed to compute-bound or storage-limited; and a non-default worker promotion requires matched compute-bound rows that are all faster than workers 3 while retaining both wall times in the report. All 28 counters derive from immutable task fragments, configured parity, artifact/static audit, terminal segment fields, and a SHA-bound source/scratch byte ledger; caller-entered counter values are rejected. Commit `f73d849d8` binds every scheduler sample to its contemporaneous managed-memory ceiling and validates the initial, minimum, maximum, and final segment closure. The benchmark harness validates the minimal operator request, accepted parent and independent OSS binding, exact source identities, maximum-burden scientific requests, measured/imported DAG task slices, protected-root separation, optional solver authorization, and the exact 72-row key closure. Its runner-readiness and measurement-start protocol binds the row, child PID, slice-plan SHA, imported task closures, byte-ledger path, and byte-ledger SHA before selected work may start. Stable row identities, immutable row contracts, monotonic attempt directories, terminal evidence SHAs, changed-contract rejection, and changed-evidence rejection are implemented. `prepare` writes the resolved plan, all 72 contracts, and only then the complete contract-SHA marker; read-only validation rejects missing, extra, changed, or path-aliased contract roots. The sole unauthorized real-cold solver branch publishes an immutable false-authorization preflight and terminal `not_run`; other rows cannot use that status. Every statistical slice includes its selected endpoint's base physical producer so a cold row can create the row-local shared-cache closure and a warm row can prove a cache hit without copying a selected-task result. Each resolved slice persists a closed executable plan with imported direct parents converted to checkpoint-only roots while preserving every selected task's original service, parameters, gates, and internal dependencies. pPAM injected, real-cache-hit, and real-solver rows have separate slice identities and all measure the OSS equivalence gate; the accepted OSS outcome is an injected/reference authority or cache seed, never a copied selected-task result. `prepare` decodes the exact two terminal OSS gate records, resolves only their referenced decision and final/Omega row entries from the configured shared cache, verifies stable scientific keys and final-axis probability parity, and binds every cache-manifest SHA plus a canonical closure SHA into the resolved plan. The benchmark-only injected toolchain reconstructs exact ten-sample activation counts from those accepted rows and rejects requests outside that closure. Ordinary and injected warm-seed production, child/probe launch, terminal row evidence, identical row resume, normalized numerical identity, scheduler-derived I/O classification, 72-row matrix publication, strict acceptance invocation, public `run`, and read-only terminal validation are implemented in the isolated worktree. Five candidate-parity tests pass, and a fresh complete performance-harness replay passes 36 tests with warnings treated as errors. After synchronizing Decision 41 and the final OSS cache-promotion audit from main at merge `ac4e36b5c`, the combined performance, byte-ledger, counter, probe, resource-guard, and plan-audit set passes 91 tests with warnings treated as errors; the net branch closure remains seven paths and ordinary production worker initialization remains unchanged. No production matrix has run. | After independent OSS terminates, merge the isolated implementation and run the complete regression. Then execute the workers 1, 3, 6, and 12 cold/warm matrix without substituting skipped or default-zero rows. Retain every terminal counter sidecar, exact-resume proof, deterministic matrix, and acceptance report. |
 | Corruption, fail-once recovery, and deletion-rebuild acceptance | PENDING | Static cache, resume, checkpoint, and rebuild fixtures reject payload, shard, axis, and result corruption and selectively rerun affected descendants. The repository-owned marker-bound isolated harness implements complete parent/publication SHA closure, exact copied-cache marker closure, path-safe unique case IDs, absolute and relative command confinement, quarantine-and-restore corruption, immutable and task-bound pre-resume fail-once evidence, protected-artifact checks, distinct-lineage rebuild, unauthorized copied-cache replay, exact or NPY-tolerant one-shot comparison, contract-bound terminal case reuse, and read-only validation that cannot repair a changed report. Fifteen focused harness tests pass with warnings treated as errors. A later complete collect-only pass discovers 764 tests without import or collection failure; it is runner-readiness evidence and not a claim that all 764 tests executed. A 2026-07-26 scope review confirmed that the immutable plan plus harness `init`, `run`, and read-only `validate` operations are the approved repository-owned boundary; a second plan-builder entrypoint is not required. The production-scale sequence has not run. | After terminal OSS and combined authorities exist, prepare and review the exact six-case production plan. In its marked isolated root, execute all three corruption classes, fail-once recovery, missing-parent rebuild, copied-cache replay, and one-shot comparisons; retain and revalidate the terminal deterministic report. |
 | Independent spatial jitter computation | ACCEPTED | `task17-jitter-v8-support-preserving-formal-20260719` completed its support-preserving block and endpoint closure with no terminal failure. Jitter compilation, selective block resume, cache-first dispatch, and extension publication boundaries pass 25 focused tests with temporary fixtures. | Reopen the completed child manifest, block closure, endpoint closure, artifact index, and parent binding during final audit. |
 | Canonical independent jitter-v2 publication | ACCEPTED | Commit `f20b7754e` makes terminal extension-v2 artifact replay index each immutable metadata sidecar and adds an exact regular-file closure regression. Focused publication coverage passed 22 tests; the complete main dual-frequency suite passed 767 tests and 329 subtests with warnings treated as errors. The four invalid index/manifest commit files were archived with their original SHA-256 values under `/Volumes/VAL/.Trashes/501/task17-jitter-v8-extension-v2-index-repair-20260726`; no scientific payload or metadata sidecar moved. Unfiltered replay rebuilt each domain as 226 indexed files for 56 results. The direct-voxel and normative-fiber payload closures retained their pre-repair SHA-256 values `16c42c2d513b39205009732f56030c39784350caac75de4fb2ae4b829cae4e25` and `75a2f827004b7110b1f5ddc8187547c5a85e69188645142b3ce84bdd3d25d5d4`. A second replay preserved both index and manifest bytes and mtimes. The repository validator passed both roots twice and atomically retained report SHA-256 `f5491c15fd2d07b81a1f8b7910d345e63b45d61f59eb929ce597bf3073d95040`. | Reopen the two roots and the retained validator report during the final three-plan audit; do not modify the accepted jitter-v2 publication. |
@@ -109,6 +109,122 @@ the repository-path closure described below. The new guard and the existing
 bounded goal-acceptance suite then passed all 13 tests together under Conda
 `leaddbs`.
 
+After the current main branch was merged into
+`task17-perf-injected-worker`, the isolated performance-matrix suite and the
+new plan-audit guard passed all 40 tests together with warnings treated as
+errors. The parser selects the table by its `Source-plan item` header, so the
+separate detailed checklist table below remains evidence rather than being
+miscounted as a second source mapping. The named Git-ignored allowlist resolved
+from the primary checkout, while every other current-worktree reference
+retained the strict missing-path check.
+
+A 2026-07-25 structural replay found 24 unique ledger rows: 10 accepted,
+two active, 12 pending, and no blocked row. The YAML-core and postprocess source
+plans contain no unchecked implementation item. The dual-frequency source plan
+contains 26 deliberately open items: the 10 production Step headings listed
+above and 16 final performance-checklist clauses covered by the last mapping
+row. No source-plan checkbox is orphaned behind an absent ledger gate, and no
+duplicate ledger name can make one production requirement appear closed twice.
+This is structure-only evidence; every active or pending row still requires
+the terminal production evidence named in the matrix.
+
+The final performance checklist expands to the following non-overlapping
+evidence map:
+
+| Final checklist clause | Required ledger evidence |
+| --- | --- |
+| One physical preparation before endpoint and scale fan-out | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Distinct voxel and fiber bilateral formulas reused across scales | `Shared physical preparation and configured-data parity` |
+| One logical connectome traversal with measured raw-boundary overlap and exact `Omega_max` | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Layer-1 jitter schedule and exposure with Layer-2 endpoint statistics | `Independent spatial jitter computation`; `Cold/warm performance and scheduler acceptance` |
+| Exact final-axis OSS equivalence before pPAM | `Independent OSS axis equivalence and pPAM` |
+| Once-per-process target-cache verification without checksum rereads | `Cold/warm performance and scheduler acceptance`; `Resume and copied-cache implementation` |
+| Stable OSS scientific identities and cache-first historical promotion | `Independent OSS axis equivalence and pPAM`; `Production identical resume acceptance` |
+| Spawned CPU work, disjoint units, persistent ready queue, and one public worker ceiling | `Resource scheduling and guard contract`; `Cold/warm performance and scheduler acceptance` |
+| Pure-data spawned commands, read-only shared artifacts, and parent-only mutation | `Resource scheduling and guard contract`; `Cold/warm performance and scheduler acceptance` |
+| Path-free fiber hot loops and point-byte-balanced whole-fiber partitions | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Single-write large payloads and immutable indexed views | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Vectorized numerical parity without duplicate operators or unused retained matrices | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance` |
+| Historical RNG schedules and worker-count invariance | `Shared physical preparation and configured-data parity`; `Cold/warm performance and scheduler acceptance`; `Production identical resume acceptance` |
+| Dependency-skip reevaluation and scientific-identity-safe resource overrides | `Production identical resume acceptance`; `Independent OSS axis equivalence and pPAM`; `Cache-first combined jitter and OSS replay` |
+| Managed-memory, task-tree RSS, swap, solver, local guard, and two-hour Codex boundaries | `Resource scheduling and guard contract`; `Cold/warm performance and scheduler acceptance` |
+| Exact tau and Coverage boundaries, reference overlap, strict support QC, and pPAM `p(A) > 0.5` | `Boundary and computability policy`; `Shared physical preparation and configured-data parity`; `Independent OSS axis equivalence and pPAM` |
+
+## Current YAML Preflight
+
+The current repository workflow resolves only `direct_voxel_model.yaml` and
+`normative_fiber_model.yaml`; no Python loader references the historical
+`model.yaml`. The direct-voxel profile SHA-256 is
+`0a8d9a6654dd13001ceed147fccc80b474740377b15ddd41e02447794080569f`,
+the normative-fiber profile SHA-256 is
+`439c59b3cc2052d6de47886bfc80010780bd3f9677c6b85c38f93930682af27b`,
+and the workflow SHA-256 is
+`a508b484e99280d9db43d0f25d9528f7fddc274b28e200b64a3609bea5d0336a`.
+The profiles retain the frozen tau and Coverage grids, main-analysis cells,
+three fiber fold minima of one, and retained-cache policy. The repository
+default remains three workers; formal worker overrides remain CLI/runtime
+inputs. On 2026-07-25, all 23 configuration and application-CLI tests plus 12
+subtests passed under Conda `leaddbs` with warnings treated as errors.
+
+The completed parent's deterministic `configuration_resolved.yaml` sections
+were serialized with the publication writer's exact sorted-YAML contract and
+compared directly with both canonical resolved profiles. The direct-voxel
+bytes matched at SHA-256
+`d4f6cc2c99d01dcd56c85c5123dee02e655b22f127b26562bf05602c2d17ae03`;
+the normative-fiber bytes matched at SHA-256
+`06866f2dea707a97686e081442a37d9f61ec7e9d1708d88524c236f73910d228`.
+Both artifact indexes contain those exact profile hashes and the common
+study-base SHA-256
+`3aa0d58a7373e186896b2fbfb5c0342d8425046bf9a5b07517b416d6a7def925`.
+The current raw normative-fiber YAML differs from the parent copy only in the
+OSS fitting-threshold comment, and the current workflow adds the nonscientific
+retained-cache policy. Loading the current profiles still yields scientific
+configuration SHA-256
+`6d23bc0e9f30e697806d0847f238c1c8b09170673dc1ff0c29253808a5c401d5`,
+which matches the completed parent and both model-set manifests.
+
+The main model-set publication, reporting, artifact/static audit, and
+extension-v2 publication suites were repeated at the same checkpoint. All 35
+tests passed with warnings treated as errors. This validates the local output
+and publication machinery but does not replace the remaining canonical OSS,
+combined, smoothing, and postprocess executions.
+
+The synthetic end-to-end suite was also repeated on the isolated branch. All
+seven tests passed with warnings treated as errors, covering local YAML
+validation, planning, execution, resume, main publication, and sensitivity
+publication across their real module boundaries. Synthetic fixtures do not
+replace configured-data or formal-run acceptance.
+
+The cache, run-cache cleanup, and sensitivity-checkpoint suites were repeated
+at the same checkpoint. All 58 tests and 20 subtests passed with warnings
+treated as errors. They cover content-addressed cache validation, portable
+checkpoint closure, copied-root reuse, corruption rejection, and the rule that
+failed or partial runs retain recovery state. Production identical resume and
+deletion-rebuild acceptance remain separate pending gates.
+
+The current resume implementation was re-inspected directly. `RunIdentity`
+still records `code_identity`, configuration hashes, and the plan hash as
+provenance, but `_validate_resume` does not use any of them as a reuse gate. It
+requires the study JSON digest and the ordered source digests for the three
+YAML inputs. The executor then restores only a task JSON whose status is
+completed and whose full typed result decodes and validates; malformed,
+incomplete, or missing results rerun with their affected descendants. Nine
+focused resume and copied-cache cases plus four cleanup-policy cases passed.
+One fixture changes the synthetic code identity while preserving JSON and YAML
+inputs and proves that the completed result is restored without service
+invocation. Failed or partial runs remain ineligible for cleanup, and the
+production false cleanup policy returns before inspection or mutation.
+
+The complete isolated fault harness and local resource-guard modules were
+replayed again on 2026-07-25. All 15 fault cases and all 11 guard cases passed.
+For harness tests that launch nested `conda run`, warnings-as-errors belongs on
+the outer interpreter through `python -W error`; the launcher must clear the
+inherited `PYTHONWARNINGS` environment variable. Exporting that variable causes
+the base Conda interpreter to terminate on its own deprecation warning before
+the declared synthetic fault command starts, which changes the observed exit
+code and is a launcher failure rather than a harness rejection. This invocation
+boundary changes no production command or warning policy.
+
 ## Repository Entrypoint Preflight
 
 The following repository-owned entrypoints parse successfully in Conda
@@ -125,6 +241,8 @@ The following repository-owned entrypoints parse successfully in Conda
 - `build_task17_performance_counters.py`;
 - `run_task17_performance_matrix.py` for `prepare`, internal resumable matrix
   execution, terminal publication, and read-only `validate`;
+- `run_task17_fault_acceptance.py` for isolated `init`, resumable `run`, and
+  read-only `validate`;
 - `validate_task17_performance_acceptance.py`;
 - `validate_task17_extension_publication.py`;
 - `repair_task17_display_smoothing_publication.py`; and
@@ -139,7 +257,6 @@ immutable request, maximum-burden workload selection, DAG slices, and 72-row
 closure. Its internal orchestration now prepares ordinary warm seeds, runs and
 probes measured rows, resumes only complete terminal transactions, builds
 counter evidence, and publishes the terminal matrix plus acceptance report.
-
 A static three-plan path audit extracted 121 unique backticked repository-file
 references with an implementation, configuration, test, or documentation
 extension. All 120 references intended to remain at their stated paths exist.
@@ -178,13 +295,122 @@ dual-frequency-only bridge is not accepted for this suite because it omits the
 sibling `seed_target_connectivity` package that the production CLI exposes
 through the complete core root.
 
-The injected spawned-worker fixture remains fail-closed, so the harness does
-not yet expose its public `run` operation and no production matrix manifest
-exists. The remaining injected execution boundary and production execution
-therefore remain open. The dedicated
+The injected spawned-worker fixture and public `run` operation are implemented
+in the isolated worktree, but no production matrix manifest exists. Merge,
+post-merge complete regression, and production execution therefore remain
+open. The
+dedicated
 isolated fault harness is implemented, but its production plan and sequence
 have not run. Those gaps remain part of their `PENDING` ledger rows. The
 existence of implementation tests or lower-level telemetry cannot close them.
+
+On 2026-07-25, the documented isolated module-path launcher was repeated under
+Conda `leaddbs` with warnings treated as errors. The complete visualization
+suite plus the extension-publication and display-smoothing suites passed all 51
+selected tests. This revalidates the offline implementation boundary but does
+not replace canonical publication, the 112-endpoint render, identical resume,
+or visual review.
+
+The isolated launcher must expose the worktree root plus a package-only
+`dual_frequency` link. It must not add the whole `my_helper/fiber/core`
+directory as a top-level module root: that directory contains an unrelated
+MATLAB `coverage/` folder, which can shadow Numba's optional third-party
+`coverage` import during pytest collection. With the package-only bridge and
+the outer `python -W error` policy, the current complete visualization suite
+passes all 38 tests. This is test-path isolation evidence; the installed
+production package and visualization implementation require no change.
+
+A broader 2026-07-25 pre-merge replay ran the isolated dual-frequency suite
+without the two tests that resolve the mounted production study base. It
+completed 736 tests, skipped four optional cases, and passed 314 subtests.
+Eleven cases initially failed only at isolated-worktree boundaries: two
+spawned children could not re-import pytest's temporary `core...` module name,
+four activation fixtures could not see the main worktree's local 69-MB
+template segmentation, and five frozen-acceptance cases could not see local
+fixture or mounted artifact paths. Replaying the two spawn cases through the
+importable `dual_frequency.tests...` package and the four activation cases
+against the same main-worktree template made all six pass without a code
+change. The visualization suite was then replayed separately and all 38 tests
+passed. During the next permitted production inspection window, the isolated
+package was exercised through the main checkout's exact frozen fixture files.
+All five previously deferred reference-fiber, add-on-fiber, OSS, jitter, and
+formal-summary cases passed, including 12 subtests, against their mounted
+allowlisted artifacts. The two real study-base compatibility and drift tests
+and the two-scale catalog/DAG smoke also passed. This closes every previously
+identified environment-path case without copying or replacing its data.
+The post-merge main-worktree complete regression remains mandatory.
+
+The frozen formal postprocess request was also audited read-only. Its SHA-256 is
+`144ad7a1e775c1bf01f5d99df285a87b31bae7075aa3692d714201f1953e6ab0`.
+It names exactly the canonical direct-voxel and normative-fiber main and
+final-in-sample publications, contains no `.runs` path, selects all available
+scales, and requests paired-fit, voxel 2-D, and fiber 2-D components. The
+configured output root remains absent until its production execution gate.
+
+A production-code scan at the same checkpoint confirms that formal
+postprocess, paired-fit, voxel-section, fiber-section, and 3-D example-input
+resolution all read the actual selected tau and Coverage from each canonical
+`final_model.json` and cross-check the paired summary. They contain no
+modality-wide voxel-200, fiber-400, or Coverage-5 fallback. Those literals occur
+only in synthetic test fixtures; the unrelated production literal 200 defines
+a fit-curve grid or an electrode display length, not a scientific threshold.
+Endpoints that reached a different fallback cell therefore retain their own
+published parameters in every visual and statistical output.
+
+The paired-inference contract was also replayed locally. Three backend tests
+and six parameterized fit/publication cases passed with warnings treated as
+errors. Each endpoint summary retains paired in-sample and LOOCV Spearman,
+Pearson, nominal p, plus-one two-sided permutation p, finite-subject,
+finite-prediction, finite-permutation, model-error, and baseline-error fields.
+It reports standard `in_sample_r2` with `loocv_r2`, and the common-baseline
+pair `in_sample_relative_r2` with `loocv_q2`. The unsupported
+`in_sample_adjusted_r2` remains absent. Spearman, Pearson, standard-R2,
+relative-R2/Q2, RMSE, and MAE optimism gaps are emitted only for matching
+subject masks. Visualization reads these stored values rather than recomputing
+or relabeling inference.
+
+A static 3-D scene audit on 2026-07-25 confirmed that both PDQ-39 examples
+resolve only canonical publication roots and retain an interactive figure
+without writing FIG, image, PDF, or spin outputs. The voxel example requests a
+0.5-mm inward sample depth. The shared renderer uses vik for signed voxel and
+score-mapped fiber color, freezes anatomy slices as independent grayscale
+truecolor, and sets RAS colors to `#F2000E`, `#0E6AAF`, and `#0CA228` without
+changing the reference arrow-style parameters. Real canonical scene execution
+and visual review remain required after the publication gates close.
+
+The local display-smoothing stage was revalidated without opening the canonical
+publication on 2026-07-25. Its 226-file closure contains 112 NIfTI payloads and
+112 matching metadata documents; 108 payloads changed bytes and all 112 retain
+their original finite support. Every payload size, payload SHA, metadata SHA,
+relative path, algorithm, support policy, and input/output finite-voxel count
+matches the repair manifest. The repair-manifest SHA-256 remains
+`dff3ab60616b2bd9d77075bc6781f6ef928db666f1052ac31d5f02f4088f6b5c`,
+and the staged artifact-index SHA-256 is
+`9ea5003edcd97242d79d3e6cfbf92b770ab157cd1c54c21fe7d963b897331f9c`.
+Direct NIfTI loading further confirms 56 one-millimeter and 56 two-millimeter
+3-D payloads. Every actual finite-voxel count matches both metadata counts; the
+aggregate finite-voxel count across the 112 payloads is 68040.
+Canonical source-state comparison and promotion remain pending.
+
+The same isolated checkpoint repeated the fault-acceptance, resource-guard,
+strict and pre-instrumentation resource-validation, artifact/static audit,
+performance-acceptance, byte-ledger, counter, and probe suites. All 99 tests and
+two subtests passed with warnings treated as errors. These tests validate the
+repository-owned evidence machinery; the production fault sequence and terminal
+OSS/combined resource documents remain required.
+
+A later isolated replay collected and executed all 15
+`test_task17_fault_acceptance.py` cases under Conda `leaddbs` with warnings
+treated as errors. All 15 passed in 50.89 seconds. This confirms the frozen
+fault-harness implementation before production planning; it does not replace
+the marked production corruption, fail-once, copied-cache, or rebuild cases.
+
+The complete repository `test_task17_*` selection was then run as one closure
+under the same environment. All 161 tests and two subtests passed with warnings
+treated as errors. This combined replay confirms compatibility among the
+benchmark, parity, publication, smoothing, fault, resource, and telemetry
+fixtures; it remains lower-level evidence rather than a production acceptance
+substitute.
 
 The benchmark cache-seed layer now converts the accepted OSS closure into an
 exact deduplicated entry list, requires an empty and disjoint row-local cache,
@@ -253,9 +479,9 @@ row-local scientific cache, installs only validated checkpoint roots, retains
 the production registry/provider and persistent spawn pool, publishes
 `runner_ready.json`, waits for the parent measurement token, executes the exact
 slice, finalizes the run, rejects restored selected tasks, and publishes a
-SHA-bound child result. Injected rows still fail closed until the frozen
-spawn-worker fixture descriptor is implemented after the active OSS process
-terminates; the public `run` operation remains unavailable.
+SHA-bound child result. The isolated implementation now supplies injected rows
+with the frozen spawn-worker fixture descriptor while leaving every ordinary
+production descriptor null.
 
 The corresponding parent row transaction is also implemented. It launches the
 bound child and external probe in separate harness-owned process groups,
@@ -267,8 +493,8 @@ probe and ledger byte totals to match, runs the artifact/static audit and
 counter builder, and publishes a SHA-closed terminal row only after all
 evidence succeeds. Failures retain a partial monotonic attempt and terminate
 only the two harness-owned process groups. Injected spawned-worker support,
-matrix-level manifest/acceptance, and the public `run` operation remain
-pending.
+matrix-level manifest/acceptance, and public `run` are implemented in the
+isolated worktree; production execution remains pending.
 
 Configured candidate-parity generation is no longer an implementation gap.
 The harness now requires the exact 224 prepared-endpoint closure and pairs it
@@ -284,15 +510,38 @@ exposures, and 8 unique selected-ID payloads. The production-scale report scan
 has not run because the independent OSS process still owns the active VAL
 workload; parity acceptance therefore remains pending.
 
+The configured-data replay request is frozen across two versioned inputs.
+`config/four_model_v1/acceptance/task17_connectome_parity_fixture.json` has
+SHA-256
+`7255126c155aa616faac1457103169597ecd9c8c9707976ecb26e71c617fba6c`
+and contains only the retained scientific authority: the completed v8 parent
+identity plus complete physical and prepared payload, feature-axis, shape, and
+role closures. `config/four_model_v1/workflow_task17_parity.yaml` has SHA-256
+`4ad144f4aa2c94a5d85ac89e84cf389474d8e82d31d4e642b8b5347d98cfb4cc`
+and owns the execution boundary: observed cutoff, all model families and
+connectomes, one cold worker, expensive producers disabled, retained successful
+cache, dedicated cache
+`/Volumes/VAL/STNSNr/cache/dual_frequency_task17_parity_v1`, and dedicated run
+root `/Volumes/VAL/STNSNr/summary/spot/acceptance/.runs`. The plan binds the
+first invocation to run
+`task17-parity-v1-post-refactor-20260722` with one worker, then binds a
+14-worker exact resume to that same run root. The verifier alone binds the
+retained parent, replay cache, replay run, and immutable output
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-physical-parity-replay-v1.json`.
+Keeping runtime paths and worker ceilings out of the scientific fixture
+prevents execution policy from changing the authority SHA. These inputs are
+frozen and internally consistent, but execution remains pending until
+independent OSS releases VAL.
+
 The ordinary unmeasured warm-seed executor is implemented. It derives 7
 ordinary seed slices plus one injected slice, runs each ordinary slice once
 against a proven-empty isolated cache, binds its exact imported checkpoints,
 rejects restored selected tasks, fully verifies the resulting cache, and
 publishes the seed manifest last. Existing seeds must remain below their own
 transaction root and revalidate byte-for-byte. Real-cache-hit pPAM continues
-to use the independent OSS closure directly. The injected seed remains
-fail-closed until the spawned-worker fixture is installed after independent
-OSS terminates.
+to use the independent OSS closure directly. The isolated injected-worker
+implementation now enables the eighth injected seed without changing ordinary
+seed execution.
 
 Internal matrix resume and terminal publication are implemented. The harness
 serially resumes the exact 72 rows, reuses only SHA-complete terminal
@@ -301,9 +550,218 @@ classification from scheduler windows, derives worker/cache-comparable
 numerical identity from normalized selected-task results, and permits
 `not_run` only for unauthorized real-cold pPAM. A complete closure publishes
 the matrix, runs the existing strict validator, and commits its acceptance
-report. Five candidate-parity tests and 30 performance-harness tests pass.
-Public `run` exposure remains pending solely behind the injected spawned-worker
-fixture and its focused tests.
+report. This intermediate closure passed five candidate-parity tests and 30
+performance-harness tests before injected-worker support was added.
+
+The implemented injected-worker contract uses an optional
+`BenchmarkOSSInjectedFixtureSpec` on `SpawnWorkerSpec`. Its null default leaves
+all production paths unchanged. When present, worker initialization must retain
+an actual `StudyRuntimeInputProvider`, validate the versioned row-local fixture
+root, and replace only `oss_producer_toolchain` with the deterministic
+ten-sample benchmark implementation. The pre-spawn child validates the full
+fixture closure once, while each worker fully reopens only a requested
+permitted row. Both warm-seed and measured-row contexts derive this descriptor
+from their prevalidated fixture document; callers cannot supply a separate
+cache root or row list.
+
+A 2026-07-25 static construction audit found exactly four runtime
+`SpawnWorkerSpec` call sites. The ordinary main and sensitivity service call
+sites omit the fixture field and retain its null default. Only the benchmark
+warm-seed and measured-row call sites populate it, and both use
+`_benchmark_oss_fixture_spec` over their already validated fixture document.
+No other production or extension path references the injection field.
+
+The CLI now exposes the existing internal `run` orchestrator. Its read-only
+`validate` path additionally distinguishes a prepared root from a terminal
+root, rejects one-sided matrix/report publication, recomputes repository
+acceptance for a terminal matrix, and requires exact document equality with
+the stored deterministic report without repairing it.
+The focused CLI contract must invoke `main()` for `run`, prove that the exact
+request and benchmark-root paths reach the resumable orchestrator, and verify
+the successful JSON result rather than checking parser choices alone.
+Five candidate-parity tests and 36 performance-harness tests pass in the
+isolated worktree. Merge and complete regression remain intentionally deferred
+until independent OSS releases the production checkout and its memory
+reservation.
+
+The isolated handoff is rooted in two ordered commits on top of main baseline
+`f08658f0d`: implementation commit `186b36d6f` and request commit
+`ae0b60486`. Documentation and regression closure continue on the same branch.
+The terminal merge must therefore preserve the complete contiguous range after
+`f08658f0d` through the reviewed branch head, rather than selecting only the two
+foundational commits. The frozen request SHA-256 is
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+The terminal merge sequence must revalidate the request digest before `prepare`;
+no commit in this range authorizes benchmark execution while the independent
+OSS lineage remains active.
+
+If main remains an ancestor of `task17-perf-injected-worker`, the required merge
+is a Git fast-forward-only merge of that branch after the OSS writer exits.
+Selecting individual commits is prohibited because later tests and acceptance
+documentation are part of the same reviewed range. If fast-forward is no longer
+possible, stop and re-audit the divergence in a clean worktree before any merge
+or benchmark preparation.
+
+A 2026-07-25 pre-merge scope audit confirms that baseline `f08658f0d` remains
+an ancestor of reviewed head `910b05fc0`. That closed range contains 24 commits
+and exactly seven changed paths: the performance harness, spawned-worker
+implementation and export, its focused test, the frozen benchmark request,
+this acceptance ledger, and the Task 17 implementation plan. It contains no
+formal workflow YAML, model policy, publication implementation, visualization
+implementation, or unrelated repository path. This proves review scope only;
+the ancestry and changed-path closure must be recomputed immediately before the
+eventual fast-forward merge.
+
+A later 2026-07-25 scope audit at reviewed head `bfdcd0165` confirms that
+baseline `f08658f0d` remains an ancestor. That closed range contains 31 commits
+and exactly eight changed paths. The only path added to the earlier seven-path
+closure is `tests/test_executor.py`, where the synthetic historical-OSS resume
+fixture now supplies an isolated memory state so its 48-GiB admission grant
+cannot depend on live production memory pressure. The remaining seven paths
+are unchanged in scope. Both worktrees were clean during this audit. The final
+ancestry, commit count, path list, and request digest still must be recomputed
+after the independent OSS writer exits and immediately before the
+fast-forward-only merge.
+
+The latest read-only scope audit at reviewed head `8d2168dfe` again confirms
+that baseline `f08658f0d` remains an ancestor. The closed range contains 43
+commits and the same eight changed paths: the performance runner, its two
+workflow integration files, two focused test files, the frozen benchmark
+request, the implementation plan, and this acceptance ledger. The two commits
+after `a368278a6` are documentation-only closure for the benchmark merge and
+the frozen production fault-acceptance invocation. The request SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+Both worktrees were clean. This is current merge-readiness evidence only; the
+same ancestry, path, and digest closure must still be recomputed after the OSS
+writer exits immediately before the fast-forward-only merge.
+
+A subsequent read-only scope audit at reviewed head `eaaec7d8b` again confirms
+that main head `f08658f0d` is an ancestor. The closed range contains 46 commits
+and the same eight changed paths: two focused test files, two workflow files,
+the performance runner, the frozen benchmark request, the implementation plan,
+and this acceptance ledger. Both worktrees were clean, and the benchmark
+request SHA-256 remained
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+This is another pre-merge checkpoint only; the terminal audit after the OSS
+writer exits remains authoritative.
+
+A matching semantic audit confirms that the added fixture descriptor defaults
+to null, ordinary main and sensitivity worker construction never populate it,
+and only benchmark warm-seed and measured-row construction derives it from the
+prevalidated fixture document. Worker initialization retains the ordinary
+provider class and changes only its OSS toolchain when that explicit descriptor
+is present. Four focused tests covering descriptor validation, injected
+toolchain isolation, ordinary production initialization, and accepted-row
+closure passed under Conda `leaddbs` with warnings treated as errors. This
+closes the pre-merge production-path isolation review; it does not replace the
+post-merge complete regression.
+
+A 2026-07-25 offline command-drift audit invoked `--help` through the locked
+Conda `leaddbs` interpreter for the strict resource validator, extension-v2
+validator, display-smoothing repair transaction, performance matrix harness,
+fault-acceptance harness, unfiltered extension publisher, and formal
+postprocess entry point. All seven entry points returned zero. Their current
+interfaces retain the frozen run, segment, guard, RSS, source publication,
+stage, Trash, benchmark, fault-root, and formal-output arguments plus the
+required `publish-extension`, `stage`, `validate`, `promote`, `prepare`, `run`,
+and `init` operations. This proves that the documented post-OSS command
+sequence has not drifted at the CLI boundary; it does not substitute for
+executing that sequence against terminal production artifacts.
+
+The complete isolated dual-frequency test tree was collected read-only on
+2026-07-25 through package-only Python-path links. The bridge exposes exactly
+`dual_frequency` and `seed_target_connectivity` from the isolated worktree,
+while the worktree root exposes `my_helper`; it does not expose the entire
+`my_helper/fiber/core` directory. All 764 tests were discovered without an
+import or collection error. The same bridge passes all seven synthetic
+end-to-end tests, including four-family main execution, selective resume,
+independent jitter and OSS extensions, missing-parent rebuild, and guarded
+cleanup.
+
+The complete isolated tree was later executed natively in one invocation with
+warnings treated as errors after the interrupted OSS segment had released its
+process tree. The three Git-ignored local fixtures were materialized through
+same-device hard links to the authoritative primary-checkout allowlist, frozen
+manifest, and MNI template segmask. This preserves the isolated worktree paths
+without copying payload bytes or changing tracked content. The invocation
+passed 773 tests and 329 subtests with no failure or skip, and both worktrees
+remained clean. This replaces the earlier split-path result as the authoritative
+pre-merge regression. It still does not substitute for the required single
+all-green post-merge regression after the independent OSS lineage is terminal.
+
+A read-only scope audit after that regression confirmed that main head
+`f08658f0d` remains an ancestor of the isolated branch. Before this
+documentation checkpoint, the closed range contained 48 commits; after this
+checkpoint commit it contains 49. The range still changes exactly eight paths:
+two focused tests, two workflow files, the performance runner, the frozen
+benchmark request, the implementation plan, and this acceptance ledger. The
+benchmark request SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`,
+and both worktrees were clean. The terminal pre-merge audit must still
+recompute all four facts after the OSS writer exits.
+
+The subsequent no-run-store scene repair adds only
+`viz/scene_example_inputs.py` and its visualization test module to that
+prospective merge closure. After committing the repair and this checkpoint,
+the range contains 50 commits and changes ten paths. This scope increase
+enforces an existing public-only contract and does not alter a scientific
+model, published result, cache identity, resume identity, or active OSS
+execution. The terminal audit must use this ten-path closure as its expected
+upper bound unless a later documented repair is required.
+
+A later documentation-only merge synchronized main-head commits
+`af87efdc5` and `2d98bb58f` into the isolated branch without merging isolated
+implementation into the production checkout. The synchronization merge head
+was `f2fd325d7`; main head `2d98bb58f` is an ancestor of that merge and the
+subsequent documentation checkpoint, so the required eventual main-checkout
+operation remains fast-forward-only. The post-merge range contained 51 commits
+before this checkpoint and contains 52 commits after it, with the same ten
+changed paths. The benchmark request
+SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+Both worktrees were clean after the merge. This is a pre-terminal checkpoint;
+all ancestry, count, path, digest, and cleanliness evidence must still be
+recomputed after the OSS process exits.
+
+A second documentation-only synchronization incorporated main commit
+`42815ad93`, which replaces the prematurely hard-coded resource command with
+terminal-segment-driven selection between the strict and pre-instrumentation
+validators. Main is again an ancestor of the isolated branch. The range
+contains 53 commits before this checkpoint and 54 after it, while retaining
+the same ten changed paths and benchmark-request SHA-256. No isolated
+implementation has entered the production checkout.
+
+A current read-only scope audit after synchronizing main
+`c1d63094cfe7ab385d8a13091faecd56bf3edbb0` confirms that it remains an
+ancestor of reviewed branch head
+`fc0202bb4effb0c348e7143ca127ff6aec28c601`. Before this documentation
+checkpoint, the branch has 71 commits not present on main and changes exactly
+nine paths: the performance-matrix test, two worker integration files, the
+performance runner, two visualization input/test files, the frozen benchmark
+request, the implementation plan, and this ledger. The earlier
+`test_executor.py` path is no longer branch-unique because its isolated-memory
+fixture is already present on current main. The request SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`,
+and both worktrees are clean. The terminal pre-merge audit must still repeat
+the ancestry, exact changed-path closure, request digest, and cleanliness after
+the OSS writer exits.
+
+The formal request is frozen at
+`config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
+It references only the parent-run input copies, declares the 64-GiB ceiling,
+and leaves real-cold solver authorization null. The configured benchmark root
+is separate under `summary/spot/acceptance`. Preparing or executing it remains
+pending until independent OSS is terminal and the isolated implementation has
+passed complete regression in the production checkout.
+
+The six combined-preflight cache-first boundary tests were repeated on
+2026-07-25. They prove authorized OSS publication followed by unauthorized
+decision reuse, rejection of an OSS miss before toolchain entry, copied-cache
+OSS reuse without a solver, copied-cache jitter reuse without a physical
+producer, rejection of a jitter miss before producer entry, and executor
+admission only for tasks explicitly marked cache-first expensive. All six
+passed with warnings treated as errors. Production combined execution remains
+the required full-DAG proof.
 
 The complete current main-worktree dual-frequency and visualization regression
 was repeated on 2026-07-26 under Conda `leaddbs` with warnings treated as
@@ -317,6 +775,19 @@ did not authorize an expensive producer, and did not write any production run
 or publication root. This is complete static and synthetic regression
 evidence; it does not replace the remaining production executions and
 validators.
+
+An offline integration preflight then merged isolated performance head
+`2afd3e50e` into main head `2f2e2bd97` on the separate
+`task17-perf-merge-preflight` branch. Git resolved the seven-path closure
+without a conflict. After the same ignored frozen allowlist, frozen manifest,
+and MNI template segmask used by the main checkout were materialized at the
+integration-worktree paths, the complete dual-frequency and visualization
+regression passed all 834 tests and 329 subtests in 132.78 seconds with no
+failure or skip. The production checkout and active OSS process were not
+modified, and the preflight read no production payload. This evidence closes
+merge compatibility before terminal OSS, but the production checkout must
+still merge the reviewed implementation and repeat the complete regression
+after the OSS writer exits.
 
 ## Final Closure Rule
 

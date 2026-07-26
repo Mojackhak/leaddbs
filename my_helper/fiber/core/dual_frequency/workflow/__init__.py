@@ -47,7 +47,11 @@ from .run_store import (
     RunStore,
     RunStoreError,
 )
-from .process_worker import SpawnWorkerSpec, WorkerCommand
+from .process_worker import (
+    BenchmarkOSSInjectedFixtureSpec,
+    SpawnWorkerSpec,
+    WorkerCommand,
+)
 
 __all__ = [
     "ACCEPTED",
@@ -82,6 +86,7 @@ __all__ = [
     "RunIdentity",
     "RunStore",
     "RunStoreError",
+    "BenchmarkOSSInjectedFixtureSpec",
     "SpawnWorkerSpec",
     "WorkerCommand",
 ]
