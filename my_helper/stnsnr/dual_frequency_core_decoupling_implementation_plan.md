@@ -9043,6 +9043,23 @@ historical gate replay, descendant replay, forced no-expensive task
 authorization, and an end-to-end executor resume fixture that promotes a real
 historical row-and-decision cache closure without invoking the toolchain.
 
+A fresh read-only source and regression audit on 2026-07-26 confirmed the
+complete promotion boundary in the merged checkout. A historical row is
+eligible only when its implementation-keyed identity is otherwise the exact
+current row key, its completed cache manifest and every declared payload hash
+verify, its array metadata matches the requested ordered fiber axis, and every
+compatible historical candidate has the same scientific payload signature. A
+historical decision is eligible only when both referenced rows pass that
+closure, its group and row identities match, its status is `pass`, both
+mismatch counts are zero, its maximum probability difference is below the
+frozen tolerance, and all compatible decisions agree. Promotion then publishes
+new stable row and decision entries atomically with explicit compatibility
+provenance. The terminal group may reference only those stable identities;
+historical directories are never counted directly. Missing, corrupt,
+mismatched, ambiguous, or conflicting evidence fails closed before any
+unauthorized toolchain call. The row-identity, row-materializer, axis-gate, and
+executor cache-only resume set passed 26 tests with warnings treated as errors.
+
 The compatibility commits were then merged after the interrupted writer had
 fully exited. Parent-run ID, parent manifest SHA, scientific configuration
 hash, plan hash, and OSS-only analysis scope all validated before resume, and
