@@ -1474,10 +1474,15 @@ the root endpoint index. Terminal validation independently rechecks the
 component, endpoint, and CSV copies. Formal `--validate-only` must apply the
 same metric and prediction-table contract while resolving canonical endpoints,
 so an invalid source fails during read-only preflight rather than after the
-render transaction begins. Forty-three focused paired-fit and component tests
-passed, the complete visualization package passed 53 tests, and the complete
-dual-frequency plus visualization regression passed 845 tests and 329 subtests
-with warnings treated as errors.
+render transaction begins. As a consistency gate only, validation must
+recalculate the deterministic Spearman, Pearson, standard and relative fit,
+model-error, and baseline-error summaries from the paired prediction table and
+compare them with the published values. Figures and result indexes continue to
+use the published values; the recalculated values are never substituted, and
+formal permutation or BH inference is never recomputed. Forty-three focused
+paired-fit and component tests passed, the complete visualization package
+passed 53 tests, and the complete dual-frequency plus visualization regression
+passed 845 tests and 329 subtests with warnings treated as errors.
 
 Validation completed on 2026-07-18:
 
