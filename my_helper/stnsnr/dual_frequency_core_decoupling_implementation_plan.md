@@ -7632,22 +7632,27 @@ together. The production command remains gated on terminal independent OSS
 closure.
 
 After the source child is terminal, generate and validate the independent OSS
-resource evidence with these frozen commands:
+resource evidence with these frozen commands. The currently active candidate is
+`segment_0018`. It may be used only if that segment becomes terminal and owns
+the complete guard epoch containing the selected maximum-row commits. If the
+lineage needs another resume, replace both occurrences of `segment_0018` and
+both guard paths below with the actual later terminal segment; never combine a
+segment record, guard CSV, or commit window from different epochs.
 
 ```bash
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/build_task17_preinstrumentation_windows.py \
   --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
   --cache-root /Volumes/VAL/STNSNr/cache/dual_frequency \
-  --guard-csv /private/tmp/task17-oss-segment_0010-resource-guard.csv \
+  --guard-csv /private/tmp/task17-oss-segment_0018-resource-guard.csv \
   --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-windows-v1.json
 
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/validate_task17_preinstrumentation_resources.py \
   --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
-  --segment-id segment_0010 \
+  --segment-id segment_0018 \
   --cache-root /Volumes/VAL/STNSNr/cache/dual_frequency \
-  --guard-csv /private/tmp/task17-oss-segment_0010-resource-guard.csv \
+  --guard-csv /private/tmp/task17-oss-segment_0018-resource-guard.csv \
   --measurement-windows /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-windows-v1.json \
   --workers 14 \
   --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-resource-acceptance-v1.json
