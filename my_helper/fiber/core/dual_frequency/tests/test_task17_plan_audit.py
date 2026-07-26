@@ -43,17 +43,25 @@ def _section(document: str, start: str, end: str) -> str:
 
 def _table_rows(section: str, header_label: str) -> tuple[tuple[str, ...], ...]:
     rows: list[tuple[str, ...]] = []
+    table_started = False
     for line in section.splitlines():
         if not line.startswith("|"):
+            if table_started and rows:
+                break
             continue
         cells = tuple(cell.strip() for cell in line.strip().strip("|").split("|"))
+        if not table_started:
+            if cells and cells[0] == header_label:
+                table_started = True
+            continue
         if (
             not cells
-            or cells[0] == header_label
             or set(cells[0]) <= {"-", ":", " "}
         ):
             continue
         rows.append(cells)
+    if not table_started:
+        raise AssertionError(f"missing table header: {header_label}")
     return tuple(rows)
 
 
