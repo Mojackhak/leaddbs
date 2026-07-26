@@ -8192,6 +8192,28 @@ the index and manifest bytes remain unchanged, and run the frozen validator
 with its atomic acceptance output. Do not remove, rewrite, or recompute the
 completed jitter child or any endpoint scientific payload.
 
+This repair completed on 2026-07-26. Commit `f20b7754e` adds opt-in metadata
+indexing for terminal extension artifacts and freezes exact closure in the
+publisher test. Publication and validator coverage passed 22 tests; complete
+main dual-frequency discovery passed 767 tests and 329 subtests with warnings
+treated as errors. The old index and manifest pairs were archived under
+`/Volumes/VAL/.Trashes/501/task17-jitter-v8-extension-v2-index-repair-20260726`
+with a preflight record containing their original SHA-256 values.
+
+The unfiltered replay rebuilt 226-row indexes for each domain while retaining
+56 endpoint results per domain. The direct-voxel 226-file payload closure
+remained
+`16c42c2d513b39205009732f56030c39784350caac75de4fb2ae4b829cae4e25`;
+the normative-fiber closure remained
+`75a2f827004b7110b1f5ddc8187547c5a85e69188645142b3ce84bdd3d25d5d4`.
+Both manifest SHA-256 values remained unchanged. A second unfiltered replay
+preserved both index and manifest bytes and mtimes. The frozen validator then
+passed both roots twice and atomically retained
+`acceptance/task17-jitter-v8-extension-v2-validation-v1.json` with SHA-256
+`f5491c15fd2d07b81a1f8b7910d345e63b45d61f59eb929ce597bf3073d95040`.
+The Trash transaction also retains a postflight record binding the repaired
+indexes, unchanged closures, idempotent replay, and acceptance report.
+
 A read-only threshold audit during the same running segment confirmed that the
 formal resolved YAML contains the requested voxel tau grid of 150, 180, 200,
 220, 250, and 300 with pre-specified tau 200, and the requested fiber tau grid
