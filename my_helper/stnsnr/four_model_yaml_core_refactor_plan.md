@@ -1929,6 +1929,57 @@ The atomic report is
 `8cf595681415820f5224fb7aeebe5023a702046cde3f0efefa485c3a559d782f`.
 The second full invocation preserved its bytes and mtime.
 
+### Completed parent-run full-payload validation
+
+The canonical model-set validator does not replace the parent run's own
+artifact closure. Final acceptance therefore also requires
+`my_helper/fiber/pipelines/validate_task17_run_artifacts.py`. It accepts one
+terminal `--run-root` and an optional `--output` report.
+
+The validator must decode every persisted task document, require a unique
+terminal-completed task ID with a typed result artifact list, and prove that
+the union of task-result `(kind, URI, SHA-256)` identities exactly matches the
+root `artifact_index.json`. Every index artifact ID and URI must be unique,
+every task reference must point to the matching completed task identity, and
+every file URI must resolve to a regular nonsymbolic payload within the run
+root. It then rereads every payload, verifies its SHA-256, and records total
+payload bytes, task-result reference count, task closure SHA-256, index-identity
+closure SHA-256, and indexed-payload closure SHA-256.
+
+The report writer is atomic and same-byte idempotent. It refuses a changed
+collision and performs no run-store repair. Repository code identity remains
+provenance and is not a validation or resume gate. The frozen production
+invocation is:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_run_artifacts.py \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-main-v8-full-payload-validation-v1.json
+```
+
+Run the command twice while no sensitivity solver is using VAL. The second
+invocation must preserve the report bytes and mtime.
+
+The validator was implemented in commit `dba11ec7d`. Five focused closure,
+corruption, task-reference, path-containment, and same-byte report tests pass;
+complete dual-frequency discovery passes 777 tests and 329 subtests with
+warnings treated as errors. The first production invocation validated 1512
+completed task documents, 11388 task-artifact references, 7468 unique indexed
+artifacts, and 73406341913 payload bytes. The artifact-index identity closure
+SHA-256 is
+`73c88b1f89921a8cdbc804bc96af1f1cc0538dd9e55e684749e01a3f596cd2dd`;
+the indexed-payload closure SHA-256 is
+`792433fa43996dbd4c1015c79d77f663530599feee2eb8433ad563cc8850e6c8`;
+and the task-document closure SHA-256 is
+`c38d0f12610fc1a2f4ae48e8427d352cf40f0ea90b4e8d12e14a30e19c478e50`.
+
+The atomic report is
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/`
+`task17-main-v8-full-payload-validation-v1.json` with SHA-256
+`e72b4b9b292faabf3e5c571b8950acf74fc9d521bc3784127890cb12c753863c`.
+The second complete 73.4-GB invocation preserved its bytes and mtime.
+
 ## Deferred Work
 
 ```text
