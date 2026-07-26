@@ -3109,6 +3109,17 @@ fixtures. Dedicated ledger tests continue to exercise the actual 48-GiB
 charge, 64-GiB managed ceiling, reserve predicate, and cumulative admission
 behavior; only orchestration fixtures isolate host availability.
 
+A later resume/cache audit under the active independent OSS workload exposed
+the same host-state leak in
+`test_resume_replays_historical_accepted_oss_gate_cache_only`. Its first pass
+intentionally authorizes the synthetic OSS producer before proving stable
+cache-only promotion on resume, so the real 48-GiB admission charge can block
+the in-memory service when host availability is low. Freeze this fixture's
+three executor invocations at 128 GiB total and available through
+`_ResourceLedger._memory_state`. This is a synthetic-fixture correction only:
+it does not change production admission, the cache-promotion contract,
+scientific results, or the active OSS process.
+
 The isolated synthetic end-to-end suite passed all seven scenarios while the
 formal OSS solver remained active. The complete dual-frequency suite then ran
 545 collected test items to exit status 0. This accepts the executor-level
