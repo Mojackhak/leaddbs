@@ -637,6 +637,14 @@ Both worktrees were clean after the merge. This is a pre-terminal checkpoint;
 all ancestry, count, path, digest, and cleanliness evidence must still be
 recomputed after the OSS process exits.
 
+A second documentation-only synchronization incorporated main commit
+`42815ad93`, which replaces the prematurely hard-coded resource command with
+terminal-segment-driven selection between the strict and pre-instrumentation
+validators. Main is again an ancestor of the isolated branch. The range
+contains 53 commits before this checkpoint and 54 after it, while retaining
+the same ten changed paths and benchmark-request SHA-256. No isolated
+implementation has entered the production checkout.
+
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
 It references only the parent-run input copies, declares the 64-GiB ceiling,
