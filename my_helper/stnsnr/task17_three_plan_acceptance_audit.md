@@ -807,6 +807,18 @@ warnings treated as errors, no failure, and no skip. This remains isolated
 merge-readiness evidence; the active OSS process and production checkout were
 not modified.
 
+A current merge-scope audit at isolated head `428d18104` confirms that
+production head `2f2e2bd97` remains its ancestor. Before this documentation
+checkpoint the range contains 114 commits and exactly 12 changed paths: the
+performance worker test, two worker integration files, the performance runner,
+four paired/formal visualization implementation and test files, the frozen
+benchmark request, both implementation plans changed by the isolated work, and
+this acceptance ledger. The benchmark request SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+Both worktrees are clean. The terminal audit must repeat ancestry, path closure,
+request digest, and cleanliness after the OSS writer exits; this checkpoint
+does not authorize an early merge.
+
 ## Final Closure Rule
 
 The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
