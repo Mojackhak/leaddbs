@@ -768,13 +768,15 @@ the required full-DAG proof.
 The complete current main-worktree dual-frequency and visualization regression
 was repeated on 2026-07-26 under Conda `leaddbs` with warnings treated as
 errors. Numba was preloaded before adding the complete core root, so the project
-`coverage` package could not shadow the third-party package. All 807 tests and
-329 subtests passed in 146.71 seconds, including the endpoint-specific
-tau/Coverage resolver fixture and both run-store scene-provenance rejections.
-The run used temporary fixtures, did not authorize an expensive producer, and
-did not write any production run or publication root. This is complete static
-and synthetic regression evidence; it does not replace the remaining
-production executions and validators.
+`coverage` package could not shadow the third-party package. The accepted
+zero-skip repeat passed all 809 tests and 329 subtests in 136.67 seconds,
+including the endpoint-specific tau/Coverage resolver fixture, both run-store
+scene-provenance rejections, cross-endpoint physical pPAM sharing, and
+outcome-specific observed-workspace identity. The run used temporary fixtures,
+did not authorize an expensive producer, and did not write any production run
+or publication root. This is complete static and synthetic regression
+evidence; it does not replace the remaining production executions and
+validators.
 
 ## Final Closure Rule
 
