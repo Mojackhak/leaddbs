@@ -365,6 +365,7 @@ class _PublicationWriter:
         *,
         artifact_kind: str,
         context: Mapping[str, object],
+        index_metadata: bool = False,
     ) -> None:
         source = self._artifact_resolver(artifact)
         target = self._target(relative)
@@ -389,8 +390,9 @@ class _PublicationWriter:
             "payload_sha256": artifact.sha256,
             "size_bytes": verified[1],
         }
-        self._install_bytes(
-            self._target(f"{relative}.metadata.json"),
+        metadata_relative = f"{relative}.metadata.json"
+        metadata_verified = self._install_bytes(
+            self._target(metadata_relative),
             _json_bytes(metadata),
         )
         self._record(
@@ -399,6 +401,13 @@ class _PublicationWriter:
             context=context,
             verified=verified,
         )
+        if index_metadata:
+            self._record(
+                metadata_relative,
+                artifact_kind=f"{artifact_kind}_metadata",
+                context=context,
+                verified=metadata_verified,
+            )
 
     def generated_file(
         self,
@@ -1248,6 +1257,7 @@ class CanonicalPublisher:
                     artifact,
                     artifact_kind=artifact.kind,
                     context=context,
+                    index_metadata=True,
                 )
                 payload_rows.append(
                     {

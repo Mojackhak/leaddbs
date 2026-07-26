@@ -779,6 +779,31 @@ def test_terminal_jitter_replay_is_self_contained_and_idempotent(
         manifest = json.loads((extension_root / "extension_manifest.json").read_text())
         assert manifest["status"] == "completed"
         assert manifest["publication_scope"] == "complete"
+        with (extension_root / "artifact_index.csv").open(
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as handle:
+            indexed_paths = {
+                row["relative_path"]
+                for row in csv.DictReader(handle)
+            }
+        actual_paths = {
+            path.relative_to(extension_root).as_posix()
+            for path in extension_root.rglob("*")
+            if path.is_file()
+            and path.name
+            not in {"artifact_index.csv", "extension_manifest.json", ".DS_Store"}
+            and not path.name.startswith("._")
+        }
+        metadata_paths = {
+            relative
+            for relative in actual_paths
+            if relative.endswith(".metadata.json")
+        }
+        assert metadata_paths
+        assert indexed_paths == actual_paths
+        assert metadata_paths.issubset(indexed_paths)
         text = "\n".join(
             path.read_text(errors="ignore")
             for path in extension_root.rglob("*")
