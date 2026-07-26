@@ -219,6 +219,16 @@ the transaction SHA-256 is
 `b718060bb832e5c28a1d002cbff80c7380099413c70390fbb8e6a9e9fae52ae8`.
 Formal postprocess may now pass its display-smoothing input gate.
 
+The real public-only `--validate-only` preflight was repeated immediately
+after promotion. It passed with status `valid`, resolving four completed
+canonical publications, 28 scales, 112 endpoints, and the ordered
+`paired_fit`, `voxel_2d`, and `fiber_2d` components. The accepted anatomy,
+right-sided STN and SNr masks, 1.7-million-fiber formal connectome, all 18
+fiber targets, PNG/PDF formats, and PDF font inspector also passed. The command
+created no output root and read no run-store path. This closes the promoted
+input gate but does not authorize the full render before OSS-v2 and combined-v2
+become terminal.
+
 ## Goal
 
 Add one reusable visualization package under
