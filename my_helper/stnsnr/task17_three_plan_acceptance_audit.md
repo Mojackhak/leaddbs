@@ -98,7 +98,8 @@ focused tests passed with warnings treated as errors: the 26 open
 dual-frequency items mapped to 26 unique ledger rows, the ten open Step
 numbers matched exactly, both other plans had no open checkbox, and every
 backticked mapping reference named an existing evidence row or an allowed
-status token.
+status token. The new guard and the existing bounded goal-acceptance suite
+then passed all 11 tests together under Conda `leaddbs`.
 
 ## Repository Entrypoint Preflight
 
