@@ -9185,9 +9185,20 @@ generation paths. It then binds the actual resolved worker snapshot, finished
 segment, probe, counter sidecar, and numerical identity into the matrix row.
 After all rows are terminal, the harness atomically publishes the exact
 72-row matrix, invokes the repository validator, and publishes its immutable
-acceptance report. The public `run` operation remains closed only because
-injected spawned-worker execution is still fail-closed. Candidate-parity plus
-harness coverage now passes 35 tests.
+acceptance report.
+
+The follow-up implementation is complete in the isolated
+`task17-perf-injected-worker` worktree and intentionally remains outside the
+production checkout while independent OSS is active. It adds the injected
+spawned-worker descriptor and initialization path, exposes the public
+resumable `run` operation, and retains production-provider initialization when
+no fixture is selected. A fresh 2026-07-26 replay of the complete performance
+harness passed 36 tests with warnings treated as errors, including the public
+parser and dispatch, exact 72-row closure, spawned-worker fixture, terminal
+read-only validation, row resume, byte-ledger binding, and accepted OSS cache
+closure. After independent OSS terminates and every process exits, merge the
+isolated implementation into the production checkout and run the complete
+regression before preparing or executing the production matrix.
 
 ### Current remaining-acceptance matrix, 2026-07-22
 
