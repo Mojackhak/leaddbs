@@ -7540,14 +7540,15 @@ unchanged mount, an absent mount, and a rapid same-path remount with a changed
 device-node identity.
 
 The checked-in guard is now implemented with the frozen CLI and CSV contract
-plus Decision 41 mount-generation pinning. Twelve focused guard tests cover
+plus Decision 41 mount-generation pinning. Fifteen focused guard tests cover
 ordinary descendant-tree aggregation, independently confirmed clean runner
 exit, compatibility with both terminal validators, absent and same-path
 replacement mounts, RSS and swap stops, malformed-header rejection, output
 placement outside the guarded mount, fail-closed process-evidence handling, a
 live runner omitted from one process snapshot, PID absence versus permission
-denial, and descendant-only termination. The joint guard and two
-resource-validator replay passed 45 tests plus two subtests under Conda
+denial, descendant-only termination, mounted-source parsing, and ambiguous-
+source rejection. The joint guard and two resource-validator replay passed 48
+tests plus two subtests under Conda
 `leaddbs`. A local macOS smoke resolved `/Volumes/VAL` to `/dev/disk4s2` and
 returned complete device-node and mount-root identity fields without writing
 the volume. These checks do not replace a terminal independent OSS guard or
