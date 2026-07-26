@@ -1464,6 +1464,18 @@ This contract is published as paired-fit postprocess schema v2 so an older v1
 component cannot be reused merely because its source and style request hash is
 unchanged.
 
+The schema-v2 implementation was completed in the isolated integration
+worktree on 2026-07-26. It validates all 43 declared paired metrics, the six
+required prediction-table columns, complete subject and permutation counts,
+probability and correlation domains, nonnegative error metrics, and the
+arithmetic identity of all six optimism gaps before rendering. The same metric
+mapping is retained in each component result, each formal endpoint result, and
+the root endpoint index. Terminal validation independently rechecks the
+component, endpoint, and CSV copies. Forty focused paired-fit and component
+tests passed, the complete visualization package passed 50 tests, and the
+complete dual-frequency plus visualization regression passed 842 tests and
+329 subtests with warnings treated as errors.
+
 Validation completed on 2026-07-18:
 
 - the combined dual-frequency and visualization test suite passed with 466

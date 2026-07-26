@@ -20,7 +20,9 @@ from my_helper.fiber.core.viz.formal_postprocess import (
     validate_formal_postprocess_output,
 )
 from my_helper.fiber.core.viz.paired_fit_postprocess import (
+    PAIRED_METRIC_FIELDS,
     render_paired_fit_components,
+    validate_paired_metrics,
 )
 from my_helper.fiber.core.viz.plugin.default import get_fit_cfg
 from my_helper.fiber.core.viz.published_artifacts import PublicationCatalog
@@ -28,6 +30,54 @@ from my_helper.fiber.core.viz.published_artifacts import PublicationCatalog
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _paired_metrics(subject_count: int = 3) -> dict[str, object]:
+    return {
+        "in_sample_n_subjects_total": subject_count,
+        "in_sample_n_subjects_finite": subject_count,
+        "in_sample_predictions_all_finite": True,
+        "in_sample_spearman_rho": 0.5,
+        "in_sample_spearman_nominal_p": 0.1,
+        "in_sample_pearson_r": 0.6,
+        "in_sample_pearson_nominal_p": 0.08,
+        "in_sample_r2": 0.4,
+        "in_sample_relative_r2": 0.35,
+        "in_sample_rmse": 0.8,
+        "in_sample_mae": 0.6,
+        "in_sample_rmse_baseline": 1.2,
+        "in_sample_mae_baseline": 1.0,
+        "in_sample_permutation_p_plus_one_two_sided": 0.12,
+        "in_sample_permutations_requested": 10000,
+        "in_sample_permutations_finite": 10000,
+        "in_sample_permutation_q_bh_model_family": 0.24,
+        "in_sample_permutation_q_bh_all_endpoints": 0.36,
+        "loocv_n_subjects_total": subject_count,
+        "loocv_n_subjects_finite": subject_count,
+        "loocv_predictions_all_finite": True,
+        "loocv_spearman_rho": 0.3,
+        "loocv_spearman_nominal_p": 0.2,
+        "loocv_pearson_r": 0.25,
+        "loocv_pearson_nominal_p": 0.25,
+        "loocv_r2": 0.1,
+        "loocv_q2": 0.05,
+        "loocv_rmse_model": 1.1,
+        "loocv_mae_model": 0.9,
+        "loocv_rmse_baseline": 1.3,
+        "loocv_mae_baseline": 1.1,
+        "loocv_permutation_p_plus_one_two_sided": 0.3,
+        "loocv_permutations_requested": 10000,
+        "loocv_permutations_finite": 10000,
+        "loocv_permutation_q_bh_model_family": 0.45,
+        "loocv_permutation_q_bh_all_endpoints": 0.55,
+        "subject_mask_match": True,
+        "spearman_optimism_gap": 0.2,
+        "pearson_optimism_gap": 0.35,
+        "r2_optimism_gap": 0.3,
+        "relative_r2_q2_gap": 0.3,
+        "rmse_optimism_gap": 0.3,
+        "mae_optimism_gap": 0.3,
+    }
 
 
 def _write_publication_index(
@@ -54,6 +104,32 @@ def _write_publication_index(
             }
         )
     pd.DataFrame(rows).to_csv(root / "artifact_index.csv", index=False)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("in_sample_adjusted_r2", 0.2, "must not publish"),
+        ("subject_mask_match", False, "must be true"),
+        (
+            "loocv_permutations_finite",
+            9999,
+            "finite permutations must cover",
+        ),
+        ("relative_r2_q2_gap", 0.9, "optimism gap"),
+        ("in_sample_spearman_nominal_p", 1.1, "probability"),
+        ("loocv_rmse_model", float("nan"), "must be finite"),
+    ),
+)
+def test_paired_metric_contract_rejects_inconsistent_values(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    metrics = _paired_metrics()
+    metrics[field] = value
+    with pytest.raises(ValueError, match=message):
+        validate_paired_metrics(metrics)
 
 
 def _refresh_publication_index_entry(root: Path, relative_path: str) -> None:
@@ -128,8 +204,7 @@ def _paired_fit_catalog(tmp_path: Path) -> PublicationCatalog:
                         "selected_tau": 200 if "voxel" in model_family else 400,
                         "selected_coverage": 5,
                         "final_branch": "no_delta_reference",
-                        "in_sample_spearman_rho": 0.5,
-                        "loocv_spearman_rho": 0.3,
+                        **_paired_metrics(),
                     }
                 ),
                 encoding="utf-8",
@@ -140,6 +215,8 @@ def _paired_fit_catalog(tmp_path: Path) -> PublicationCatalog:
                     "outcome": [1.0, 2.0, 3.0],
                     "in_sample_prediction": [1.1, 2.1, 2.9],
                     "loocv_prediction": [1.2, 1.9, 2.8],
+                    "in_sample_baseline_prediction": [2.0, 2.0, 2.0],
+                    "loocv_baseline_prediction": [2.1, 2.1, 2.1],
                 }
             ).to_csv(predictions_path, index=False)
             extension_paths[extension_alias].extend(
@@ -156,17 +233,27 @@ def _paired_fit_catalog(tmp_path: Path) -> PublicationCatalog:
             manifest_name="extension_manifest.json",
             relative_paths=relative_paths,
         )
+    return _load_paired_fit_catalog(tmp_path)
+
+
+def _load_paired_fit_catalog(tmp_path: Path) -> PublicationCatalog:
+    aliases = (
+        "direct_voxel_main",
+        "direct_voxel_in_sample",
+        "normative_fiber_main",
+        "normative_fiber_in_sample",
+    )
     return PublicationCatalog.from_config(
         {
             alias: {
-                "root": str(root),
+                "root": str(tmp_path / alias),
                 "manifest": (
                     "extension_manifest.json"
                     if alias.endswith("in_sample")
                     else "model_manifest.json"
                 ),
             }
-            for alias, root in roots.items()
+            for alias in aliases
         },
         config_base=tmp_path,
     )
@@ -269,6 +356,96 @@ def test_paired_fit_component_resume_preserves_complete_first_scale(
     assert all(item.get("resume_status") == "reused" for item in scale_a)
     assert all(item["status"] == "complete" for item in scale_b)
     assert all("resume_status" not in item for item in scale_b)
+
+
+def test_paired_fit_component_rejects_incomplete_metric_contract(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _paired_fit_catalog(tmp_path)
+    relative = "scale_a/reference/sensitivity/final_in_sample/summary.json"
+    summary_path = tmp_path / "direct_voxel_in_sample" / relative
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary.pop("in_sample_pearson_r")
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    _refresh_publication_index_entry(
+        tmp_path / "direct_voxel_in_sample",
+        relative,
+    )
+    catalog = _load_paired_fit_catalog(tmp_path)
+
+    def fake_plot(*args, output_paths, **kwargs):
+        del args, kwargs
+        figure = plt.figure()
+        for path in output_paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            figure.savefig(path)
+        return figure
+
+    monkeypatch.setattr(
+        paired_fit_postprocess,
+        "plot_in_sample_loocv_fit",
+        fake_plot,
+    )
+    results = render_paired_fit_components(
+        scale_ids=("scale_a",),
+        output_root=tmp_path / "missing_metric",
+        catalog=catalog,
+        style=get_fit_cfg({"formats": ("png",), "dpi": 72}),
+    )
+    target = next(
+        item for item in results if item["model_family"] == "reference_voxel"
+    )
+    assert target["status"] == "failed"
+    assert "in_sample_pearson_r" in target["error_message"]
+    assert not (
+        tmp_path
+        / "missing_metric/scales/scale_a/reference/voxel/in_sample_loocv_fit.png"
+    ).exists()
+
+
+def test_paired_fit_component_rejects_missing_baseline_prediction(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _paired_fit_catalog(tmp_path)
+    relative = "scale_a/reference/sensitivity/final_in_sample/predictions.csv"
+    predictions_path = tmp_path / "direct_voxel_in_sample" / relative
+    predictions = pd.read_csv(predictions_path)
+    predictions = predictions.drop(columns=["loocv_baseline_prediction"])
+    predictions.to_csv(predictions_path, index=False)
+    _refresh_publication_index_entry(
+        tmp_path / "direct_voxel_in_sample",
+        relative,
+    )
+    catalog = _load_paired_fit_catalog(tmp_path)
+
+    def fake_plot(*args, output_paths, **kwargs):
+        del args, kwargs
+        figure = plt.figure()
+        for path in output_paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            figure.savefig(path)
+        return figure
+
+    monkeypatch.setattr(
+        paired_fit_postprocess,
+        "plot_in_sample_loocv_fit",
+        fake_plot,
+    )
+    results = render_paired_fit_components(
+        scale_ids=("scale_a",),
+        output_root=tmp_path / "missing_baseline",
+        catalog=catalog,
+        style=get_fit_cfg({"formats": ("png",), "dpi": 72}),
+    )
+    target = next(
+        item for item in results if item["model_family"] == "reference_voxel"
+    )
+    assert target["status"] == "failed"
+    assert "loocv_baseline_prediction" in target["error_message"]
+    assert not (
+        tmp_path
+        / "missing_baseline/scales/scale_a/reference/voxel/in_sample_loocv_fit.png"
+    ).exists()
 
 
 def _formal_fit_config(tmp_path: Path, output_name: str) -> Path:
@@ -415,6 +592,17 @@ def test_formal_postprocess_commits_root_only_after_all_endpoints_complete(
     assert all(
         item["status"] == "complete" for item in first["endpoint_results"]
     )
+    endpoint_index = pd.read_csv(output_root / "endpoint_index.csv")
+    assert set(PAIRED_METRIC_FIELDS).issubset(endpoint_index.columns)
+    assert len(endpoint_index.index) == 8
+    first_endpoint = first["endpoint_results"][0]
+    assert set(first_endpoint["metrics"]) == set(PAIRED_METRIC_FIELDS)
+    first_index_row = endpoint_index.loc[
+        endpoint_index["endpoint_id"] == first_endpoint["endpoint_id"]
+    ].iloc[0]
+    assert first_index_row["in_sample_pearson_r"] == pytest.approx(0.6)
+    assert first_index_row["loocv_rmse_baseline"] == pytest.approx(1.3)
+    assert first_index_row["relative_r2_q2_gap"] == pytest.approx(0.3)
 
     second = run_formal_postprocess(config_path)
     assert second["status"] == "complete"
@@ -427,6 +615,22 @@ def test_formal_postprocess_commits_root_only_after_all_endpoints_complete(
     assert terminal["endpoint_count"] == 8
     assert terminal["declared_output_count"] == 8
     assert terminal["component_manifest_count"] == 8
+
+    original_index = (output_root / "endpoint_index.csv").read_text(
+        encoding="utf-8"
+    )
+    changed_index = pd.read_csv(output_root / "endpoint_index.csv")
+    changed_index.loc[0, "pearson_optimism_gap"] = 0.9
+    changed_index.to_csv(output_root / "endpoint_index.csv", index=False)
+    with pytest.raises(
+        ValueError,
+        match="endpoint index metric pearson_optimism_gap differs",
+    ):
+        validate_formal_postprocess_output(output_root)
+    (output_root / "endpoint_index.csv").write_text(
+        original_index,
+        encoding="utf-8",
+    )
 
     component_manifest = output_root / second["endpoint_results"][0][
         "component_manifests"
@@ -554,6 +758,7 @@ def test_formal_postprocess_keeps_all_three_component_families_for_two_scales(
                 "model_family": item["model_family"],
                 "result_path": f"fit/{item['endpoint_id']}.json",
                 "outputs": [f"fit/{item['endpoint_id']}.png"],
+                "metrics": _paired_metrics(),
             }
             for item in resolved
         ],

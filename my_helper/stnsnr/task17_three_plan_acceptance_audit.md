@@ -789,6 +789,22 @@ merge compatibility before terminal OSS, but the production checkout must
 still merge the reviewed implementation and repeat the complete regression
 after the OSS writer exits.
 
+The same isolated integration branch now enforces the complete paired-fit
+publication contract before any formal visualization is rendered. Paired-fit
+schema v2 requires all 43 declared in-sample, LOOCV, completeness, and optimism
+fields; the six-column subject table including both baseline predictions; full
+finite subject and permutation closure; valid probability, correlation, and
+error domains; and the declared arithmetic direction for every optimism gap.
+It rejects adjusted R2, incomplete masks, missing or nonfinite evidence,
+inconsistent gaps, and stale v1 resume. Each endpoint component, formal
+endpoint, and root endpoint index retains the same metric set, while terminal
+validation compares all three copies. Forty focused tests and all 50
+visualization tests passed. A fresh complete dual-frequency and visualization
+regression then passed 842 tests and 329 subtests in 138.89 seconds with
+warnings treated as errors, no failure, and no skip. This remains isolated
+merge-readiness evidence; the active OSS process and production checkout were
+not modified.
+
 ## Final Closure Rule
 
 The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
