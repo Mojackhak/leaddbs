@@ -9157,6 +9157,17 @@ strict resource acceptance still require the terminal segment. The immutable
 `segment_0018` record and its guard remain the authoritative interruption
 evidence, and only the unpublished in-flight work may be recomputed.
 
+The combined-extension cache-first launch boundary was revalidated on
+2026-07-26 without reading or writing VAL. Ten focused tests covered executor
+authorization propagation, historical accepted-OSS resume, OSS row-cache copy
+reuse, missing and legacy-missing OSS rows, copied physical-jitter cache reuse,
+corrupt or missing jitter payload handling, combined-plan compilation, and
+activation-provider cache hit and unauthorized miss behavior. All ten passed
+with warnings treated as errors. A complete cache is therefore callable
+without expensive-producer authorization, while a real cache miss stops before
+the physical or OSS producer. Production combined execution remains gated on
+terminal independent OSS and must omit `--allow-expensive-producers`.
+
 The benchmark parent transaction is now implemented without exposing the
 public `run` operation prematurely. For each prepared ordinary,
 real-cache-hit, or authorized real-solver row, the parent launches the bound
