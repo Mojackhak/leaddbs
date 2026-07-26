@@ -20,6 +20,8 @@ OPEN_CHECKBOX = re.compile(r"^\s*-\s+\[ \]\s+(.+)$", re.MULTILINE)
 STEP_NUMBER = re.compile(r"(?:\*\*)?Step\s+(\d+)\b")
 BACKTICKED_TEXT = re.compile(r"`([^`\n]+)`")
 NON_REQUIREMENT_REFERENCES = frozenset({"ACTIVE", "PENDING"})
+EVIDENCE_STATUSES = frozenset({"ACCEPTED", "ACTIVE", "PENDING", "BLOCKED"})
+FINAL_AUDIT_LABEL = "Final three-plan requirement audit"
 PLAN_PATH_SUFFIXES = (".py", ".md", ".yaml", ".yml", ".json", ".m", ".csv")
 MOVED_PRODUCTION_ENTRYPOINT = Path(
     "my_helper/fiber/pipelines/run_configured_outcome_models.py"
@@ -191,6 +193,24 @@ class Task17PlanAuditTest(unittest.TestCase):
                     missing.append(f"{row[0]} -> {reference}")
 
         self.assertEqual(missing, [])
+
+    def test_evidence_matrix_status_and_final_closure_are_consistent(self) -> None:
+        self.assertEqual(len(self.evidence_rows), 24)
+        self.assertTrue(all(len(row) == 4 for row in self.evidence_rows))
+        statuses = {row[0]: row[1] for row in self.evidence_rows}
+        self.assertEqual(len(statuses), len(self.evidence_rows))
+        self.assertTrue(set(statuses.values()) <= EVIDENCE_STATUSES)
+        self.assertIn(FINAL_AUDIT_LABEL, statuses)
+
+        other_rows_are_open = any(
+            status != "ACCEPTED"
+            for label, status in statuses.items()
+            if label != FINAL_AUDIT_LABEL
+        )
+        if other_rows_are_open:
+            self.assertNotEqual(statuses[FINAL_AUDIT_LABEL], "ACCEPTED")
+        else:
+            self.assertEqual(statuses[FINAL_AUDIT_LABEL], "ACCEPTED")
 
     def test_source_plan_file_references_remain_resolvable(self) -> None:
         references = _repository_file_references(
