@@ -18,8 +18,15 @@ ACCEPTANCE_AUDIT = STNSNR_ROOT / "task17_three_plan_acceptance_audit.md"
 
 OPEN_CHECKBOX = re.compile(r"^\s*-\s+\[ \]\s+(.+)$", re.MULTILINE)
 STEP_NUMBER = re.compile(r"(?:\*\*)?Step\s+(\d+)\b")
-BACKTICKED_TEXT = re.compile(r"`([^`]+)`")
+BACKTICKED_TEXT = re.compile(r"`([^`\n]+)`")
 NON_REQUIREMENT_REFERENCES = frozenset({"ACTIVE", "PENDING"})
+PLAN_PATH_SUFFIXES = (".py", ".md", ".yaml", ".yml", ".json", ".m", ".csv")
+MOVED_PRODUCTION_ENTRYPOINT = Path(
+    "my_helper/fiber/pipelines/run_configured_outcome_models.py"
+)
+LEGACY_CONFIGURED_ENTRYPOINT = Path(
+    "my_helper/fiber/projects/stnsnr/legacy/run_configured_outcome_models.py"
+)
 
 
 def _read(path: Path) -> str:
@@ -28,6 +35,29 @@ def _read(path: Path) -> str:
 
 def _open_items(path: Path) -> tuple[str, ...]:
     return tuple(OPEN_CHECKBOX.findall(_read(path)))
+
+
+def _repository_file_references(paths: tuple[Path, ...]) -> tuple[Path, ...]:
+    repository_prefix = f"{REPOSITORY_ROOT}/"
+    references: set[Path] = set()
+    for path in paths:
+        for candidate in BACKTICKED_TEXT.findall(_read(path)):
+            candidate = candidate.strip()
+            if candidate.startswith(repository_prefix):
+                candidate = candidate.removeprefix(repository_prefix)
+            if (
+                "\n" in candidate
+                or not candidate.startswith("my_helper/")
+                or any(character.isspace() for character in candidate)
+                or any(character in candidate for character in "*?[]")
+                or not candidate.endswith(PLAN_PATH_SUFFIXES)
+            ):
+                continue
+            reference = Path(candidate)
+            if reference.is_absolute() or ".." in reference.parts:
+                raise AssertionError(f"unsafe repository path reference: {candidate}")
+            references.add(reference)
+    return tuple(sorted(references))
 
 
 def _section(document: str, start: str, end: str) -> str:
@@ -125,6 +155,20 @@ class Task17PlanAuditTest(unittest.TestCase):
                     missing.append(f"{row[0]} -> {reference}")
 
         self.assertEqual(missing, [])
+
+    def test_source_plan_file_references_remain_resolvable(self) -> None:
+        references = _repository_file_references(
+            (FOUR_MODEL_PLAN, DUAL_FREQUENCY_PLAN, POSTPROCESS_PLAN)
+        )
+        self.assertEqual(len(references), 121)
+        missing = tuple(
+            reference
+            for reference in references
+            if not (REPOSITORY_ROOT / reference).exists()
+        )
+        self.assertEqual(missing, (MOVED_PRODUCTION_ENTRYPOINT,))
+        self.assertFalse((REPOSITORY_ROOT / MOVED_PRODUCTION_ENTRYPOINT).exists())
+        self.assertTrue((REPOSITORY_ROOT / LEGACY_CONFIGURED_ENTRYPOINT).is_file())
 
 
 if __name__ == "__main__":

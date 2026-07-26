@@ -99,7 +99,8 @@ dual-frequency items mapped to 26 unique ledger rows, the ten open Step
 numbers matched exactly, both other plans had no open checkbox, and every
 backticked mapping reference named an existing evidence row or an allowed
 status token. The new guard and the existing bounded goal-acceptance suite
-then passed all 11 tests together under Conda `leaddbs`.
+then passed all 12 tests together under Conda `leaddbs`, including the
+repository-path closure described below.
 
 ## Repository Entrypoint Preflight
 
@@ -141,6 +142,11 @@ explicitly requires moving out of the production pipeline. Its destination,
 `my_helper/fiber/projects/stnsnr/legacy/run_configured_outcome_models.py`,
 exists, the old production path is absent, and `git log --follow` reaches both
 the legacy-isolation commit and the original configured-workflow commit.
+The repository-owned plan-audit guard must repeat this extraction, reject any
+additional missing path, require the legacy destination, and continue to
+require the moved production entrypoint to remain absent. Its focused replay
+found the exact 121-reference closure, the expected sole missing source, and
+the existing legacy destination.
 
 A fresh production-only scan of all 93 Python files below the generic
 `dual_frequency` package found no project-name dispatch token and no import of
