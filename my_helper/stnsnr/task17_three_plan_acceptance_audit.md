@@ -723,6 +723,21 @@ contains 53 commits before this checkpoint and 54 after it, while retaining
 the same ten changed paths and benchmark-request SHA-256. No isolated
 implementation has entered the production checkout.
 
+A current read-only scope audit after synchronizing main
+`c1d63094cfe7ab385d8a13091faecd56bf3edbb0` confirms that it remains an
+ancestor of reviewed branch head
+`fc0202bb4effb0c348e7143ca127ff6aec28c601`. Before this documentation
+checkpoint, the branch has 71 commits not present on main and changes exactly
+nine paths: the performance-matrix test, two worker integration files, the
+performance runner, two visualization input/test files, the frozen benchmark
+request, the implementation plan, and this ledger. The earlier
+`test_executor.py` path is no longer branch-unique because its isolated-memory
+fixture is already present on current main. The request SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`,
+and both worktrees are clean. The terminal pre-merge audit must still repeat
+the ancestry, exact changed-path closure, request digest, and cleanliness after
+the OSS writer exits.
+
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
 It references only the parent-run input copies, declares the 64-GiB ceiling,
