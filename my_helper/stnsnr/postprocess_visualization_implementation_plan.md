@@ -1471,10 +1471,13 @@ probability and correlation domains, nonnegative error metrics, and the
 arithmetic identity of all six optimism gaps before rendering. The same metric
 mapping is retained in each component result, each formal endpoint result, and
 the root endpoint index. Terminal validation independently rechecks the
-component, endpoint, and CSV copies. Forty-one focused paired-fit and component
-tests passed, the complete visualization package passed 51 tests, and the
-complete dual-frequency plus visualization regression passed 843 tests and
-329 subtests with warnings treated as errors.
+component, endpoint, and CSV copies. Formal `--validate-only` must apply the
+same metric and prediction-table contract while resolving canonical endpoints,
+so an invalid source fails during read-only preflight rather than after the
+render transaction begins. Forty-one focused paired-fit and component tests
+passed, the complete visualization package passed 51 tests, and the complete
+dual-frequency plus visualization regression passed 843 tests and 329 subtests
+with warnings treated as errors.
 
 Validation completed on 2026-07-18:
 
