@@ -202,6 +202,33 @@ canonical completed model manifest is still present. Recheck all three
 conditions after the independent OSS runner and its descendants exit. Do not
 run `promote` while that lineage remains active.
 
+The frozen promotion sequence completed on 2026-07-26 after the guarded OSS
+segment had terminated and a process audit found no runner or descendant.
+Pre-promotion validation reopened all 112 staged targets against canonical raw
+support, recorded 108 changed NIfTIs, and matched repair-manifest SHA-256
+`dff3ab60616b2bd9d77075bc6781f6ef928db666f1052ac31d5f02f4088f6b5c`.
+Promotion archived the replaced v1 files under
+`/Volumes/VAL/.Trashes/501/task17-display-smoothing-v1-20260723`, atomically
+installed all v2 payload and metadata pairs, restored model-manifest SHA-256
+`6edb8266c05f39fae45aea0cc9a91d6354518e986f55c5e65262d2b127b07fd1`,
+and installed artifact-index SHA-256
+`9ea5003edcd97242d79d3e6cfbf92b770ab157cd1c54c21fe7d963b897331f9c`.
+Post-promotion validation accepted the canonical root. A second identical
+promotion preserved the index, model manifest, and Trash transaction bytes;
+the transaction SHA-256 is
+`b718060bb832e5c28a1d002cbff80c7380099413c70390fbb8e6a9e9fae52ae8`.
+Formal postprocess may now pass its display-smoothing input gate.
+
+The real public-only `--validate-only` preflight was repeated immediately
+after promotion. It passed with status `valid`, resolving four completed
+canonical publications, 28 scales, 112 endpoints, and the ordered
+`paired_fit`, `voxel_2d`, and `fiber_2d` components. The accepted anatomy,
+right-sided STN and SNr masks, 1.7-million-fiber formal connectome, all 18
+fiber targets, PNG/PDF formats, and PDF font inspector also passed. The command
+created no output root and read no run-store path. This closes the promoted
+input gate but does not authorize the full render before OSS-v2 and combined-v2
+become terminal.
+
 ## Goal
 
 Add one reusable visualization package under
