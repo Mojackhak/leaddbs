@@ -120,6 +120,17 @@ runtime-dependency-boundary, and generic goal-acceptance suites then passed all
 both the static and executable boundary; references retained only in test
 fixtures do not enter production imports.
 
+The YAML, application CLI, production service, and run-cache cleanup suites
+were also repeated through the repository's documented module-path launcher:
+Numba was imported before the complete `my_helper/fiber/core` root was
+prepended, matching the production CLI dependency boundary while preventing
+the project `coverage` package from shadowing the third-party package during
+test collection. All 35 tests and 15 subtests passed with warnings treated as
+errors, including construction of the production default registry. A
+dual-frequency-only bridge is not accepted for this suite because it omits the
+sibling `seed_target_connectivity` package that the production CLI exposes
+through the complete core root.
+
 The injected spawned-worker fixture remains fail-closed, so the harness does
 not yet expose its public `run` operation and no production matrix manifest
 exists. The remaining injected execution boundary and production execution
