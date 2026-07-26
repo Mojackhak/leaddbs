@@ -297,7 +297,8 @@ through the complete core root.
 
 The injected spawned-worker fixture and public `run` operation are implemented
 in the isolated worktree, but no production matrix manifest exists. Merge,
-complete regression, and production execution therefore remain open. The
+post-merge complete regression, and production execution therefore remain
+open. The
 dedicated
 isolated fault harness is implemented, but its production plan and sequence
 have not run. Those gaps remain part of their `PENDING` ledger rows. The
@@ -677,19 +678,16 @@ end-to-end tests, including four-family main execution, selective resume,
 independent jitter and OSS extensions, missing-parent rebuild, and guarded
 cleanup.
 
-The complete isolated tree was then executed in one invocation with warnings
-treated as errors. It produced 751 passes, four explicit skips, and 314 passing
-subtests. The remaining nine items failed only because the sparse performance
-worktree deliberately lacks the repository-owned acceptance allowlist, frozen
-evidence tree, and MNI template segmask. Five frozen or allowlist items passed
-when invoked from the authoritative main-checkout fixture paths while retaining
-the isolated implementation bridge. The four segmask-dependent input-provider
-items passed against the main-checkout module and template; that module is
-byte-identical across the two heads and is outside the eight-path isolated
-change closure. This closes every collected item without copying fixtures into
-or dirtying the isolated worktree. It remains pre-merge evidence rather than a
-substitute for the required single all-green post-merge regression after the
-active OSS resource reservation ends.
+The complete isolated tree was later executed natively in one invocation with
+warnings treated as errors after the interrupted OSS segment had released its
+process tree. The three Git-ignored local fixtures were materialized through
+same-device hard links to the authoritative primary-checkout allowlist, frozen
+manifest, and MNI template segmask. This preserves the isolated worktree paths
+without copying payload bytes or changing tracked content. The invocation
+passed 773 tests and 329 subtests with no failure or skip, and both worktrees
+remained clean. This replaces the earlier split-path result as the authoritative
+pre-merge regression. It still does not substitute for the required single
+all-green post-merge regression after the independent OSS lineage is terminal.
 
 A read-only scope audit after that regression confirmed that main head
 `f08658f0d` remains an ancestor of the isolated branch. Before this

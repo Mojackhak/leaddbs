@@ -9190,6 +9190,17 @@ production memory reservation makes the system-derived executor admission test
 fail in both the unchanged main checkout and this isolated worktree; ignored
 template and frozen-acceptance data are also absent from the worktree.
 
+After the VAL-unmount guard terminated `segment_0018` and released its process
+tree, the complete isolated suite was executed natively with warnings treated
+as errors. The Git-ignored allowlist, frozen manifest, and MNI template segmask
+were exposed at their isolated-worktree paths through same-device hard links
+to the authoritative primary-checkout files. No payload bytes or tracked files
+were copied or changed. All 773 tests and 329 subtests passed, with no failure
+or skip, and both worktrees remained clean. The isolated implementation is
+therefore ready for a terminal scope review and merge, but the merge and its
+mandatory post-merge complete regression remain deferred until the independent
+OSS lineage is terminal.
+
 The formal configured benchmark request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
 It binds the completed v8 parent, the independent OSS lineage, the exact four
