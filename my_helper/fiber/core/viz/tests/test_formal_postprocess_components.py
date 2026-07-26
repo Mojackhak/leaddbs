@@ -56,6 +56,17 @@ def _write_publication_index(
     pd.DataFrame(rows).to_csv(root / "artifact_index.csv", index=False)
 
 
+def _refresh_publication_index_entry(root: Path, relative_path: str) -> None:
+    index_path = root / "artifact_index.csv"
+    rows = pd.read_csv(index_path)
+    selected = rows["relative_path"] == relative_path
+    assert int(selected.sum()) == 1
+    artifact = root / relative_path
+    rows.loc[selected, "sha256"] = _sha256(artifact)
+    rows.loc[selected, "size_bytes"] = artifact.stat().st_size
+    rows.to_csv(index_path, index=False)
+
+
 def _paired_fit_catalog(tmp_path: Path) -> PublicationCatalog:
     roots = {
         "direct_voxel_main": tmp_path / "direct_voxel_main",
@@ -287,6 +298,84 @@ def _formal_fit_config(tmp_path: Path, output_name: str) -> Path:
     path = tmp_path / f"{output_name}.json"
     path.write_text(json.dumps(config), encoding="utf-8")
     return path
+
+
+def test_formal_endpoint_resolution_preserves_nondefault_selected_cells(
+    tmp_path: Path,
+) -> None:
+    _paired_fit_catalog(tmp_path)
+    cases = (
+        (
+            "direct_voxel_main",
+            "direct_voxel_in_sample",
+            "scale_a/reference",
+            "endpoint_scale_a_reference_voxel",
+            180,
+            8,
+        ),
+        (
+            "normative_fiber_main",
+            "normative_fiber_in_sample",
+            "scale_b/addon",
+            "endpoint_scale_b_addon_fiber",
+            600,
+            10,
+        ),
+    )
+    for (
+        main_alias,
+        in_sample_alias,
+        base,
+        _endpoint_id,
+        selected_tau,
+        selected_coverage,
+    ) in cases:
+        final_relative = f"{base}/final_model.json"
+        final_path = tmp_path / main_alias / final_relative
+        final = json.loads(final_path.read_text(encoding="utf-8"))
+        final["selected_tau_v_per_m"] = selected_tau
+        final["selected_coverage_subjects_min"] = selected_coverage
+        final_path.write_text(json.dumps(final), encoding="utf-8")
+        _refresh_publication_index_entry(
+            tmp_path / main_alias,
+            final_relative,
+        )
+
+        summary_relative = (
+            f"{base}/sensitivity/final_in_sample/summary.json"
+        )
+        summary_path = tmp_path / in_sample_alias / summary_relative
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["selected_tau"] = selected_tau
+        summary["selected_coverage"] = selected_coverage
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        _refresh_publication_index_entry(
+            tmp_path / in_sample_alias,
+            summary_relative,
+        )
+
+    config_path = _formal_fit_config(tmp_path, "nondefault_parameters")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    catalog = PublicationCatalog.from_config(
+        config["publications"],
+        config_base=tmp_path,
+    )
+    endpoints = formal_postprocess._resolve_endpoints(
+        scales=("scale_a", "scale_b"),
+        components=("paired_fit",),
+        catalog=catalog,
+    )
+    by_id = {item["endpoint_id"]: item for item in endpoints}
+    for (
+        _main_alias,
+        _in_sample_alias,
+        _base,
+        endpoint_id,
+        selected_tau,
+        selected_coverage,
+    ) in cases:
+        assert by_id[endpoint_id]["selected_tau"] == selected_tau
+        assert by_id[endpoint_id]["selected_coverage"] == selected_coverage
 
 
 def test_formal_postprocess_commits_root_only_after_all_endpoints_complete(

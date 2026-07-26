@@ -1377,6 +1377,16 @@ Coverage, branch, final identity, scale, and model family match the correspondin
 domain-specific canonical `final_model.json` for every endpoint. No hard-coded
 main-analysis tau or Coverage was used in this verification.
 
+A focused repository fixture must make this prohibition executable rather
+than relying on current production values that happen to use the main-analysis
+cells. It must publish one voxel endpoint at tau 180 and Coverage 8 and one
+fiber endpoint at tau 600 and Coverage 10, pair each with a matching
+final-in-sample summary, and require the formal endpoint resolver to retain
+those exact values. A modality-wide 200/400 or Coverage-5 fallback must fail
+that fixture.
+The nondefault-cell fixture and the formal request/component suite passed all
+nine tests together under Conda `leaddbs` with warnings treated as errors.
+
 The paired inference and publication suites were replayed on the current
 worktree on 2026-07-22 and passed 18 tests plus two subtests. A fresh public-only
 audit then verified all 112 canonical endpoint summaries and all 112 sibling
