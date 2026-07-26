@@ -22,6 +22,7 @@ from my_helper.fiber.core.viz.formal_postprocess import (
 from my_helper.fiber.core.viz.paired_fit_postprocess import (
     PAIRED_METRIC_FIELDS,
     render_paired_fit_components,
+    run_single_scale_paired_fit_postprocess,
     validate_paired_metrics,
 )
 from my_helper.fiber.core.viz.plugin.default import get_fit_cfg
@@ -237,26 +238,30 @@ def _paired_fit_catalog(tmp_path: Path) -> PublicationCatalog:
 
 
 def _load_paired_fit_catalog(tmp_path: Path) -> PublicationCatalog:
+    return PublicationCatalog.from_config(
+        _paired_fit_publications(tmp_path),
+        config_base=tmp_path,
+    )
+
+
+def _paired_fit_publications(tmp_path: Path) -> dict[str, dict[str, str]]:
     aliases = (
         "direct_voxel_main",
         "direct_voxel_in_sample",
         "normative_fiber_main",
         "normative_fiber_in_sample",
     )
-    return PublicationCatalog.from_config(
-        {
-            alias: {
-                "root": str(tmp_path / alias),
-                "manifest": (
-                    "extension_manifest.json"
-                    if alias.endswith("in_sample")
-                    else "model_manifest.json"
-                ),
-            }
-            for alias in aliases
-        },
-        config_base=tmp_path,
-    )
+    return {
+        alias: {
+            "root": str(tmp_path / alias),
+            "manifest": (
+                "extension_manifest.json"
+                if alias.endswith("in_sample")
+                else "model_manifest.json"
+            ),
+        }
+        for alias in aliases
+    }
 
 
 def test_paired_fit_components_preserve_two_scales_without_root_metadata(
@@ -303,6 +308,50 @@ def test_paired_fit_components_preserve_two_scales_without_root_metadata(
     )
     assert len(second) == 8
     assert all(item.get("resume_status") == "reused" for item in second)
+
+
+def test_single_scale_paired_fit_index_retains_complete_metrics(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _paired_fit_catalog(tmp_path)
+
+    def fake_plot(*args, output_paths, **kwargs):
+        del args, kwargs
+        figure = plt.figure()
+        for path in output_paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            figure.savefig(path)
+        return figure
+
+    monkeypatch.setattr(
+        paired_fit_postprocess,
+        "plot_in_sample_loocv_fit",
+        fake_plot,
+    )
+    output_root = tmp_path / "single_scale"
+    first = run_single_scale_paired_fit_postprocess(
+        scale_id="scale_a",
+        output_root=output_root,
+        publications=_paired_fit_publications(tmp_path),
+        style_overrides={"formats": ("png",), "dpi": 72},
+    )
+    assert first["status"] == "complete"
+    assert first["completed_count"] == 4
+    index = pd.read_csv(output_root / "endpoint_index.csv")
+    assert len(index.index) == 4
+    assert set(PAIRED_METRIC_FIELDS).issubset(index.columns)
+    assert index["in_sample_pearson_r"].tolist() == pytest.approx([0.6] * 4)
+    assert index["loocv_rmse_baseline"].tolist() == pytest.approx([1.3] * 4)
+    assert index["relative_r2_q2_gap"].tolist() == pytest.approx([0.3] * 4)
+
+    second = run_single_scale_paired_fit_postprocess(
+        scale_id="scale_a",
+        output_root=output_root,
+        publications=_paired_fit_publications(tmp_path),
+        style_overrides={"formats": ("png",), "dpi": 72},
+    )
+    assert second["status"] == "complete"
+    assert second["reused_count"] == 4
 
 
 def test_paired_fit_component_resume_preserves_complete_first_scale(
