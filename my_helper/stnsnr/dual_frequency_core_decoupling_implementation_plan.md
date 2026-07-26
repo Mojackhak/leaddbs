@@ -6102,6 +6102,54 @@ copied-cache-output drift, and read-only report validation. Complete
 dual-frequency discovery passes 690 tests with warnings treated as errors.
 The production-scale fault plan and sequence remain pending.
 
+Production review on 2026-07-26 found that the generic harness is not yet a
+safe production entrypoint by itself. No repository-owned command currently
+derives the six-case `dual_frequency_task17_fault_plan_v1` document from the
+accepted parent, terminal sensitivity children, canonical publications, and
+shared-cache closure. A hand-authored JSON file is not acceptable because it
+could select a convenient synthetic task, omit a protected descendant, bind a
+nonterminal one-shot result, or fail to enumerate the complete read-only
+parent/publication trees.
+
+Before the production sequence runs, add
+`build_task17_fault_acceptance_plan.py`. Its only write is one atomically
+published immutable plan below the caller-selected acceptance root. The
+builder must:
+
+1. require the accepted parent, independent jitter, independent OSS, and
+   combined manifests to be terminal `completed`, and require the canonical
+   main, final-in-sample, jitter-v2, OSS-v2, and combined-v2 publications to
+   pass their repository-owned validators;
+2. enumerate the complete accepted-parent and canonical-publication
+   read-only file closure, excluding only filesystem-generated AppleDouble and
+   `.DS_Store` files, with sorted path and SHA-256 rows;
+3. derive one real cache payload, one real permutation/bootstrap shard, and
+   one real feature-axis artifact from indexed terminal artifacts, require
+   three distinct contained files, and copy only the declared minimum closure
+   needed by the three corruption probes;
+4. derive one deterministic nonterminal injected-failure task and its complete
+   descendant closure from the serialized production plan rather than accept
+   caller-supplied task IDs;
+5. derive the missing-parent rebuild input, distinct rebuilt main-run ID,
+   rebuilt sensitivity command, copied-cache command without
+   `--allow-expensive-producers`, and one-shot comparison rows from terminal
+   scientific artifacts and their declared tolerances;
+6. bind every command as an argument array whose writable paths remain below
+   the marked isolated acceptance root, bind the Conda `leaddbs` environment
+   and repository working directory, and reject any output/run ID that could
+   resolve into the production run, publication, or cache roots; and
+7. reopen the finished plan, rederive every row, and require byte-identical
+   content before the generic harness may execute `init`, `run`, and
+   read-only `validate`.
+
+The builder must support a validation-only operation that rederives the plan
+without rewriting it. Production acceptance therefore requires two separate
+proofs: builder validation establishes that the plan is the exact configured
+six-case plan, and harness validation establishes that all six cases completed
+without changing any read-only production input. Implementation and
+production execution remain pending until the terminal OSS and combined
+authorities exist.
+
 - [ ] **Step 11: Update current status and commit**
 
 Only after all acceptance gates pass, mark the performance refactor complete in
