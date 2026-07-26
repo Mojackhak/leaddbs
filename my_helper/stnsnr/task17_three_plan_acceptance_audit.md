@@ -691,6 +691,17 @@ admission only for tasks explicitly marked cache-first expensive. All six
 passed with warnings treated as errors. Production combined execution remains
 the required full-DAG proof.
 
+The complete main-worktree dual-frequency regression was repeated on
+2026-07-25 under Conda `leaddbs` with warnings treated as errors. A physical
+spawn-safe launcher removed the complete core root before preloading Numba,
+then restored the root before pytest collection; spawned children repeated the
+same order, so the project `coverage` package could not shadow the third-party
+package. All 759 tests and 326 subtests passed in 149.52 seconds. The run used
+temporary fixtures, did not authorize an expensive producer, and did not write
+any production run or publication root. This is complete static and synthetic
+regression evidence; it does not replace the remaining production executions
+and validators.
+
 ## Final Closure Rule
 
 The complete goal remains open while any row is `ACTIVE`, `PENDING`, or
