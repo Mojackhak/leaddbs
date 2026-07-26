@@ -7714,8 +7714,8 @@ Do not invoke the pre-instrumentation validator for such a segment. If the
 terminal segment lacks the strict instrumentation fields, identify the guard
 CSV whose single epoch contains the terminal maximum-row and owning-decision
 commits, then generate and validate the bounded pre-instrumentation evidence
-with these commands. The currently active candidate is `segment_0019`, with
-`/private/tmp/task17-oss-segment_0019-resource-guard.csv` as its matching guard.
+with these commands. The currently active candidate is `segment_0020`, with
+`/private/tmp/task17-oss-segment_0020-resource-guard.csv` as its matching guard.
 Those values may replace the placeholders below only if that segment becomes
 terminal and satisfies the selected validator contract. If the lineage needs
 another resume, use the actual later terminal segment and its matching guard;
@@ -9088,23 +9088,44 @@ post-event audit found no remaining runner, persistent worker, solver, or
 guard. The durable task ledger contains 393 completed tasks, one interrupted
 add-on equivalence-gate marker, 196 dependency skips, and no terminal failed
 task. The stable reference closure remains 34 pass decisions and 68 complete
-rows. The stable add-on cache remains 12 pass decisions and 24 complete rows;
-its newest committed decision was published at 2026-07-26T08:28:36Z and has
-zero probability, state, and activation-count mismatch.
+rows. Strict stable-key inspection found nine add-on pass decisions and 18
+complete rows. Three additional historical add-on decisions retain superseded
+`definition-sha256-*` row keys and do not enter the stable closure. The newest
+stable decision was published at 2026-07-26T08:28:36Z and has probability,
+state, and activation-count mismatch counts below one.
 
 After remount, a create/read/remove probe passed and the Samsung T7 again
 reported a 10000000000-bit/s USB link. The user then explicitly authorized
 continuation. `segment_0019` started at 2026-07-26T14:49:21.648100Z through
 `--resume` with 14 workers, one solver token, and its own checked-in guard.
-Startup restored the 34-decision reference closure and the 12 completed add-on
+Startup restored the 34-decision reference closure and the nine stable add-on
 decisions without a reference solver call. At 2026-07-26T15:05:25.248089Z,
 the current add-on solver was executing `sample_09`; the guard reported a
 6198018048-byte task-tree RSS, a 17354375168-byte epoch peak, unchanged
-3115057152-byte swap, and no stop event. This remains intermediate evidence:
-the final add-on `row_decision_ids` closure, downstream task completion, and
-strict resource acceptance still require the terminal segment. The immutable
-`segment_0018` record and its guard remain the authoritative interruption
-evidence, and only the unpublished in-flight work may be recomputed.
+3115057152-byte swap, and no stop event.
+
+The user later reported a second, short physical VAL disconnect during
+`segment_0019`. Its approximately one-second guard contained no sample gap
+above three seconds and no unmount event, so the user report was treated as
+authoritative. The runner, persistent worker, solver descendants, and guard
+were stopped manually; the guard closed with `runner_exit`. The in-flight
+temporary row did not publish a standard cache entry or decision, and strict
+stable-key inspection still found nine add-on decisions and 18 rows.
+`segment_0019.json` retained a stale nonterminal status because the externally
+terminated runner could not commit a terminal segment record. It is
+interruption evidence only and cannot satisfy resource acceptance.
+
+After the second remount, a real write probe passed and the Samsung T7 again
+reported a 10000000000-bit/s USB link. The user explicitly authorized another
+resume. `segment_0020` started at 2026-07-26T17:07:27.838779Z through
+`--resume` with 14 workers, one solver token, and the checked-in guard at
+`/private/tmp/task17-oss-segment_0020-resource-guard.csv`. Its guard epoch
+started with a 3115057152-byte swap baseline and the unchanged 64-GiB RSS stop
+boundary. This remains intermediate evidence: the final add-on
+`row_decision_ids` closure, downstream task completion, and resource acceptance
+still require the actual terminal `segment_0020` or a later guarded resume.
+The immutable interrupted segments and their guards remain failure-recovery
+evidence, and only unpublished in-flight work may be recomputed.
 
 The combined-extension cache-first launch boundary was revalidated on
 2026-07-26 without reading or writing VAL. Ten focused tests covered executor
@@ -9126,7 +9147,8 @@ I/O, runnable, timestamp, and admission derivations; terminal task closure;
 current guard event spelling; pre-instrumentation maximum-row derivation;
 commit-window containment; probability tolerance; and rejection of stopped,
 stale, instrumented, or mismatched evidence. Production acceptance still
-requires the terminal `segment_0019` document and its complete guard epoch.
+requires the actual terminal `segment_0020` or later segment document and its
+matching complete guard epoch.
 
 The benchmark parent transaction is now implemented without exposing the
 public `run` operation prematurely. For each prepared ordinary,
