@@ -220,6 +220,14 @@ explicitly requires moving out of the production pipeline. Its destination,
 exists, the old production path is absent, and `git log --follow` reaches both
 the legacy-isolation commit and the original configured-workflow commit.
 
+A fresh production-only scan of all 93 Python files below the generic
+`dual_frequency` package found no project-name dispatch token and no import of
+STNSNr, legacy, migration, or acceptance code. The import-isolation,
+runtime-dependency-boundary, and generic goal-acceptance suites then passed all
+12 tests under Conda `leaddbs` with warnings treated as errors. This confirms
+both the static and executable boundary; references retained only in test
+fixtures do not enter production imports.
+
 The injected spawned-worker fixture and public `run` operation are implemented
 in the isolated worktree, but no production matrix manifest exists. Merge,
 complete regression, and production execution therefore remain open. The
