@@ -9206,6 +9206,22 @@ remain the only accepted stable cache boundary. `segment_0020` is interruption
 evidence and is ineligible for terminal resource acceptance. Any successor
 resume must use the Decision 42 sampling-deadline guard.
 
+Decision 42 was committed as `ae2964242`. Before the next resume, VAL resolved
+to `/dev/disk4s2`, accepted a 4096-byte create, fsync, read, and remove probe,
+and reported a 10000000000-bit/s Samsung PSSD T7 USB link. No previous runner,
+solver, or guard remained. `segment_0021` started at
+2026-07-26T18:12:11.468129Z through `--resume` with 14 workers and one solver
+token. Its runner is PID 38060, persistent worker is PID 38212, and checked-in
+Decision 42 guard is PID 38315 with append-only evidence at
+`/private/tmp/task17-oss-segment_0021-resource-guard.csv`. Startup retained 393
+completed tasks, one running add-on gate, and 196 dependency-derived skips;
+the reference gate remained completed and no reference solver restarted. The
+first 21 guard observations were ordinary samples, task-tree RSS peaked at
+3247783936 bytes, and swap remained at the 3115057152-byte epoch baseline. The
+active worker entered MATLAB preprocessing for genuinely missing add-on work.
+This is startup evidence only; terminal closure and resource acceptance still
+require the complete segment.
+
 The combined-extension cache-first launch boundary was revalidated on
 2026-07-26 without reading or writing VAL. Ten focused tests covered executor
 authorization propagation, historical accepted-OSS resume, OSS row-cache copy
