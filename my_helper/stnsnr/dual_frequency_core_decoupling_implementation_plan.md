@@ -9397,6 +9397,21 @@ terminates and every process exits. It must then be merged into the production
 checkout and pass the complete regression again before the production matrix
 is prepared or executed.
 
+The isolated branch was synchronized again with main after Decision 41 mount
+identity protection and the final OSS cache-promotion audit. At merge commit
+`ac4e36b5c`, main remains an ancestor and the net implementation closure
+contains exactly seven paths: the performance runner, the spawned-worker
+implementation and export, its focused test, the frozen benchmark request, and
+the two Task 17 evidence documents. A line-by-line production-path review
+confirmed that ordinary main and sensitivity worker construction still omit
+the optional benchmark fixture, while only benchmark warm-seed and measured
+rows derive it from an already validated fixture document. The combined
+performance acceptance, byte-ledger, counter, matrix, probe, resource-guard,
+and plan-audit set passed 91 tests with warnings treated as errors. This is
+pre-merge readiness evidence only; the terminal ancestry, path closure,
+request digest, and complete regression remain mandatory after independent
+OSS exits.
+
 ### Current remaining-acceptance matrix, 2026-07-22
 
 This matrix separates implemented code from evidence that can exist only after
