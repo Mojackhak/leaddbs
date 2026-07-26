@@ -101,6 +101,17 @@ immutable request, maximum-burden workload selection, DAG slices, and 72-row
 closure. Its internal orchestration now prepares ordinary warm seeds, runs and
 probes measured rows, resumes only complete terminal transactions, builds
 counter evidence, and publishes the terminal matrix plus acceptance report.
+
+A static three-plan path audit extracted 121 unique backticked repository-file
+references with an implementation, configuration, test, or documentation
+extension. All 120 references intended to remain at their stated paths exist.
+The sole absent source path is
+`my_helper/fiber/pipelines/run_configured_outcome_models.py`, which Task 15
+explicitly requires moving out of the production pipeline. Its destination,
+`my_helper/fiber/projects/stnsnr/legacy/run_configured_outcome_models.py`,
+exists, the old production path is absent, and `git log --follow` reaches both
+the legacy-isolation commit and the original configured-workflow commit.
+
 The injected spawned-worker fixture remains fail-closed, so the harness does
 not yet expose its public `run` operation and no production matrix manifest
 exists. The remaining injected execution boundary and production execution
