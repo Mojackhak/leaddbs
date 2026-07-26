@@ -73,10 +73,14 @@ def _artifact(label: str, axis: AxisRef | None = None) -> ArtifactRef:
     )
 
 
-def _selection(axis: AxisRef) -> FinalSelectionRecord:
+def _selection(
+    axis: AxisRef,
+    *,
+    scale_id: str = "scale",
+) -> FinalSelectionRecord:
     endpoint = EndpointKey(
         "study",
-        "scale",
+        scale_id,
         "reference",
         "reference_fiber",
         "formal-connectome",
@@ -320,6 +324,56 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
                 payload = json.loads(manifest.read_text(encoding="utf-8"))
                 self.assertEqual(payload["items"], [])
                 self.assertEqual(len(payload["files"]), 3)
+
+    def test_compatible_endpoints_share_each_physical_axis_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            cache, final_ids, subject_axis, first, descriptor = self._fixture(root)
+            second = _selection(
+                first.final_model.valid_feature_axis.axis,
+                scale_id="second-scale",
+            )
+            first_id = first.endpoint.identifier
+            second_id = second.endpoint.identifier
+            descriptor = {
+                **descriptor,
+                "endpoint_ids": sorted((first_id, second_id)),
+            }
+            toolchain = _Toolchain()
+
+            result = establish_oss_axis_equivalence(
+                descriptor=descriptor,
+                endpoint_inputs={
+                    first_id: object(),
+                    second_id: object(),
+                },
+                prepared_exposures={
+                    first_id: object(),
+                    second_id: object(),
+                },
+                final_selections={
+                    first_id: first,
+                    second_id: second,
+                },
+                provider=_Provider(final_ids, subject_axis),
+                cache=cache,
+                publisher=RunScopedArtifactPublisher(
+                    root / "output",
+                    "oss-axis-gate",
+                    "1",
+                ),
+                toolchain=toolchain,
+                workers=14,
+                allow_expensive_producers=True,
+            )
+
+            self.assertEqual(result.gate_status, "accepted_omega_max")
+            self.assertEqual(
+                result.endpoint_ids,
+                tuple(sorted((first_id, second_id))),
+            )
+            self.assertEqual(len(result.row_decision_ids), 2)
+            self.assertEqual(toolchain.calls, 4)
 
     def test_cache_miss_without_authorization_stops_before_toolchain(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

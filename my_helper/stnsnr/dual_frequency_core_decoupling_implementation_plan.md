@@ -1973,6 +1973,15 @@ service probes all row keys first and checks expensive authorization only when
   OSS NetFiberScore, and their joint model. These are burden/placement QC only
   and cannot be interpreted as a causal decomposition or classification gate.
 
+Cross-scale pPAM boundary regression on 2026-07-26 adds two direct proofs.
+Two endpoint records with the same final axis and physical stimulation rows
+produce only one shared set of final/`Omega_max` row pairs, while changing only
+the endpoint outcome preserves the binary exposure bytes but changes the
+durable observed-workspace identity. The focused OSS axis and pPAM suites pass
+47 tests and 15 subtests with warnings treated as errors. This is
+implementation evidence; terminal configured-data and production acceptance
+remain governed by the evidence matrix.
+
 - [x] **Step 1: Write failing universe and identity tests**
 
 Assert the analysis universe equals the realized final model's exact ordered
