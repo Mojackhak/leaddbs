@@ -7631,36 +7631,61 @@ the builder, guard, and both resource validators pass 30 focused tests
 together. The production command remains gated on terminal independent OSS
 closure.
 
-After the source child is terminal, generate and validate the independent OSS
-resource evidence with these frozen commands. The currently active candidate is
-`segment_0018`. It may be used only if that segment becomes terminal and owns
-the complete guard epoch containing the selected maximum-row commits. If the
-lineage needs another resume, replace both occurrences of `segment_0018` and
-both guard paths below with the actual later terminal segment; never combine a
-segment record, guard CSV, or commit window from different epochs.
+After the source child is terminal, inspect its actual terminal segment document
+before choosing a resource validator. Never copy a historical segment ID into
+the command. If the terminal segment declares `resource_sample_count > 0` and
+the complete strict scheduler/resource fields, validate it with its matching
+guard CSV:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_resource_acceptance.py \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
+  --segment-id <terminal-instrumented-segment-id> \
+  --guard-csv <matching-terminal-segment-guard-csv> \
+  --workers 14 \
+  --max-rss-bytes 68719476736 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-resource-acceptance-v1.json
+```
+
+Do not invoke the pre-instrumentation validator for such a segment. If the
+terminal segment lacks the strict instrumentation fields, identify the guard
+CSV whose single epoch contains the terminal maximum-row and owning-decision
+commits, then generate and validate the bounded pre-instrumentation evidence
+with these commands. The currently active candidate is `segment_0018`, with
+`/private/tmp/task17-oss-segment_0018-resource-guard.csv` as its matching guard.
+Those values may replace the placeholders below only if that segment becomes
+terminal and satisfies the selected validator contract. If the lineage needs
+another resume, use the actual later terminal segment and its matching guard;
+never combine a segment record, guard CSV, or commit window from different
+epochs.
 
 ```bash
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/build_task17_preinstrumentation_windows.py \
   --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
   --cache-root /Volumes/VAL/STNSNr/cache/dual_frequency \
-  --guard-csv /private/tmp/task17-oss-segment_0018-resource-guard.csv \
+  --guard-csv <guard-csv-containing-terminal-maximum-row> \
   --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-windows-v1.json
 
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/validate_task17_preinstrumentation_resources.py \
   --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
-  --segment-id segment_0018 \
+  --segment-id <terminal-pre-instrumentation-segment-id> \
   --cache-root /Volumes/VAL/STNSNr/cache/dual_frequency \
-  --guard-csv /private/tmp/task17-oss-segment_0018-resource-guard.csv \
+  --guard-csv <guard-csv-containing-terminal-maximum-row> \
   --measurement-windows /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-windows-v1.json \
   --workers 14 \
+  --max-rss-bytes 68719476736 \
   --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-resource-acceptance-v1.json
 ```
 
-Both commands remain read-only with respect to the run and cache. Their only
-writes are the named acceptance documents, each installed atomically and
-reused only when its bytes are identical.
+The selected guard CSV must belong to the declared segment and contain the
+required commit envelope; a guard from another segment is invalid even when its
+peak appears numerically safe. All validator and builder commands remain
+read-only with respect to the run and cache. Their only writes are the named
+acceptance documents, each installed atomically and reused only when its bytes
+are identical.
 
 The first combined launch must attach the checked-in guard immediately after
 the runner PID is known:
