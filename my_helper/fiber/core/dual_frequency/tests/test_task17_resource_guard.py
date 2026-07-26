@@ -4,12 +4,15 @@ import csv
 from pathlib import Path
 import signal
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from my_helper.fiber.pipelines.run_task17_resource_guard import (
+    MountIdentity,
     ProcessRow,
     ResourceGuardError,
+    _mount_identity,
     _pid_exists,
     _terminate_tree,
     run_guard,
@@ -23,12 +26,84 @@ from my_helper.fiber.pipelines.validate_task17_resource_acceptance import (
 
 
 class Task17ResourceGuardTest(unittest.TestCase):
+    def test_mount_identity_parses_source_and_mount_stats(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            mount = (Path(temporary) / "VAL").resolve()
+            mount.mkdir()
+            source = "/dev/disk4s2"
+            source_stat = SimpleNamespace(
+                st_dev=1,
+                st_ino=2,
+                st_rdev=3,
+                st_mode=4,
+                st_ctime_ns=5,
+            )
+            mount_stat = SimpleNamespace(
+                st_dev=6,
+                st_ino=7,
+                st_ctime_ns=8,
+            )
+
+            def stat_reader(path, **_kwargs) -> SimpleNamespace:
+                return source_stat if str(path) == source else mount_stat
+
+            with (
+                patch(
+                    "subprocess.run",
+                    return_value=SimpleNamespace(
+                        stdout=f"{source} on {mount} (exfat, local)\n"
+                    ),
+                ),
+                patch("os.stat", side_effect=stat_reader),
+            ):
+                identity = _mount_identity(mount)
+
+        self.assertEqual(
+            identity,
+            MountIdentity(
+                source_path=source,
+                source_device=1,
+                source_inode=2,
+                source_rdev=3,
+                source_mode=4,
+                source_ctime_ns=5,
+                mount_device=6,
+                mount_inode=7,
+                mount_ctime_ns=8,
+            ),
+        )
+
+    def test_mount_identity_returns_none_when_mount_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            mount = (Path(temporary) / "VAL").resolve()
+            with patch(
+                "subprocess.run",
+                return_value=SimpleNamespace(stdout="/dev/disk1s1 on / (apfs)\n"),
+            ):
+                self.assertIsNone(_mount_identity(mount))
+
+    def test_mount_identity_rejects_ambiguous_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            mount = (Path(temporary) / "VAL").resolve()
+            output = (
+                f"/dev/disk4s2 on {mount} (exfat, local)\n"
+                f"/dev/disk5s2 on {mount} (exfat, local)\n"
+            )
+            with (
+                patch(
+                    "subprocess.run",
+                    return_value=SimpleNamespace(stdout=output),
+                ),
+                self.assertRaisesRegex(ResourceGuardError, "ambiguous"),
+            ):
+                _mount_identity(mount)
+
     def _run(
         self,
         root: Path,
         snapshots: list[tuple[ProcessRow, ...]],
         swaps: list[int],
-        mounts: list[bool],
+        mounts: list[bool | MountIdentity | None],
         *,
         max_rss_bytes: int = 1000,
     ) -> tuple[int, list[dict[str, str]], list[tuple[int, ...]]]:
@@ -47,8 +122,25 @@ class Task17ResourceGuardTest(unittest.TestCase):
         def swap_reader() -> int:
             return swaps.pop(0)
 
-        def mount_reader(_path: Path) -> bool:
-            return mounts.pop(0)
+        stable_mount = MountIdentity(
+            source_path="/dev/disk4s2",
+            source_device=1,
+            source_inode=2,
+            source_rdev=3,
+            source_mode=4,
+            source_ctime_ns=5,
+            mount_device=6,
+            mount_inode=7,
+            mount_ctime_ns=8,
+        )
+
+        def mount_identity_reader(_path: Path) -> MountIdentity | None:
+            value = mounts.pop(0)
+            if value is True:
+                return stable_mount
+            if value is False:
+                return None
+            return value
 
         def terminator(rows, runner_pid: int) -> None:
             terminations.append(
@@ -64,7 +156,7 @@ class Task17ResourceGuardTest(unittest.TestCase):
             interval_seconds=1.0,
             process_reader=process_reader,
             swap_reader=swap_reader,
-            mount_reader=mount_reader,
+            mount_identity_reader=mount_identity_reader,
             pid_reader=lambda _pid: False,
             terminator=terminator,
             sleeper=lambda _seconds: None,
@@ -107,6 +199,35 @@ class Task17ResourceGuardTest(unittest.TestCase):
             )
         self.assertEqual(status, 2)
         self.assertEqual(rows[-1]["event"], "val_unmounted_sigterm")
+        self.assertEqual(terminations, [(100,)])
+
+    def test_same_path_remount_records_stop_and_terminates(self) -> None:
+        replacement_mount = MountIdentity(
+            source_path="/dev/disk4s2",
+            source_device=1,
+            source_inode=20,
+            source_rdev=3,
+            source_mode=4,
+            source_ctime_ns=50,
+            mount_device=6,
+            mount_inode=7,
+            mount_ctime_ns=8,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            status, rows, terminations = self._run(
+                Path(temporary),
+                [
+                    (ProcessRow(100, 1, 100, 1.0),),
+                    (ProcessRow(100, 1, 100, 1.0),),
+                ],
+                [10, 10, 10],
+                [True, replacement_mount],
+            )
+        self.assertEqual(status, 2)
+        self.assertEqual(
+            [row["event"] for row in rows],
+            ["sample", "val_unmounted_sigterm"],
+        )
         self.assertEqual(terminations, [(100,)])
 
     def test_clean_output_is_accepted_by_both_resource_validators(self) -> None:

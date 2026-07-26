@@ -43,6 +43,21 @@ class ProcessRow:
     cpu_percent: float
 
 
+@dataclass(frozen=True)
+class MountIdentity:
+    """One non-writing identity for the filesystem mounted at a path."""
+
+    source_path: str
+    source_device: int
+    source_inode: int
+    source_rdev: int
+    source_mode: int
+    source_ctime_ns: int
+    mount_device: int
+    mount_inode: int
+    mount_ctime_ns: int
+
+
 def _process_rows() -> tuple[ProcessRow, ...]:
     try:
         result = subprocess.run(
@@ -107,7 +122,7 @@ def _swap_used_bytes() -> int:
     return int(round(float(match.group(1)) * 1024**2))
 
 
-def _mount_is_present(mount_path: Path) -> bool:
+def _mount_identity(mount_path: Path) -> MountIdentity | None:
     try:
         result = subprocess.run(
             ("mount",),
@@ -117,7 +132,35 @@ def _mount_is_present(mount_path: Path) -> bool:
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise ResourceGuardError("cannot read mounted filesystems") from exc
-    return f" on {mount_path} " in result.stdout
+    guarded = mount_path.expanduser().resolve()
+    marker = f" on {guarded} ("
+    sources = tuple(
+        line.split(marker, maxsplit=1)[0]
+        for line in result.stdout.splitlines()
+        if marker in line
+    )
+    if not sources:
+        return None
+    if len(sources) > 1:
+        raise ResourceGuardError("guarded mount has an ambiguous source identity")
+    try:
+        source_stat = os.stat(sources[0])
+        mount_stat = os.stat(guarded)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ResourceGuardError("cannot read guarded mount identity") from exc
+    return MountIdentity(
+        source_path=sources[0],
+        source_device=int(source_stat.st_dev),
+        source_inode=int(source_stat.st_ino),
+        source_rdev=int(source_stat.st_rdev),
+        source_mode=int(source_stat.st_mode),
+        source_ctime_ns=int(source_stat.st_ctime_ns),
+        mount_device=int(mount_stat.st_dev),
+        mount_inode=int(mount_stat.st_ino),
+        mount_ctime_ns=int(mount_stat.st_ctime_ns),
+    )
 
 
 def _pid_exists(pid: int) -> bool:
@@ -229,7 +272,7 @@ def run_guard(
     interval_seconds: float = 1.0,
     process_reader: Callable[[], tuple[ProcessRow, ...]] = _process_rows,
     swap_reader: Callable[[], int] = _swap_used_bytes,
-    mount_reader: Callable[[Path], bool] = _mount_is_present,
+    mount_identity_reader: Callable[[Path], MountIdentity | None] = _mount_identity,
     pid_reader: Callable[[int], bool] = _pid_exists,
     terminator: Callable[[Sequence[ProcessRow], int], None] = _terminate_tree,
     sleeper: Callable[[float], None] = time.sleep,
@@ -251,6 +294,7 @@ def run_guard(
     with _open_output(destination) as handle:
         writer = csv.writer(handle)
         last_rows: tuple[ProcessRow, ...] = ()
+        baseline_mount_identity: MountIdentity | None = None
         while True:
             runner_present: bool | None = None
             try:
@@ -284,9 +328,18 @@ def run_guard(
                 used_swap = swap_reader()
                 if used_swap < 0:
                     raise ResourceGuardError("reported swap usage is negative")
+                current_mount_identity = mount_identity_reader(mount_path)
+                if (
+                    baseline_mount_identity is None
+                    and current_mount_identity is not None
+                ):
+                    baseline_mount_identity = current_mount_identity
                 peak_rss = max(peak_rss, rss_bytes)
                 event = "sample"
-                if not mount_reader(mount_path):
+                if (
+                    current_mount_identity is None
+                    or current_mount_identity != baseline_mount_identity
+                ):
                     event = "val_unmounted_sigterm"
                 elif rss_bytes >= max_rss_bytes:
                     event = "rss_limit_sigterm"

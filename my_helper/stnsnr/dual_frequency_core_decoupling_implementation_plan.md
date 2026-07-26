@@ -7575,17 +7575,36 @@ active independent OSS process continues under its already-running temporary
 guard; only successor launches use the checked-in command, so this
 implementation change cannot alter the current segment.
 
-The checked-in guard is now implemented with the frozen CLI and CSV contract.
-Eleven focused guard tests cover ordinary descendant-tree aggregation,
-independently confirmed clean runner exit, compatibility with both terminal
-validators, unmount, RSS, and swap stops, malformed-header rejection, output
+The user-confirmed short disconnect during `segment_0019` exposed a narrower
+mount-observation gap. A volume can disappear and remount at the same path
+between two approximately one-second samples, so a path-presence Boolean alone
+cannot distinguish the replacement mount. Decision 41 freezes one
+non-writing mount identity at guard startup: the mounted source path, its
+device-node device, inode, special-device, mode, and creation-time fields, plus
+the mount-root device, inode, and creation-time fields. Every later sample
+reopens that identity. An absent mount or any changed identity records the
+existing `val_unmounted_sigterm` event and terminates the runner tree. An
+unreadable or ambiguous identity fails closed. This adds no VAL probe file,
+keeps the seven-column guard CSV unchanged, and does not enter scientific,
+cache, task, resume, or publication identity. Focused coverage must prove an
+unchanged mount, an absent mount, and a rapid same-path remount with a changed
+device-node identity.
+
+The checked-in guard is now implemented with the frozen CLI and CSV contract
+plus Decision 41 mount-generation pinning. Fifteen focused guard tests cover
+ordinary descendant-tree aggregation, independently confirmed clean runner
+exit, compatibility with both terminal validators, absent and same-path
+replacement mounts, RSS and swap stops, malformed-header rejection, output
 placement outside the guarded mount, fail-closed process-evidence handling, a
 live runner omitted from one process snapshot, PID absence versus permission
-denial, and descendant-only termination. The joint guard and two
-resource-validator replay passed 33 tests under Conda `leaddbs`. These tests
-use temporary process snapshots and do not replace the active independent OSS
-guard or its production evidence. The checked-in guard becomes the required
-external observer for combined execution.
+denial, descendant-only termination, mounted-source parsing, and ambiguous-
+source rejection. The joint guard and two resource-validator replay passed 48
+tests plus two subtests under Conda
+`leaddbs`. A local macOS smoke resolved `/Volumes/VAL` to `/dev/disk4s2` and
+returned complete device-node and mount-root identity fields without writing
+the volume. These checks do not replace a terminal independent OSS guard or
+its production evidence. The identity-pinning guard is required for every
+successor guard epoch and combined execution.
 
 After this PID-evidence correction, the complete isolated-package
 dual-frequency test directory passed 609 tests in 72.466 seconds under Conda
@@ -7765,8 +7784,8 @@ Do not invoke the pre-instrumentation validator for such a segment. If the
 terminal segment lacks the strict instrumentation fields, identify the guard
 CSV whose single epoch contains the terminal maximum-row and owning-decision
 commits, then generate and validate the bounded pre-instrumentation evidence
-with these commands. The currently active candidate is `segment_0019`, with
-`/private/tmp/task17-oss-segment_0019-resource-guard.csv` as its matching guard.
+with these commands. The currently active candidate is `segment_0020`, with
+`/private/tmp/task17-oss-segment_0020-resource-guard.csv` as its matching guard.
 Those values may replace the placeholders below only if that segment becomes
 terminal and satisfies the selected validator contract. If the lineage needs
 another resume, use the actual later terminal segment and its matching guard;
@@ -9075,6 +9094,23 @@ historical gate replay, descendant replay, forced no-expensive task
 authorization, and an end-to-end executor resume fixture that promotes a real
 historical row-and-decision cache closure without invoking the toolchain.
 
+A fresh read-only source and regression audit on 2026-07-26 confirmed the
+complete promotion boundary in the merged checkout. A historical row is
+eligible only when its implementation-keyed identity is otherwise the exact
+current row key, its completed cache manifest and every declared payload hash
+verify, its array metadata matches the requested ordered fiber axis, and every
+compatible historical candidate has the same scientific payload signature. A
+historical decision is eligible only when both referenced rows pass that
+closure, its group and row identities match, its status is `pass`, both
+mismatch counts are zero, its maximum probability difference is below the
+frozen tolerance, and all compatible decisions agree. Promotion then publishes
+new stable row and decision entries atomically with explicit compatibility
+provenance. The terminal group may reference only those stable identities;
+historical directories are never counted directly. Missing, corrupt,
+mismatched, ambiguous, or conflicting evidence fails closed before any
+unauthorized toolchain call. The row-identity, row-materializer, axis-gate, and
+executor cache-only resume set passed 26 tests with warnings treated as errors.
+
 The compatibility commits were then merged after the interrupted writer had
 fully exited. Parent-run ID, parent manifest SHA, scientific configuration
 hash, plan hash, and OSS-only analysis scope all validated before resume, and
@@ -9139,23 +9175,44 @@ post-event audit found no remaining runner, persistent worker, solver, or
 guard. The durable task ledger contains 393 completed tasks, one interrupted
 add-on equivalence-gate marker, 196 dependency skips, and no terminal failed
 task. The stable reference closure remains 34 pass decisions and 68 complete
-rows. The stable add-on cache remains 12 pass decisions and 24 complete rows;
-its newest committed decision was published at 2026-07-26T08:28:36Z and has
-zero probability, state, and activation-count mismatch.
+rows. Strict stable-key inspection found nine add-on pass decisions and 18
+complete rows. Three additional historical add-on decisions retain superseded
+`definition-sha256-*` row keys and do not enter the stable closure. The newest
+stable decision was published at 2026-07-26T08:28:36Z and has probability,
+state, and activation-count mismatch counts below one.
 
 After remount, a create/read/remove probe passed and the Samsung T7 again
 reported a 10000000000-bit/s USB link. The user then explicitly authorized
 continuation. `segment_0019` started at 2026-07-26T14:49:21.648100Z through
 `--resume` with 14 workers, one solver token, and its own checked-in guard.
-Startup restored the 34-decision reference closure and the 12 completed add-on
+Startup restored the 34-decision reference closure and the nine stable add-on
 decisions without a reference solver call. At 2026-07-26T15:05:25.248089Z,
 the current add-on solver was executing `sample_09`; the guard reported a
 6198018048-byte task-tree RSS, a 17354375168-byte epoch peak, unchanged
-3115057152-byte swap, and no stop event. This remains intermediate evidence:
-the final add-on `row_decision_ids` closure, downstream task completion, and
-strict resource acceptance still require the terminal segment. The immutable
-`segment_0018` record and its guard remain the authoritative interruption
-evidence, and only the unpublished in-flight work may be recomputed.
+3115057152-byte swap, and no stop event.
+
+The user later reported a second, short physical VAL disconnect during
+`segment_0019`. Its approximately one-second guard contained no sample gap
+above three seconds and no unmount event, so the user report was treated as
+authoritative. The runner, persistent worker, solver descendants, and guard
+were stopped manually; the guard closed with `runner_exit`. The in-flight
+temporary row did not publish a standard cache entry or decision, and strict
+stable-key inspection still found nine add-on decisions and 18 rows.
+`segment_0019.json` retained a stale nonterminal status because the externally
+terminated runner could not commit a terminal segment record. It is
+interruption evidence only and cannot satisfy resource acceptance.
+
+After the second remount, a real write probe passed and the Samsung T7 again
+reported a 10000000000-bit/s USB link. The user explicitly authorized another
+resume. `segment_0020` started at 2026-07-26T17:07:27.838779Z through
+`--resume` with 14 workers, one solver token, and the checked-in guard at
+`/private/tmp/task17-oss-segment_0020-resource-guard.csv`. Its guard epoch
+started with a 3115057152-byte swap baseline and the unchanged 64-GiB RSS stop
+boundary. This remains intermediate evidence: the final add-on
+`row_decision_ids` closure, downstream task completion, and resource acceptance
+still require the actual terminal `segment_0020` or a later guarded resume.
+The immutable interrupted segments and their guards remain failure-recovery
+evidence, and only unpublished in-flight work may be recomputed.
 
 The combined-extension cache-first launch boundary was revalidated on
 2026-07-26 without reading or writing VAL. Ten focused tests covered executor
@@ -9177,7 +9234,8 @@ I/O, runnable, timestamp, and admission derivations; terminal task closure;
 current guard event spelling; pre-instrumentation maximum-row derivation;
 commit-window containment; probability tolerance; and rejection of stopped,
 stale, instrumented, or mismatched evidence. Production acceptance still
-requires the terminal `segment_0019` document and its complete guard epoch.
+requires the actual terminal `segment_0020` or later segment document and its
+matching complete guard epoch.
 
 The benchmark parent transaction is now implemented without exposing the
 public `run` operation prematurely. For each prepared ordinary,
