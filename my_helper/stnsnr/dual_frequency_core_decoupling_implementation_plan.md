@@ -9253,6 +9253,15 @@ stale, instrumented, or mismatched evidence. Production acceptance still
 requires the actual terminal `segment_0020` or later segment document and its
 matching complete guard epoch.
 
+A later clean-worktree replay on the same date exercised the checked-in guard,
+the strict instrumented resource validator, and the pre-instrumentation
+maximum-row validator together. It passed 53 tests plus two subtests with
+warnings treated as errors. In particular, delayed live runners and delayed
+runner exits remain fail-closed availability events, while only continuous
+ordinary samples followed by an accepted clean terminal event can support
+resource acceptance. This replay used temporary fixtures only and did not read
+or mutate the active OSS lineage.
+
 The benchmark parent transaction is now implemented without exposing the
 public `run` operation prematurely. For each prepared ordinary,
 real-cache-hit, or authorized real-solver row, the parent launches the bound
