@@ -1978,7 +1978,7 @@ Two endpoint records with the same final axis and physical stimulation rows
 produce only one shared set of final/`Omega_max` row pairs, while changing only
 the endpoint outcome preserves the binary exposure bytes but changes the
 durable observed-workspace identity. The focused OSS axis and pPAM suites pass
-47 tests and 15 subtests with warnings treated as errors. This is
+53 tests and 15 subtests with warnings treated as errors. This is
 implementation evidence; terminal configured-data and production acceptance
 remain governed by the evidence matrix.
 
