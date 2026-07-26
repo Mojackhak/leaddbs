@@ -1540,8 +1540,9 @@ Display-smoothing preflight closure on 2026-07-24:
   SHA-256 and byte counts;
 - preflight rejects a missing sidecar, a payload/path/size/FWHM mismatch, a
   non-v2 algorithm, a changed support policy, or unequal finite-support counts;
-- the visualization suite passes 38 tests, including explicit rejection of a
-  v1 sidecar; and
+- a fresh 2026-07-26 replay of the complete visualization suite passes all 42
+  tests with warnings treated as errors, including explicit rejection of a v1
+  sidecar; and
 - a read-only invocation of the durable formal request now stops at the first
   remaining v1 derivative,
   `adl/reference/report/display/benefit_map_smooth_fwhm1mm.nii.gz`, before
