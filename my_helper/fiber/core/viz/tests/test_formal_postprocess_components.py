@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -9,8 +10,10 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import pearsonr, spearmanr
 
 from my_helper.fiber.core.viz import formal_postprocess
 from my_helper.fiber.core.viz import paired_fit_postprocess
@@ -34,20 +37,54 @@ def _sha256(path: Path) -> str:
 
 
 def _paired_metrics(subject_count: int = 3) -> dict[str, object]:
+    if subject_count != 3:
+        raise ValueError("paired metric fixture supports exactly three subjects")
+    outcome = np.asarray([1.0, 2.0, 3.0])
+    in_sample = np.asarray([1.1, 2.1, 2.9])
+    loocv = np.asarray([1.2, 1.9, 2.8])
+    in_sample_baseline = np.asarray([2.0, 2.0, 2.0])
+    loocv_baseline = np.asarray([2.1, 2.1, 2.1])
+
+    def metrics(
+        prediction: np.ndarray,
+        baseline: np.ndarray,
+    ) -> dict[str, float]:
+        model_error = outcome - prediction
+        baseline_error = outcome - baseline
+        model_sse = float(np.sum(model_error**2))
+        baseline_sse = float(np.sum(baseline_error**2))
+        total_sse = float(np.sum((outcome - np.mean(outcome)) ** 2))
+        spearman = spearmanr(outcome, prediction)
+        pearson = pearsonr(outcome, prediction)
+        return {
+            "spearman": float(spearman.statistic),
+            "spearman_p": float(spearman.pvalue),
+            "pearson": float(pearson.statistic),
+            "pearson_p": float(pearson.pvalue),
+            "r2": 1.0 - model_sse / total_sse,
+            "relative_r2": 1.0 - model_sse / baseline_sse,
+            "rmse": float(np.sqrt(np.mean(model_error**2))),
+            "mae": float(np.mean(np.abs(model_error))),
+            "rmse_baseline": float(np.sqrt(np.mean(baseline_error**2))),
+            "mae_baseline": float(np.mean(np.abs(baseline_error))),
+        }
+
+    in_metrics = metrics(in_sample, in_sample_baseline)
+    loocv_metrics = metrics(loocv, loocv_baseline)
     return {
         "in_sample_n_subjects_total": subject_count,
         "in_sample_n_subjects_finite": subject_count,
         "in_sample_predictions_all_finite": True,
-        "in_sample_spearman_rho": 0.5,
-        "in_sample_spearman_nominal_p": 0.1,
-        "in_sample_pearson_r": 0.6,
-        "in_sample_pearson_nominal_p": 0.08,
-        "in_sample_r2": 0.4,
-        "in_sample_relative_r2": 0.35,
-        "in_sample_rmse": 0.8,
-        "in_sample_mae": 0.6,
-        "in_sample_rmse_baseline": 1.2,
-        "in_sample_mae_baseline": 1.0,
+        "in_sample_spearman_rho": in_metrics["spearman"],
+        "in_sample_spearman_nominal_p": in_metrics["spearman_p"],
+        "in_sample_pearson_r": in_metrics["pearson"],
+        "in_sample_pearson_nominal_p": in_metrics["pearson_p"],
+        "in_sample_r2": in_metrics["r2"],
+        "in_sample_relative_r2": in_metrics["relative_r2"],
+        "in_sample_rmse": in_metrics["rmse"],
+        "in_sample_mae": in_metrics["mae"],
+        "in_sample_rmse_baseline": in_metrics["rmse_baseline"],
+        "in_sample_mae_baseline": in_metrics["mae_baseline"],
         "in_sample_permutation_p_plus_one_two_sided": 0.12,
         "in_sample_permutations_requested": 10000,
         "in_sample_permutations_finite": 10000,
@@ -56,28 +93,34 @@ def _paired_metrics(subject_count: int = 3) -> dict[str, object]:
         "loocv_n_subjects_total": subject_count,
         "loocv_n_subjects_finite": subject_count,
         "loocv_predictions_all_finite": True,
-        "loocv_spearman_rho": 0.3,
-        "loocv_spearman_nominal_p": 0.2,
-        "loocv_pearson_r": 0.25,
-        "loocv_pearson_nominal_p": 0.25,
-        "loocv_r2": 0.1,
-        "loocv_q2": 0.05,
-        "loocv_rmse_model": 1.1,
-        "loocv_mae_model": 0.9,
-        "loocv_rmse_baseline": 1.3,
-        "loocv_mae_baseline": 1.1,
+        "loocv_spearman_rho": loocv_metrics["spearman"],
+        "loocv_spearman_nominal_p": loocv_metrics["spearman_p"],
+        "loocv_pearson_r": loocv_metrics["pearson"],
+        "loocv_pearson_nominal_p": loocv_metrics["pearson_p"],
+        "loocv_r2": loocv_metrics["r2"],
+        "loocv_q2": loocv_metrics["relative_r2"],
+        "loocv_rmse_model": loocv_metrics["rmse"],
+        "loocv_mae_model": loocv_metrics["mae"],
+        "loocv_rmse_baseline": loocv_metrics["rmse_baseline"],
+        "loocv_mae_baseline": loocv_metrics["mae_baseline"],
         "loocv_permutation_p_plus_one_two_sided": 0.3,
         "loocv_permutations_requested": 10000,
         "loocv_permutations_finite": 10000,
         "loocv_permutation_q_bh_model_family": 0.45,
         "loocv_permutation_q_bh_all_endpoints": 0.55,
         "subject_mask_match": True,
-        "spearman_optimism_gap": 0.2,
-        "pearson_optimism_gap": 0.35,
-        "r2_optimism_gap": 0.3,
-        "relative_r2_q2_gap": 0.3,
-        "rmse_optimism_gap": 0.3,
-        "mae_optimism_gap": 0.3,
+        "spearman_optimism_gap": (
+            in_metrics["spearman"] - loocv_metrics["spearman"]
+        ),
+        "pearson_optimism_gap": (
+            in_metrics["pearson"] - loocv_metrics["pearson"]
+        ),
+        "r2_optimism_gap": in_metrics["r2"] - loocv_metrics["r2"],
+        "relative_r2_q2_gap": (
+            in_metrics["relative_r2"] - loocv_metrics["relative_r2"]
+        ),
+        "rmse_optimism_gap": loocv_metrics["rmse"] - in_metrics["rmse"],
+        "mae_optimism_gap": loocv_metrics["mae"] - in_metrics["mae"],
     }
 
 
@@ -340,9 +383,16 @@ def test_single_scale_paired_fit_index_retains_complete_metrics(
     index = pd.read_csv(output_root / "endpoint_index.csv")
     assert len(index.index) == 4
     assert set(PAIRED_METRIC_FIELDS).issubset(index.columns)
-    assert index["in_sample_pearson_r"].tolist() == pytest.approx([0.6] * 4)
-    assert index["loocv_rmse_baseline"].tolist() == pytest.approx([1.3] * 4)
-    assert index["relative_r2_q2_gap"].tolist() == pytest.approx([0.3] * 4)
+    expected = _paired_metrics()
+    assert index["in_sample_pearson_r"].tolist() == pytest.approx(
+        [expected["in_sample_pearson_r"]] * 4
+    )
+    assert index["loocv_rmse_baseline"].tolist() == pytest.approx(
+        [expected["loocv_rmse_baseline"]] * 4
+    )
+    assert index["relative_r2_q2_gap"].tolist() == pytest.approx(
+        [expected["relative_r2_q2_gap"]] * 4
+    )
 
     second = run_single_scale_paired_fit_postprocess(
         scale_id="scale_a",
@@ -531,6 +581,10 @@ def _formal_fit_config(tmp_path: Path, output_name: str) -> Path:
     (
         ("missing_metric", "in_sample_pearson_r"),
         ("missing_prediction_column", "loocv_baseline_prediction"),
+        (
+            "prediction_metric_mismatch",
+            "prediction table metric in_sample_pearson_r differs",
+        ),
     ),
 )
 def test_formal_validate_only_enforces_complete_paired_source_contract(
@@ -546,12 +600,18 @@ def test_formal_validate_only_enforces_complete_paired_source_contract(
         summary = json.loads(path.read_text(encoding="utf-8"))
         summary.pop("in_sample_pearson_r")
         path.write_text(json.dumps(summary), encoding="utf-8")
-    else:
+    elif case == "missing_prediction_column":
         relative = "scale_a/reference/sensitivity/final_in_sample/predictions.csv"
         path = root / relative
         predictions = pd.read_csv(path).drop(
             columns=["loocv_baseline_prediction"]
         )
+        predictions.to_csv(path, index=False)
+    else:
+        relative = "scale_a/reference/sensitivity/final_in_sample/predictions.csv"
+        path = root / relative
+        predictions = pd.read_csv(path)
+        predictions.loc[0, "in_sample_prediction"] += 0.5
         predictions.to_csv(path, index=False)
     _refresh_publication_index_entry(root, relative)
 
@@ -681,12 +741,19 @@ def test_formal_postprocess_commits_root_only_after_all_endpoints_complete(
     assert len(endpoint_index.index) == 8
     first_endpoint = first["endpoint_results"][0]
     assert set(first_endpoint["metrics"]) == set(PAIRED_METRIC_FIELDS)
+    expected_metrics = _paired_metrics()
     first_index_row = endpoint_index.loc[
         endpoint_index["endpoint_id"] == first_endpoint["endpoint_id"]
     ].iloc[0]
-    assert first_index_row["in_sample_pearson_r"] == pytest.approx(0.6)
-    assert first_index_row["loocv_rmse_baseline"] == pytest.approx(1.3)
-    assert first_index_row["relative_r2_q2_gap"] == pytest.approx(0.3)
+    assert first_index_row["in_sample_pearson_r"] == pytest.approx(
+        expected_metrics["in_sample_pearson_r"]
+    )
+    assert first_index_row["loocv_rmse_baseline"] == pytest.approx(
+        expected_metrics["loocv_rmse_baseline"]
+    )
+    assert first_index_row["relative_r2_q2_gap"] == pytest.approx(
+        expected_metrics["relative_r2_q2_gap"]
+    )
 
     second = run_formal_postprocess(config_path)
     assert second["status"] == "complete"
@@ -703,9 +770,16 @@ def test_formal_postprocess_commits_root_only_after_all_endpoints_complete(
     original_index = (output_root / "endpoint_index.csv").read_text(
         encoding="utf-8"
     )
-    changed_index = pd.read_csv(output_root / "endpoint_index.csv")
-    changed_index.loc[0, "pearson_optimism_gap"] = 0.9
-    changed_index.to_csv(output_root / "endpoint_index.csv", index=False)
+    index_path = output_root / "endpoint_index.csv"
+    with index_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        changed_rows = list(reader)
+        fieldnames = tuple(reader.fieldnames or ())
+    changed_rows[0]["pearson_optimism_gap"] = "0.9"
+    with index_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(changed_rows)
     with pytest.raises(
         ValueError,
         match="endpoint index metric pearson_optimism_gap differs",

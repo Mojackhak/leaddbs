@@ -1479,10 +1479,10 @@ recalculate the deterministic Spearman, Pearson, standard and relative fit,
 model-error, and baseline-error summaries from the paired prediction table and
 compare them with the published values. Figures and result indexes continue to
 use the published values; the recalculated values are never substituted, and
-formal permutation or BH inference is never recomputed. Forty-three focused
-paired-fit and component tests passed, the complete visualization package
-passed 53 tests, and the complete dual-frequency plus visualization regression
-passed 845 tests and 329 subtests with warnings treated as errors.
+formal permutation or BH inference is never recomputed. Forty-four focused
+paired-fit and component tests, the complete 54-test visualization package,
+and the complete dual-frequency plus visualization regression with 846 tests
+and 329 subtests pass with warnings treated as errors.
 
 Validation completed on 2026-07-18:
 

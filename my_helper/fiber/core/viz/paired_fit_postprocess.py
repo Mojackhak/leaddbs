@@ -15,6 +15,7 @@ from typing import Any
 import matplotlib
 import numpy as np
 import pandas as pd
+from scipy.stats import pearsonr, spearmanr
 
 matplotlib.use("Agg")
 
@@ -344,6 +345,102 @@ def _validate_predictions(
     )
     if not np.all(np.isfinite(numeric.to_numpy(dtype=float))):
         raise ValueError("paired-fit prediction values must all be finite")
+    _validate_prediction_metric_consistency(numeric, summary)
+
+
+def _calculated_prediction_metrics(subjects: pd.DataFrame) -> dict[str, float]:
+    outcome = subjects["outcome"].to_numpy(dtype=float)
+    output: dict[str, float] = {}
+    definitions = (
+        (
+            "in_sample",
+            subjects["in_sample_prediction"].to_numpy(dtype=float),
+            subjects["in_sample_baseline_prediction"].to_numpy(dtype=float),
+        ),
+        (
+            "loocv",
+            subjects["loocv_prediction"].to_numpy(dtype=float),
+            subjects["loocv_baseline_prediction"].to_numpy(dtype=float),
+        ),
+    )
+    for prefix, prediction, baseline in definitions:
+        spearman = spearmanr(outcome, prediction)
+        pearson = pearsonr(outcome, prediction)
+        model_error = outcome - prediction
+        baseline_error = outcome - baseline
+        model_sse = float(np.sum(model_error**2))
+        baseline_sse = float(np.sum(baseline_error**2))
+        total_sse = float(np.sum((outcome - np.mean(outcome)) ** 2))
+        if total_sse < np.finfo(float).eps:
+            raise ValueError(
+                "paired-fit prediction outcome variance is too small"
+            )
+        if baseline_sse < np.finfo(float).eps:
+            raise ValueError(
+                f"paired-fit {prefix} baseline error is too small"
+            )
+        if prefix == "in_sample":
+            output.update(
+                {
+                    "in_sample_spearman_rho": float(spearman.statistic),
+                    "in_sample_spearman_nominal_p": float(spearman.pvalue),
+                    "in_sample_pearson_r": float(pearson.statistic),
+                    "in_sample_pearson_nominal_p": float(pearson.pvalue),
+                    "in_sample_r2": 1.0 - model_sse / total_sse,
+                    "in_sample_relative_r2": 1.0 - model_sse / baseline_sse,
+                    "in_sample_rmse": float(np.sqrt(np.mean(model_error**2))),
+                    "in_sample_mae": float(np.mean(np.abs(model_error))),
+                    "in_sample_rmse_baseline": float(
+                        np.sqrt(np.mean(baseline_error**2))
+                    ),
+                    "in_sample_mae_baseline": float(
+                        np.mean(np.abs(baseline_error))
+                    ),
+                }
+            )
+        else:
+            output.update(
+                {
+                    "loocv_spearman_rho": float(spearman.statistic),
+                    "loocv_spearman_nominal_p": float(spearman.pvalue),
+                    "loocv_pearson_r": float(pearson.statistic),
+                    "loocv_pearson_nominal_p": float(pearson.pvalue),
+                    "loocv_r2": 1.0 - model_sse / total_sse,
+                    "loocv_q2": 1.0 - model_sse / baseline_sse,
+                    "loocv_rmse_model": float(
+                        np.sqrt(np.mean(model_error**2))
+                    ),
+                    "loocv_mae_model": float(np.mean(np.abs(model_error))),
+                    "loocv_rmse_baseline": float(
+                        np.sqrt(np.mean(baseline_error**2))
+                    ),
+                    "loocv_mae_baseline": float(
+                        np.mean(np.abs(baseline_error))
+                    ),
+                }
+            )
+    return output
+
+
+def _validate_prediction_metric_consistency(
+    subjects: pd.DataFrame,
+    summary: Mapping[str, Any],
+) -> None:
+    calculated = _calculated_prediction_metrics(subjects)
+    for key, value in calculated.items():
+        if not math.isfinite(value):
+            raise ValueError(
+                f"paired-fit prediction table cannot reproduce finite {key}"
+            )
+        if not math.isclose(
+            value,
+            _finite_number(summary, key),
+            rel_tol=1e-10,
+            abs_tol=1e-12,
+        ):
+            raise ValueError(
+                f"paired-fit prediction table metric {key} differs from summary"
+            )
 
 
 def load_validated_paired_predictions(
