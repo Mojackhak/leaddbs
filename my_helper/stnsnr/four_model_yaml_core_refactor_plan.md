@@ -1907,6 +1907,28 @@ Run the command twice. The second invocation must preserve the report bytes and
 mtime. This full hash pass is independent of the run store, calls no scientific
 producer, and is permitted whenever the OSS solver is not using VAL bandwidth.
 
+The validator was implemented in commit `3c45d57b7`. Five focused corruption,
+identity, closure, and same-byte report tests pass; complete dual-frequency
+discovery passes 772 tests and 329 subtests with warnings treated as errors.
+The frozen production invocation then validated all 5690 indexed payloads and
+1062720468 indexed bytes across both canonical model sets. Direct voxel
+contains 2215 artifacts, 56 final models, and indexed-payload closure SHA-256
+`cc48441d4109648c6e82c752f202763754c414460c6957ce689db932143a86db`.
+Normative fiber contains 3475 artifacts, 56 final models, and closure SHA-256
+`a25d1936fc699ca4ea303ff87daa22bbe9775995fd350b330badd6acf901e3e6`.
+Every payload byte count and SHA-256 matched.
+
+Both roots retained source run `task17-main-v8-tau-grid-formal-20260717`,
+scientific-configuration SHA-256
+`6d23bc0e9f30e697806d0847f238c1c8b09170673dc1ff0c29253808a5c401d5`,
+and study-base SHA-256
+`3aa0d58a7373e186896b2fbfb5c0342d8425046bf9a5b07517b416d6a7def925`.
+The atomic report is
+`/Volumes/VAL/STNSNr/summary/spot/acceptance/`
+`task17-main-model-set-full-payload-validation-v1.json` with SHA-256
+`8cf595681415820f5224fb7aeebe5023a702046cde3f0efefa485c3a559d782f`.
+The second full invocation preserved its bytes and mtime.
+
 ## Deferred Work
 
 ```text
