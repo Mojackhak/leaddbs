@@ -623,6 +623,20 @@ model, published result, cache identity, resume identity, or active OSS
 execution. The terminal audit must use this ten-path closure as its expected
 upper bound unless a later documented repair is required.
 
+A later documentation-only merge synchronized main-head commits
+`af87efdc5` and `2d98bb58f` into the isolated branch without merging isolated
+implementation into the production checkout. The synchronization merge head
+was `f2fd325d7`; main head `2d98bb58f` is an ancestor of that merge and the
+subsequent documentation checkpoint, so the required eventual main-checkout
+operation remains fast-forward-only. The post-merge range contained 51 commits
+before this checkpoint and contains 52 commits after it, with the same ten
+changed paths. The benchmark request
+SHA-256 remains
+`c9f4bca02361f7004adc383e95df69a40a5dbd31ca30e0acf64286073948e839`.
+Both worktrees were clean after the merge. This is a pre-terminal checkpoint;
+all ancestry, count, path, digest, and cleanliness evidence must still be
+recomputed after the OSS process exits.
+
 The formal request is frozen at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
 It references only the parent-run input copies, declares the 64-GiB ceiling,
