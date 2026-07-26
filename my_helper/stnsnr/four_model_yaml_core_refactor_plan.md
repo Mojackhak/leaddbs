@@ -2017,6 +2017,13 @@ No independent YAML-core implementation gap remains; the open production
 evidence is the Task 17 sensitivity, resource, and postprocess closure tracked
 by the linked plans.
 
+A broader final-plan replay later on 2026-07-26 passed 66 tests and 104
+subtests with warnings treated as errors across configuration, application CLI,
+catalog, planner, formal in-sample, run-cache cleanup, and goal acceptance.
+This current-checkout result confirms that the YAML-core contract remains
+compatible with the later Task 17 and postprocess implementation. It does not
+replace the pending production sensitivity and resource gates.
+
 A repository-owned production-source guard must also bind the exact source
 files rather than relying only on temporary modified-profile fixtures. The
 approved SHA-256 values are
