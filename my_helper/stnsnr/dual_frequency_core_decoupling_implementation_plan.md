@@ -8103,6 +8103,16 @@ resume, immutable requests, and terminal output closure. The replay used only
 temporary local fixtures and did not read, mutate, or substitute for the active
 formal OSS lineage.
 
+A clean-worktree publication replay on 2026-07-26 expanded this gate to the
+canonical payload writer, extension-v2 validator, and cross-domain model-set
+validator. All 27 tests passed with warnings treated as errors. The gate covers
+single-verification copy publication, immutable-collision rejection,
+self-contained and idempotent jitter/OSS/combined replay, relative indexes,
+parent and child drift rejection, forbidden run-store paths, payload
+corruption, unindexed files, and cross-domain scientific-identity consistency.
+It used temporary fixtures only; canonical OSS-v2 and combined-v2 still require
+their terminal production children.
+
 The canonical replay target IDs are frozen before the live lineages finish.
 The completed jitter child publishes as
 `task17-jitter-v8-support-preserving-formal-20260719-v2` in both domain model
