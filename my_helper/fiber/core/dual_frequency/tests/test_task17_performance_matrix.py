@@ -1285,6 +1285,36 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
         )
         self.assertEqual(arguments.operation, "run")
 
+    def test_public_main_dispatches_resumable_matrix_run(self) -> None:
+        expected = {
+            "status": "completed",
+            "matrix_path": "/benchmark/performance_matrix.json",
+        }
+        with (
+            patch.object(
+                harness,
+                "_run_matrix",
+                return_value=expected,
+            ) as run_matrix,
+            patch("builtins.print") as output,
+        ):
+            exit_code = harness.main(
+                (
+                    "run",
+                    "--request",
+                    "request.json",
+                    "--benchmark-root",
+                    "benchmark",
+                )
+            )
+
+        self.assertEqual(exit_code, 0)
+        run_matrix.assert_called_once_with(
+            Path("request.json"),
+            Path("benchmark"),
+        )
+        self.assertEqual(json.loads(output.call_args.args[0]), expected)
+
     def test_finished_execution_segment_requires_exactly_one_segment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

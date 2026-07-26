@@ -104,7 +104,7 @@ repository-path closure described below.
 
 After the current main branch was merged into
 `task17-perf-injected-worker`, the isolated performance-matrix suite and the
-new plan-audit guard passed all 39 tests together with warnings treated as
+new plan-audit guard passed all 40 tests together with warnings treated as
 errors. The parser selects the table by its `Source-plan item` header, so the
 separate detailed checklist table below remains evidence rather than being
 miscounted as a second source mapping. The named Git-ignored allowlist resolved
@@ -568,7 +568,10 @@ The CLI now exposes the existing internal `run` orchestrator. Its read-only
 root, rejects one-sided matrix/report publication, recomputes repository
 acceptance for a terminal matrix, and requires exact document equality with
 the stored deterministic report without repairing it.
-Five candidate-parity tests and 35 performance-harness tests pass in the
+The focused CLI contract must invoke `main()` for `run`, prove that the exact
+request and benchmark-root paths reach the resumable orchestrator, and verify
+the successful JSON result rather than checking parser choices alone.
+Five candidate-parity tests and 36 performance-harness tests pass in the
 isolated worktree. Merge and complete regression remain intentionally deferred
 until independent OSS releases the production checkout and its memory
 reservation.
