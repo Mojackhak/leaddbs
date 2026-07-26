@@ -1929,6 +1929,38 @@ The atomic report is
 `8cf595681415820f5224fb7aeebe5023a702046cde3f0efefa485c3a559d782f`.
 The second full invocation preserved its bytes and mtime.
 
+### Completed parent-run full-payload validation
+
+The canonical model-set validator does not replace the parent run's own
+artifact closure. Final acceptance therefore also requires
+`my_helper/fiber/pipelines/validate_task17_run_artifacts.py`. It accepts one
+terminal `--run-root` and an optional `--output` report.
+
+The validator must decode every persisted task document, require a unique
+terminal-completed task ID with a typed result artifact list, and prove that
+the union of task-result `(kind, URI, SHA-256)` identities exactly matches the
+root `artifact_index.json`. Every index artifact ID and URI must be unique,
+every task reference must point to the matching completed task identity, and
+every file URI must resolve to a regular nonsymbolic payload within the run
+root. It then rereads every payload, verifies its SHA-256, and records total
+payload bytes, task-result reference count, task closure SHA-256, index-identity
+closure SHA-256, and indexed-payload closure SHA-256.
+
+The report writer is atomic and same-byte idempotent. It refuses a changed
+collision and performs no run-store repair. Repository code identity remains
+provenance and is not a validation or resume gate. The frozen production
+invocation is:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/validate_task17_run_artifacts.py \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-main-v8-full-payload-validation-v1.json
+```
+
+Run the command twice while no sensitivity solver is using VAL. The second
+invocation must preserve the report bytes and mtime.
+
 ## Deferred Work
 
 ```text
