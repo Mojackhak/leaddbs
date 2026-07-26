@@ -86,6 +86,20 @@ broader ledger label.
 | Managed RAM, solver admission, RSS, swap, local guard, and reporting cadence satisfy the resource contract | `Resource scheduling and guard contract`; `Cold/warm performance and scheduler acceptance` |
 | Tau, Coverage, selected-reference overlap, support QC, and pPAM boundaries use their exact declared directions | `Boundary and computability policy`; `Frozen voxel and fiber source grids`; `Shared physical preparation and configured-data parity` |
 
+The repository-owned plan-audit guard must require a one-to-one row count for
+every still-open source-plan checkbox, preserve the exact set of open Step
+numbers, reject duplicate mapping labels, and reject a mapping reference that
+does not name an Evidence Matrix requirement. The other two source plans
+currently have no open checkbox; opening one without extending this ledger
+must therefore fail the same guard.
+
+`test_task17_plan_audit.py` implements this contract. On 2026-07-25 its three
+focused tests passed with warnings treated as errors: the 26 open
+dual-frequency items mapped to 26 unique ledger rows, the ten open Step
+numbers matched exactly, both other plans had no open checkbox, and every
+backticked mapping reference named an existing evidence row or an allowed
+status token.
+
 ## Repository Entrypoint Preflight
 
 The following repository-owned entrypoints parse successfully in Conda
