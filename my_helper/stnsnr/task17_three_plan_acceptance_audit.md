@@ -309,7 +309,7 @@ The complete current main-worktree dual-frequency and visualization regression
 was repeated on 2026-07-26 under Conda `leaddbs` with warnings treated as
 errors. Numba was preloaded before adding the complete core root, so the project
 `coverage` package could not shadow the third-party package. The accepted
-zero-skip repeat passed all 809 tests and 329 subtests in 136.67 seconds,
+zero-skip repeat passed all 828 tests and 329 subtests in 133.20 seconds,
 including the endpoint-specific tau/Coverage resolver fixture, both run-store
 scene-provenance rejections, cross-endpoint physical pPAM sharing, and
 outcome-specific observed-workspace identity. The run used temporary fixtures,
