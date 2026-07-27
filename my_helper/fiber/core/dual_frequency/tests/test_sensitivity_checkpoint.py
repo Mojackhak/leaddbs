@@ -509,7 +509,7 @@ class SensitivityCheckpointTest(unittest.TestCase):
         gates = tuple(
             task
             for task in extension.tasks
-            if task.service_id == "establish_oss_axis_equivalence"
+            if task.service_id == "prepare_oss_omega_max_rows"
         )
         observed_tasks = tuple(
             task
@@ -517,9 +517,16 @@ class SensitivityCheckpointTest(unittest.TestCase):
             if task.service_id == "prepare_ppam_observed_workspace"
         )
         self.assertEqual(len(gates), 1)
-        self.assertEqual(gates[0].output_record_type, "OSSAxisEquivalenceGroupRecord")
+        self.assertEqual(gates[0].output_record_type, "OSSSharedOmegaGroupRecord")
         self.assertTrue(gates[0].expensive_producer)
         self.assertTrue(gates[0].cache_first_expensive)
+        self.assertTrue(gates[0].stage.startswith("oss_omega_max_"))
+        self.assertFalse(
+            any(
+                task.service_id == "establish_oss_axis_equivalence"
+                for task in extension.tasks
+            )
+        )
         self.assertEqual(len(observed_tasks), 2)
         self.assertTrue(
             all(gates[0].task_id in task.dependencies for task in observed_tasks)
@@ -692,7 +699,7 @@ class SensitivityCheckpointTest(unittest.TestCase):
         gates = tuple(
             task
             for task in extension.tasks
-            if task.service_id == "establish_oss_axis_equivalence"
+            if task.service_id == "prepare_oss_omega_max_rows"
         )
         observed_tasks = tuple(
             task

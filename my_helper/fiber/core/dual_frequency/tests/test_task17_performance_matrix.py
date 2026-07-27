@@ -25,6 +25,7 @@ from dual_frequency.cache import (
 from dual_frequency.contracts import (
     AxisRef,
     OSSAxisEquivalenceGroupRecord,
+    OSSSharedOmegaGroupRecord,
     TaskKey,
 )
 from dual_frequency.workflow import ExecutionPlan, ServiceResult, TaskSpec
@@ -381,6 +382,86 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     entries=descriptors,
                 )
 
+    def test_shared_omega_cache_closure_contains_rows_without_decisions(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = ContentAddressedCache(root / "cache")
+            final_axis = AxisRef("final-axis", 2, "1" * 64)
+            omega_axis = AxisRef("omega-axis", 3, "2" * 64)
+            omega_ids = np.asarray([1, 2, 3], dtype=np.int64)
+            _row, row_id = self._publish_oss_row(
+                root=root,
+                cache=cache,
+                name="omega-only",
+                axis=omega_axis,
+                ids=omega_ids,
+                probabilities=np.asarray([0.1, 0.3, 0.8], dtype=np.float32),
+            )
+            axis_key = ScientificCacheKey(
+                geometry_hash="1" * 64,
+                stimulation_hash="2" * 64,
+                component_frequency_hash="3" * 64,
+                transform_hash="4" * 64,
+                connectome_feature_hash="5" * 64,
+                backend_name="normative_fiber_omega_max",
+                backend_version="2",
+                scientific_parameter_hashes=(("grid", "6" * 64),),
+                kind="fiber_exposures",
+            )
+            axis_path = root / "omega-axis.npy"
+            np.save(axis_path, omega_ids, allow_pickle=False)
+            cache.publish(
+                axis_key,
+                {"fiber_ids.npy": axis_path},
+                metadata={
+                    "fiber_ids.npy": CacheFileMetadata(
+                        dtype="int64",
+                        shape=(omega_axis.count,),
+                        axes=(omega_axis,),
+                        units="fiber_id",
+                        space="right_canonical",
+                    )
+                },
+            )
+            record = OSSSharedOmegaGroupRecord(
+                group_id="reference-group",
+                model_family="reference_fiber",
+                preparation_status="omega_max_ready",
+                final_feature_axis=final_axis,
+                omega_feature_axis=omega_axis,
+                omega_cache_kind=axis_key.kind,
+                omega_cache_semantic_sha256=axis_key.digest,
+                endpoint_ids=("endpoint-a",),
+                omega_row_ids=(row_id,),
+            )
+
+            closure = harness._accepted_oss_cache_closure(
+                (("task_omega", record),),
+                cache_root=cache.root,
+            )
+            self.assertEqual(
+                [row["scientific_identity"] for row in closure["rows"]],
+                [row_id],
+            )
+            self.assertEqual(closure["groups"][0]["decisions"], [])
+            descriptors = harness._accepted_oss_cache_entry_descriptors(
+                closure
+            )
+            self.assertEqual(
+                descriptors,
+                (
+                    {
+                        "kind": "oss_rows",
+                        "scientific_identity": row_id,
+                        "manifest_sha256": closure["rows"][0][
+                            "manifest_sha256"
+                        ],
+                    },
+                ),
+            )
+
     def test_accepted_oss_gate_records_require_both_fiber_families(
         self,
     ) -> None:
@@ -430,6 +511,47 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "exact two fiber gate records",
             ):
                 harness._accepted_oss_gate_records(root)
+
+    def test_accepted_oss_records_decode_shared_omega_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tasks_root = root / "tasks"
+            tasks_root.mkdir()
+            axis = AxisRef("fiber-axis", 2, "1" * 64)
+            for index, family in enumerate(
+                ("reference_fiber", "addon_fiber"),
+                start=2,
+            ):
+                record = OSSSharedOmegaGroupRecord(
+                    group_id=f"{family}-group",
+                    model_family=family,
+                    preparation_status="omega_max_ready",
+                    final_feature_axis=axis,
+                    omega_feature_axis=axis,
+                    omega_cache_kind="fiber_exposures",
+                    omega_cache_semantic_sha256=f"{index:064x}",
+                    endpoint_ids=(f"{family}-endpoint",),
+                    omega_row_ids=(f"{index + 2:064x}",),
+                )
+                task_id = f"task_{family}"
+                (tasks_root / f"{task_id}.json").write_text(
+                    json.dumps(
+                        {
+                            "task_id": task_id,
+                            "service_id": "prepare_oss_omega_max_rows",
+                            "status": "completed",
+                            "result": ServiceResult.from_record(record).as_dict(),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            records = harness._accepted_oss_gate_records(root)
+            self.assertTrue(
+                all(
+                    isinstance(record, OSSSharedOmegaGroupRecord)
+                    for _task_id, record in records
+                )
+            )
 
     def test_exact_three_connectome_key_closure_has_72_rows(self) -> None:
         rows = harness._row_keys(("ppmi", "mgh", "dtor"))

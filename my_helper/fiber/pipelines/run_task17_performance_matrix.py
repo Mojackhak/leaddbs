@@ -55,6 +55,7 @@ from dual_frequency.contracts import (  # noqa: E402
     ArtifactRef,
     FinalSelectionRecord,
     OSSAxisEquivalenceGroupRecord,
+    OSSSharedOmegaGroupRecord,
     PreparedExposureRecord,
     SensitiveRecord,
     TaskKey,
@@ -62,6 +63,9 @@ from dual_frequency.contracts import (  # noqa: E402
 from dual_frequency.runtime.oss_axis_equivalence import (  # noqa: E402
     OSS_AXIS_PROBABILITY_TOLERANCE,
     accepted_group_uses_stable_scientific_cache,
+)
+from dual_frequency.runtime.oss_shared_omega import (  # noqa: E402
+    shared_omega_group_uses_stable_scientific_cache,
 )
 from dual_frequency.runtime.oss_toolchain import (  # noqa: E402
     OSSRowExecutionEvidence,
@@ -144,6 +148,7 @@ _JITTER_SERVICES = {
 }
 _PPAM_SERVICES = {
     "establish_oss_axis_equivalence",
+    "prepare_oss_omega_max_rows",
     "prepare_ppam_observed_workspace",
     "prepare_ppam_permutation_schedule",
     "run_ppam_permutation_block",
@@ -1096,17 +1101,26 @@ def _terminal_run(root: Path, label: str) -> dict[str, Any]:
 
 def _accepted_oss_gate_records(
     oss_root: Path,
-) -> tuple[tuple[str, OSSAxisEquivalenceGroupRecord], ...]:
+) -> tuple[
+    tuple[str, OSSAxisEquivalenceGroupRecord | OSSSharedOmegaGroupRecord],
+    ...,
+]:
     """Decode the exact accepted OSS gate records from one terminal lineage."""
 
     tasks_root = oss_root / "tasks"
-    records: list[tuple[str, OSSAxisEquivalenceGroupRecord]] = []
+    records: list[
+        tuple[str, OSSAxisEquivalenceGroupRecord | OSSSharedOmegaGroupRecord]
+    ] = []
     for path in sorted(tasks_root.glob("task_*.json")):
         payload = _read_json(path, "accepted OSS task state")
         result_payload = payload.get("result")
         if (
             payload.get("status") != "completed"
-            or payload.get("service_id") != "establish_oss_axis_equivalence"
+            or payload.get("service_id")
+            not in {
+                "establish_oss_axis_equivalence",
+                "prepare_oss_omega_max_rows",
+            }
             or not isinstance(result_payload, Mapping)
         ):
             continue
@@ -1116,13 +1130,21 @@ def _accepted_oss_gate_records(
             raise PerformanceMatrixHarnessError(
                 "accepted OSS gate result cannot be decoded"
             ) from exc
-        if not isinstance(record, OSSAxisEquivalenceGroupRecord):
+        if not isinstance(
+            record,
+            (OSSAxisEquivalenceGroupRecord, OSSSharedOmegaGroupRecord),
+        ):
             raise PerformanceMatrixHarnessError(
-                "accepted OSS gate task returned a different record type"
+                "accepted OSS preparation task returned a different record type"
             )
-        if record.gate_status != "accepted_omega_max":
+        accepted = (
+            record.gate_status == "accepted_omega_max"
+            if isinstance(record, OSSAxisEquivalenceGroupRecord)
+            else record.preparation_status == "omega_max_ready"
+        )
+        if not accepted:
             raise PerformanceMatrixHarnessError(
-                "accepted OSS gate is not terminally accepted"
+                "accepted OSS preparation is not terminally ready"
             )
         task_id = str(payload.get("task_id", path.stem))
         if task_id != path.stem:
@@ -1143,7 +1165,9 @@ def _accepted_oss_gate_records(
 
 
 def _accepted_oss_cache_closure(
-    records: Sequence[tuple[str, OSSAxisEquivalenceGroupRecord]],
+    records: Sequence[
+        tuple[str, OSSAxisEquivalenceGroupRecord | OSSSharedOmegaGroupRecord]
+    ],
     *,
     cache_root: Path,
 ) -> dict[str, object]:
@@ -1165,6 +1189,56 @@ def _accepted_oss_cache_closure(
         "probability_tolerance",
     }
     for task_id, record in records:
+        if isinstance(record, OSSSharedOmegaGroupRecord):
+            try:
+                stable = shared_omega_group_uses_stable_scientific_cache(
+                    record,
+                    cache,
+                )
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                raise PerformanceMatrixHarnessError(
+                    "accepted shared Omega-max cache closure is invalid"
+                ) from exc
+            if not stable:
+                raise PerformanceMatrixHarnessError(
+                    "accepted shared Omega-max group references historical cache keys"
+                )
+            group_rows: list[dict[str, object]] = []
+            for row_id in record.omega_row_ids:
+                row_entry = cache.resolve_identity("oss_rows", row_id)
+                if row_entry is None:
+                    raise PerformanceMatrixHarnessError(
+                        "accepted shared Omega-max row cache is unavailable"
+                    )
+                try:
+                    arrays = OSSRowMaterializer._load_entry(row_entry.path)
+                except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                    raise PerformanceMatrixHarnessError(
+                        "accepted shared Omega-max row payload is invalid"
+                    ) from exc
+                row_payload = {
+                    "scientific_identity": row_id,
+                    "manifest_sha256": _sha256_file(row_entry.manifest_path),
+                    "feature_count": int(arrays[0].size),
+                }
+                previous = all_rows.get(row_id)
+                if previous is not None and previous != row_payload:
+                    raise PerformanceMatrixHarnessError(
+                        "accepted OSS row identity has conflicting evidence"
+                    )
+                all_rows[row_id] = row_payload
+                group_rows.append(row_payload)
+            groups.append(
+                {
+                    "task_id": task_id,
+                    "group_id": record.group_id,
+                    "model_family": record.model_family,
+                    "omega_row_ids": list(record.omega_row_ids),
+                    "rows": group_rows,
+                    "decisions": [],
+                }
+            )
+            continue
         try:
             stable = accepted_group_uses_stable_scientific_cache(record, cache)
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
@@ -2258,7 +2332,11 @@ def _slice_descriptor(
             dependency_task = plan_index.get(dependency)
             if (
                 dependency_task is not None
-                and dependency_task.service_id == "establish_oss_axis_equivalence"
+                and dependency_task.service_id
+                in {
+                    "establish_oss_axis_equivalence",
+                    "prepare_oss_omega_max_rows",
+                }
                 and dependency in oss_completed
             ):
                 oss_imports.add(dependency)

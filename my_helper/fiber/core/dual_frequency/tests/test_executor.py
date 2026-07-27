@@ -22,6 +22,7 @@ from dual_frequency.contracts import (
     EndpointKey,
     FormalOperatorScratchRecord,
     OSSAxisEquivalenceGroupRecord,
+    OSSSharedOmegaGroupRecord,
     ScratchArrayRecord,
     SourceRecord,
     SubjectExclusionRecord,
@@ -1985,6 +1986,110 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(resumed.exit_code, 0)
         self.assertEqual(gate_authorizations, [True, False])
         self.assertEqual(child_calls, 2)
+
+    def test_resume_validates_shared_omega_row_closure_before_restore(self) -> None:
+        endpoint = EndpointKey(
+            "study",
+            "scale",
+            "reference",
+            "reference_fiber",
+            "formal_connectome",
+        )
+        task = _task(
+            endpoint,
+            "oss_omega_max_synthetic",
+            "prepare",
+            output_record_type="OSSSharedOmegaGroupRecord",
+            expensive=True,
+            cache_first_expensive=True,
+        )
+        plan = self._plan((task,))
+        axis = AxisRef("fibers", 2, "1" * 64)
+        record = OSSSharedOmegaGroupRecord(
+            group_id="oss-omega-group-test",
+            model_family="reference_fiber",
+            preparation_status="omega_max_ready",
+            final_feature_axis=axis,
+            omega_feature_axis=axis,
+            omega_cache_kind="fiber_exposures",
+            omega_cache_semantic_sha256="2" * 64,
+            endpoint_ids=(endpoint.identifier,),
+            omega_row_ids=("3" * 64,),
+        )
+        calls = 0
+
+        def prepare(_request):
+            nonlocal calls
+            calls += 1
+            return ServiceResult.from_record(record)
+
+        registry = ServiceRegistry((RegisteredService("prepare", prepare),))
+        with (
+            patch.object(
+                _ResourceLedger,
+                "_memory_state",
+                return_value=(128 * 1024**3, 128 * 1024**3),
+            ),
+            tempfile.TemporaryDirectory() as temporary_directory,
+        ):
+            root = Path(temporary_directory) / "run"
+            first = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=self._store(root, plan),
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=True,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    scientific_cache=object(),
+                ),
+            )
+            with patch(
+                "dual_frequency.runtime.oss_shared_omega."
+                "shared_omega_group_uses_stable_scientific_cache",
+                return_value=True,
+            ):
+                stable = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(root, plan, resume=True),
+                        registry=registry,
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=True,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        scientific_cache=object(),
+                        resume=True,
+                    ),
+                )
+            with patch(
+                "dual_frequency.runtime.oss_shared_omega."
+                "shared_omega_group_uses_stable_scientific_cache",
+                return_value=False,
+            ):
+                repaired = execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=self._store(root, plan, resume=True),
+                        registry=registry,
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=True,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        scientific_cache=object(),
+                        resume=True,
+                    ),
+                )
+
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(stable.exit_code, 0)
+        self.assertEqual(stable.outcomes[0].reason, "restored_completed_result")
+        self.assertEqual(repaired.exit_code, 0)
+        self.assertEqual(calls, 2)
 
     def test_resume_reruns_only_missing_operator_scratch_workspace(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")

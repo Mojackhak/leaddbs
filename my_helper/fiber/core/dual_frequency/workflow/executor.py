@@ -402,7 +402,9 @@ class _ResourceLedger:
             return _ResourceGrant(1, memory_bytes, 1, 0)
         if task.stage == "ppam_observed_workspace":
             return _ResourceGrant(1, 48 * 1024**3, 1, 1)
-        if task.stage.startswith("oss_axis_equivalence_"):
+        if task.stage.startswith(
+            ("oss_axis_equivalence_", "oss_omega_max_")
+        ):
             return _ResourceGrant(1, 48 * 1024**3, 1, 1)
         if task.stage == "activation_sensitivity":
             if task.service_id == "aggregate_ppam_activation":
@@ -715,6 +717,24 @@ def _restore_outcomes(
 
                 cache_only_replays.add(task.task_id)
                 if not accepted_group_uses_stable_scientific_cache(
+                    record,
+                    context.scientific_cache,
+                ):
+                    invalid_completed.add(task.task_id)
+                    continue
+                cache_only_replays.discard(task.task_id)
+            if (
+                type(record).__name__ == "OSSSharedOmegaGroupRecord"
+                and getattr(record, "preparation_status", None)
+                == "omega_max_ready"
+                and context.scientific_cache is not None
+            ):
+                from ..runtime.oss_shared_omega import (
+                    shared_omega_group_uses_stable_scientific_cache,
+                )
+
+                cache_only_replays.add(task.task_id)
+                if not shared_omega_group_uses_stable_scientific_cache(
                     record,
                     context.scientific_cache,
                 ):

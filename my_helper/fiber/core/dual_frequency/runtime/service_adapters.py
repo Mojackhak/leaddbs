@@ -95,6 +95,7 @@ from ..contracts import (
     ObservedRequest,
     ObservedResult,
     OSSAxisEquivalenceGroupRecord,
+    OSSSharedOmegaGroupRecord,
     PreparedExposureRecord,
     PPAMObservedWorkspaceRecord,
     PPAMPermutationBlockRecord,
@@ -138,6 +139,10 @@ from .jitter_blocks import (
 )
 from .jitter_provider import StudyJitterReplicateProvider
 from .oss_axis_equivalence import establish_oss_axis_equivalence
+from .oss_shared_omega import (
+    omega_ids_for_shared_group,
+    prepare_oss_omega_max_rows,
+)
 from .ppam_observed_workspace import (
     activation_request_from_ppam_workspace,
     load_ppam_observed_state,
@@ -1993,16 +1998,45 @@ def _activation_fitting_request(
         )
     publisher = _publisher(request)
     simulation_arguments: dict[str, object] = {}
+    omega_records = tuple(
+        record
+        for record in _records(request, OSSSharedOmegaGroupRecord)
+        if request.task.endpoint_id in record.endpoint_ids
+    )
     gate_records = tuple(
         record
         for record in _records(request, OSSAxisEquivalenceGroupRecord)
         if request.task.endpoint_id in record.endpoint_ids
     )
-    if len(gate_records) > 1:
+    if len(omega_records) + len(gate_records) > 1:
         raise ServiceAdapterError(
-            "activation task received multiple OSS axis equivalence decisions"
+            "activation task received multiple OSS physical-row authorities"
         )
-    if gate_records:
+    omega_row_ids: frozenset[str] | None = None
+    if omega_records:
+        group = omega_records[0]
+        if (
+            group.model_family != selection.final_model.endpoint.model_family
+            or group.final_feature_axis
+            != selection.final_model.valid_feature_axis.axis
+            or group.preparation_status != "omega_max_ready"
+        ):
+            raise ServiceAdapterError(
+                "shared Omega-max group differs from the selected final model"
+            )
+        try:
+            omega_ids = omega_ids_for_shared_group(
+                group,
+                request.scientific_cache,
+            )
+        except RuntimeError as exc:
+            raise ServiceAdapterError(str(exc)) from exc
+        simulation_arguments = {
+            "simulation_feature_axis": group.omega_feature_axis,
+            "simulation_feature_ids": omega_ids,
+        }
+        omega_row_ids = frozenset(group.omega_row_ids)
+    elif gate_records:
         gate = gate_records[0]
         if (
             gate.model_family != selection.final_model.endpoint.model_family
@@ -2048,17 +2082,34 @@ def _activation_fitting_request(
         prepared,
         publisher,
         workers=request.workers,
-        allow_expensive_producers=request.allow_expensive_producers,
+        allow_expensive_producers=(
+            False
+            if omega_row_ids is not None
+            else request.allow_expensive_producers
+        ),
         **simulation_arguments,
     )
     if not isinstance(runtime_request, OSSActivationRuntimeRequest):
         raise ServiceAdapterError(
             "activation_runtime_request must return OSSActivationRuntimeRequest"
         )
+    if omega_row_ids is not None:
+        requested_row_ids = frozenset(
+            item.scientific_identity
+            for item in OSSActivationProvider._producer_requests(runtime_request)
+        )
+        if not requested_row_ids or not requested_row_ids.issubset(omega_row_ids):
+            raise ServiceAdapterError(
+                "activation requests rows outside the shared Omega-max closure"
+            )
     toolchain_method = getattr(request.provider, "oss_producer_toolchain", None)
     toolchain = (
         toolchain_method()
-        if request.allow_expensive_producers and callable(toolchain_method)
+        if (
+            omega_row_ids is None
+            and request.allow_expensive_producers
+            and callable(toolchain_method)
+        )
         else None
     )
     materialized_rows = OSSActivationProvider(
@@ -2158,6 +2209,61 @@ def _establish_oss_axis_equivalence(
         cache=request.scientific_cache,
         publisher=_publisher(request),
         toolchain=toolchain,
+        workers=request.workers,
+        allow_expensive_producers=request.allow_expensive_producers,
+    )
+    return ServiceResult.from_record(record)
+
+
+def _prepare_oss_omega_max_rows(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    """Restore or produce the immutable Omega-max-only group closure."""
+
+    if not isinstance(request.provider, StudyRuntimeInputProvider):
+        raise ServiceAdapterCapabilityError(
+            "shared Omega-max preparation requires StudyRuntimeInputProvider"
+        )
+    if not isinstance(request.scientific_cache, ContentAddressedCache):
+        raise ServiceAdapterCapabilityError(
+            "shared Omega-max preparation requires the scientific cache"
+        )
+    try:
+        descriptor = json.loads(request.task.execution_parameter("group_descriptor"))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ServiceAdapterError(
+            "shared Omega-max group descriptor is invalid"
+        ) from exc
+    endpoint_ids = tuple(str(value) for value in descriptor.get("endpoint_ids", ()))
+    endpoint_inputs = {
+        record.endpoint.identifier: record
+        for record in _records(request, EndpointInputRecord)
+        if record.endpoint.identifier in endpoint_ids
+    }
+    prepared_exposures = {
+        record.endpoint.identifier: record
+        for record in _records(request, PreparedExposureRecord)
+        if record.endpoint.identifier in endpoint_ids
+    }
+    final_selections = {
+        record.endpoint.identifier: record
+        for record in _records(request, FinalSelectionRecord)
+        if record.endpoint.identifier in endpoint_ids
+    }
+    toolchain_method = getattr(request.provider, "oss_producer_toolchain", None)
+    record = prepare_oss_omega_max_rows(
+        descriptor=descriptor,
+        endpoint_inputs=endpoint_inputs,
+        prepared_exposures=prepared_exposures,
+        final_selections=final_selections,
+        provider=request.provider,
+        cache=request.scientific_cache,
+        publisher=_publisher(request),
+        toolchain=(
+            _LazyOSSProducerToolchain(toolchain_method)
+            if callable(toolchain_method)
+            else object()
+        ),
         workers=request.workers,
         allow_expensive_producers=request.allow_expensive_producers,
     )
@@ -2694,6 +2800,7 @@ def _run_addon_fiber_branch(request: TaskExecutionRequest) -> ServiceResult:
 PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
     ("prepare_jitter_exposure_block", prepare_jitter_exposure_block),
     ("establish_oss_axis_equivalence", _establish_oss_axis_equivalence),
+    ("prepare_oss_omega_max_rows", _prepare_oss_omega_max_rows),
     ("prepare_ppam_observed_workspace", _prepare_ppam_observed_workspace),
     ("prepare_ppam_permutation_schedule", _prepare_ppam_permutation_schedule),
     ("run_ppam_permutation_block", _run_ppam_permutation_block),

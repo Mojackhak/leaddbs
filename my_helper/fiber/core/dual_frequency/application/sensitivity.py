@@ -37,7 +37,7 @@ SEED_SCHEMA = "dual_frequency_sensitivity_seed_tasks_v1"
 JITTER_BLOCK_SIZE = 25
 JITTER_BLOCK_PRODUCER_VERSION = "1"
 JITTER_ADJUSTED_BLOCK_PRODUCER_VERSION = "2"
-OSS_AXIS_GATE_VERSION = "1"
+OSS_SHARED_OMEGA_VERSION = "1"
 
 
 def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -1145,12 +1145,12 @@ def compile_sensitivity_extension_plan(
                     "OSS sensitivity base lacks final or Omega_max axis identity"
                 )
             descriptor = {
-                "gate_version": OSS_AXIS_GATE_VERSION,
+                "preparation_version": OSS_SHARED_OMEGA_VERSION,
                 "model_family": task.model_family,
                 "final_feature_axis": dict(final_axis),
                 "omega_max": dict(omega_max),
             }
-            group_id = f"oss_axis_group_{canonical_hash(descriptor, length=20)}"
+            group_id = f"oss_omega_group_{canonical_hash(descriptor, length=20)}"
             grouped_oss.setdefault(group_id, []).append(task)
             oss_descriptors[group_id] = descriptor
 
@@ -1178,7 +1178,7 @@ def compile_sensitivity_extension_plan(
                 for task in full_plan.tasks
                 if task.task_id in dependency_set
             )
-            stage = f"oss_axis_equivalence_{group_id.removeprefix('oss_axis_group_')}"
+            stage = f"oss_omega_max_{group_id.removeprefix('oss_omega_group_')}"
             parameters = (("group_descriptor", descriptor_json),)
             gate_key = TaskKey(
                 endpoint_id=representative.endpoint_id,
@@ -1198,12 +1198,12 @@ def compile_sensitivity_extension_plan(
                 model_family=representative.model_family,
                 connectome_role=representative.connectome_role,
                 stage=stage,
-                round_id="round_oss_axis_equivalence",
+                round_id="round_oss_omega_max",
                 phase="sensitivity",
-                service_id="establish_oss_axis_equivalence",
+                service_id="prepare_oss_omega_max_rows",
                 dependencies=ordered_dependencies,
                 gates=(),
-                output_record_type="OSSAxisEquivalenceGroupRecord",
+                output_record_type="OSSSharedOmegaGroupRecord",
                 execution_parameters=parameters,
                 expensive_producer=True,
                 cache_first_expensive=True,

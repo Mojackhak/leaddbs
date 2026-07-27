@@ -19,8 +19,10 @@ from dual_frequency.backends.activation import (
 )
 from dual_frequency.cache import (
     ArtifactStore,
+    CacheFileMetadata,
     ContentAddressedCache,
     RunScopedArtifactPublisher,
+    ScientificCacheKey,
 )
 from dual_frequency.catalog import CatalogStatus, EndpointRecord, build_endpoint_catalog
 from dual_frequency.config import WorkflowOverrides
@@ -40,6 +42,7 @@ from dual_frequency.contracts import (
     IndexedArrayView,
     NormativeFiberScoreSettings,
     ObservedResult,
+    OSSSharedOmegaGroupRecord,
     PreparedExposureRecord,
     PPAMObservedWorkspaceRecord,
     PPAMPermutationBlockRecord,
@@ -561,6 +564,8 @@ class _ActivationProvider:
         *,
         workers,
         allow_expensive_producers,
+        simulation_feature_axis=None,
+        simulation_feature_ids=None,
     ) -> OSSActivationRuntimeRequest:
         del endpoint_input, prepared, publisher
         if final_model != self.final_model:
@@ -576,6 +581,8 @@ class _ActivationProvider:
             connectome_feature_hash="9" * 64,
             settings=OSSScientificSettings(backend_version="synthetic-oss-v1"),
             allow_expensive_producers=allow_expensive_producers,
+            simulation_feature_axis=simulation_feature_axis,
+            simulation_feature_ids=simulation_feature_ids,
             workers=workers,
         )
 
@@ -805,6 +812,7 @@ class ServiceAdapterTest(unittest.TestCase):
         declared = {service_id for service_id, _handler in PRODUCTION_SERVICE_HANDLERS}
         extension_only = {
             "establish_oss_axis_equivalence",
+            "prepare_oss_omega_max_rows",
             "prepare_jitter_exposure_block",
             "run_addon_fiber_activation",
             "run_reference_fiber_activation",
@@ -1182,6 +1190,129 @@ class ServiceAdapterTest(unittest.TestCase):
         self.assertEqual(record.final_model_id, final.identifier)
         self.assertEqual(record.feature_axis, feature_axis)
 
+    def test_activation_consumes_shared_omega_rows_as_final_axis_view(
+        self,
+    ) -> None:
+        (
+            endpoint_input,
+            prepared,
+            final,
+            selection,
+            feature_axis,
+            feature_ids,
+            sources,
+        ) = _activation_case()
+        subject_ids = endpoint_input.included_subject_ids
+        service_toolchain = _ActivationToolchain(subject_ids)
+        provider = _ActivationProvider(
+            final_model=final,
+            subject_axis=endpoint_input.subject_axis,
+            subject_ids=subject_ids,
+            feature_axis=feature_axis,
+            feature_ids=feature_ids,
+            sources=sources,
+            toolchain=service_toolchain,
+        )
+        omega_ids = np.sort(
+            np.append(feature_ids, int(feature_ids[-1]) + 1)
+        ).astype(np.int64)
+        omega_axis = AxisRef(
+            "synthetic-omega-axis",
+            omega_ids.size,
+            "8" * 64,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = ContentAddressedCache(root / "cache")
+            axis_key = ScientificCacheKey(
+                geometry_hash="1" * 64,
+                stimulation_hash="2" * 64,
+                component_frequency_hash="3" * 64,
+                transform_hash="4" * 64,
+                connectome_feature_hash="5" * 64,
+                backend_name="normative_fiber_omega_max",
+                backend_version="2",
+                scientific_parameter_hashes=(("grid", "6" * 64),),
+                kind="fiber_exposures",
+            )
+            axis_path = root / "omega_ids.npy"
+            np.save(axis_path, omega_ids, allow_pickle=False)
+            cache.publish(
+                axis_key,
+                {"fiber_ids.npy": axis_path},
+                metadata={
+                    "fiber_ids.npy": CacheFileMetadata(
+                        dtype="int64",
+                        shape=(omega_axis.count,),
+                        axes=(omega_axis,),
+                        units="fiber_id",
+                        space="right_canonical",
+                    )
+                },
+            )
+            seed_toolchain = _ActivationToolchain(subject_ids)
+            seed_request = provider.activation_runtime_request(
+                final,
+                endpoint_input,
+                prepared,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+                workers=2,
+                allow_expensive_producers=True,
+                simulation_feature_axis=omega_axis,
+                simulation_feature_ids=omega_ids,
+            )
+            producer_requests = OSSActivationProvider._producer_requests(
+                seed_request
+            )
+            OSSActivationProvider(
+                cache,
+                producer_toolchain=seed_toolchain,
+            ).materialize(
+                seed_request,
+                RunScopedArtifactPublisher(root / "seed", "seed", "1"),
+            )
+            group = OSSSharedOmegaGroupRecord(
+                group_id="synthetic-omega-group",
+                model_family="reference_fiber",
+                preparation_status="omega_max_ready",
+                final_feature_axis=feature_axis,
+                omega_feature_axis=omega_axis,
+                omega_cache_kind=axis_key.kind,
+                omega_cache_semantic_sha256=axis_key.digest,
+                endpoint_ids=(endpoint_input.endpoint.identifier,),
+                omega_row_ids=tuple(
+                    request.scientific_identity
+                    for request in producer_requests
+                ),
+            )
+            request = self._activation_execution_request(
+                root=root,
+                cache=cache,
+                provider=provider,
+                endpoint_input=endpoint_input,
+                prepared=prepared,
+                selection=selection,
+                allow_expensive_producers=True,
+            )
+            request = dataclasses.replace(
+                request,
+                dependencies={
+                    **request.dependencies,
+                    "omega": DependencyState("completed", "none", group),
+                },
+            )
+            result = build_default_registry().resolve(
+                "run_reference_fiber_activation"
+            )(request)
+            record = result.decode_record()
+
+        self.assertEqual(len(seed_toolchain.calls), len(subject_ids) * 2)
+        self.assertEqual(service_toolchain.calls, [])
+        self.assertEqual(provider.toolchain_resolution_calls, 0)
+        self.assertEqual(provider.fitting_calls, 1)
+        self.assertIsInstance(record, ActivationArtifact)
+        self.assertEqual(record.feature_axis, feature_axis)
+
     def test_activation_ignores_cross_endpoint_prepared_exposure(self) -> None:
         (
             endpoint_input,
@@ -1234,7 +1365,7 @@ class ServiceAdapterTest(unittest.TestCase):
                 endpoint_input=endpoint_input,
                 prepared=prepared,
                 selection=selection,
-                allow_expensive_producers=False,
+                allow_expensive_producers=True,
             )
             request = dataclasses.replace(
                 request,
