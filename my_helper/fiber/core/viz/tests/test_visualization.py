@@ -59,9 +59,13 @@ def _summary() -> dict[str, object]:
         "in_sample_pearson_nominal_p": 0.002,
         "in_sample_permutations_requested": 10000,
         "in_sample_permutations_finite": 10000,
+        "in_sample_n_subjects_total": 12,
         "in_sample_n_subjects_finite": 12,
+        "in_sample_predictions_all_finite": True,
         "in_sample_rmse": 1.2,
         "in_sample_mae": 0.9,
+        "in_sample_rmse_baseline": 2.0,
+        "in_sample_mae_baseline": 1.6,
         "in_sample_r2": 0.63,
         "in_sample_relative_r2": 0.41,
         "loocv_spearman_rho": 0.45,
@@ -73,11 +77,22 @@ def _summary() -> dict[str, object]:
         "loocv_pearson_nominal_p": 0.1,
         "loocv_permutations_requested": 10000,
         "loocv_permutations_finite": 10000,
+        "loocv_n_subjects_total": 12,
         "loocv_n_subjects_finite": 12,
+        "loocv_predictions_all_finite": True,
         "loocv_rmse_model": 1.8,
         "loocv_mae_model": 1.4,
+        "loocv_rmse_baseline": 2.1,
+        "loocv_mae_baseline": 1.7,
         "loocv_r2": 0.16,
         "loocv_q2": 0.12,
+        "subject_mask_match": True,
+        "spearman_optimism_gap": 0.37,
+        "pearson_optimism_gap": 0.38,
+        "r2_optimism_gap": 0.47,
+        "relative_r2_q2_gap": 0.29,
+        "rmse_optimism_gap": 0.6,
+        "mae_optimism_gap": 0.5,
     }
 
 
@@ -89,6 +104,8 @@ def _subjects() -> pd.DataFrame:
             "outcome": outcome,
             "in_sample_prediction": outcome * 0.93 + 0.35,
             "loocv_prediction": outcome * 0.64 + 1.2,
+            "in_sample_baseline_prediction": np.full(outcome.size, outcome.mean()),
+            "loocv_baseline_prediction": np.full(outcome.size, outcome.mean() + 0.1),
         }
     )
 

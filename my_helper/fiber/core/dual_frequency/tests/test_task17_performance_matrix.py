@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -28,7 +29,17 @@ from dual_frequency.contracts import (
     OSSSharedOmegaGroupRecord,
     TaskKey,
 )
-from dual_frequency.workflow import ExecutionPlan, ServiceResult, TaskSpec
+from dual_frequency.workflow import (
+    BenchmarkOSSInjectedFixtureSpec,
+    ExecutionPlan,
+    ServiceResult,
+    SpawnWorkerSpec,
+    TaskSpec,
+)
+from dual_frequency.workflow.process_worker import (
+    _BenchmarkOSSInjectedToolchain,
+)
+import dual_frequency.workflow.process_worker as process_worker
 from my_helper.fiber.pipelines import run_task17_performance_matrix as harness
 
 
@@ -157,10 +168,15 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 ids=ids,
                 probabilities=probabilities,
             )
-            toolchain = harness._AcceptedOSSInjectedToolchain(
+            spec = BenchmarkOSSInjectedFixtureSpec(
+                schema_version=(
+                    "dual_frequency_task17_injected_oss_fixture_v1"
+                ),
                 cache_root=cache.root,
-                accepted_row_identities=(identity,),
+                accepted_closure_sha256="1" * 64,
+                permitted_row_identities=(identity,),
             )
+            toolchain = _BenchmarkOSSInjectedToolchain(spec)
             evidence = toolchain.produce_with_evidence(
                 SimpleNamespace(
                     scientific_identity=identity,
@@ -172,8 +188,8 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 [0, 3, 10],
             )
             with self.assertRaisesRegex(
-                harness.PerformanceMatrixHarnessError,
-                "outside the accepted row closure",
+                ValueError,
+                "outside the benchmark fixture",
             ):
                 toolchain.produce_with_evidence(
                     SimpleNamespace(
@@ -181,6 +197,172 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                         row=row,
                     )
                 )
+
+    def test_spawn_worker_fixture_default_and_descriptor_validation(
+        self,
+    ) -> None:
+        fixture_field = next(
+            field
+            for field in fields(SpawnWorkerSpec)
+            if field.name == "benchmark_oss_fixture"
+        )
+        self.assertIsNone(fixture_field.default)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            valid = BenchmarkOSSInjectedFixtureSpec(
+                schema_version=(
+                    "dual_frequency_task17_injected_oss_fixture_v1"
+                ),
+                cache_root=root,
+                accepted_closure_sha256="1" * 64,
+                permitted_row_identities=("2" * 64,),
+            )
+            valid.validate()
+            with self.assertRaisesRegex(
+                ValueError,
+                "descriptor differs",
+            ):
+                replace(
+                    valid,
+                    permitted_row_identities=("3" * 64, "2" * 64),
+                ).validate()
+            with self.assertRaisesRegex(
+                ValueError,
+                "SHA-256",
+            ):
+                replace(
+                    valid,
+                    accepted_closure_sha256="invalid",
+                ).validate()
+
+    def test_worker_initialization_overrides_only_injected_oss_toolchain(
+        self,
+    ) -> None:
+        class _Provider:
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.marker = "ordinary-provider"
+
+            def oss_producer_toolchain(self) -> str:
+                return "production-toolchain"
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fixture_cache = ContentAddressedCache(root / "fixture-cache")
+            axis = AxisRef("fiber-axis", 2, "a" * 64)
+            row, identity = self._publish_oss_row(
+                root=root,
+                cache=fixture_cache,
+                name="worker-injected",
+                axis=axis,
+                ids=np.asarray([1, 2], dtype=np.int64),
+                probabilities=np.asarray([0.2, 0.7], dtype=np.float32),
+            )
+            fixture = BenchmarkOSSInjectedFixtureSpec(
+                schema_version=(
+                    "dual_frequency_task17_injected_oss_fixture_v1"
+                ),
+                cache_root=fixture_cache.root,
+                accepted_closure_sha256="1" * 64,
+                permitted_row_identities=(identity,),
+            )
+            artifact_root = root / "artifacts"
+            artifact_root.mkdir()
+            scientific_cache = root / "scientific-cache"
+            scientific_cache.mkdir()
+            spec = SpawnWorkerSpec(
+                study=object(),
+                configuration=object(),
+                catalog=(),
+                work_root=root / "work",
+                artifact_roots=(artifact_root, scientific_cache),
+                cache_root=scientific_cache,
+                benchmark_oss_fixture=fixture,
+            )
+            with (
+                patch.object(process_worker.os, "setsid"),
+                patch(
+                    "dual_frequency.runtime.input_provider."
+                    "StudyRuntimeInputProvider",
+                    _Provider,
+                ),
+                patch(
+                    "dual_frequency.workflow.registry.build_default_registry",
+                    return_value="registry",
+                ),
+            ):
+                process_worker.initialize_worker(spec)
+            self.assertIsInstance(process_worker._PROVIDER, _Provider)
+            self.assertEqual(
+                process_worker._PROVIDER.marker,
+                "ordinary-provider",
+            )
+            injected = (
+                process_worker._PROVIDER.oss_producer_toolchain()
+            )
+            self.assertIsInstance(
+                injected,
+                _BenchmarkOSSInjectedToolchain,
+            )
+            evidence = injected.produce_with_evidence(
+                SimpleNamespace(
+                    scientific_identity=identity,
+                    row=row,
+                )
+            )
+            self.assertEqual(
+                np.count_nonzero(
+                    evidence.sample_states == 1,
+                    axis=0,
+                ).tolist(),
+                [2, 7],
+            )
+
+    def test_worker_initialization_without_fixture_uses_production_provider(
+        self,
+    ) -> None:
+        class _Provider:
+            def __init__(self, *_args, **_kwargs) -> None:
+                self.marker = "ordinary-provider"
+
+            def oss_producer_toolchain(self) -> str:
+                return "production-toolchain"
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            artifact_root = root / "artifacts"
+            artifact_root.mkdir()
+            scientific_cache = root / "scientific-cache"
+            scientific_cache.mkdir()
+            spec = SpawnWorkerSpec(
+                study=object(),
+                configuration=object(),
+                catalog=(),
+                work_root=root / "work",
+                artifact_roots=(artifact_root, scientific_cache),
+                cache_root=scientific_cache,
+            )
+            with (
+                patch.object(process_worker.os, "setsid"),
+                patch(
+                    "dual_frequency.runtime.input_provider."
+                    "StudyRuntimeInputProvider",
+                    _Provider,
+                ),
+                patch(
+                    "dual_frequency.workflow.registry.build_default_registry",
+                    return_value="registry",
+                ),
+            ):
+                process_worker.initialize_worker(spec)
+            self.assertIs(type(process_worker._PROVIDER), _Provider)
+            self.assertEqual(
+                process_worker._PROVIDER.marker,
+                "ordinary-provider",
+            )
+            self.assertEqual(
+                process_worker._PROVIDER.oss_producer_toolchain(),
+                "production-toolchain",
+            )
 
     def test_accepted_oss_cache_closure_binds_only_gate_referenced_rows(
         self,
@@ -288,6 +470,15 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 destination_cache_root=root / "injected-fixture",
             )
             self.assertEqual(len(fixture["permitted_row_identities"]), 2)
+            spawn_fixture = harness._benchmark_oss_fixture_spec(fixture)
+            self.assertIsInstance(
+                spawn_fixture,
+                BenchmarkOSSInjectedFixtureSpec,
+            )
+            self.assertEqual(
+                spawn_fixture.permitted_row_identities,
+                tuple(fixture["permitted_row_identities"]),
+            )
             fixture_cache = ContentAddressedCache(
                 root / "injected-fixture"
             )
@@ -1154,6 +1345,97 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 harness._row_io_classification(root, segment),
                 "storage_limited",
             )
+
+    def test_terminal_matrix_validation_is_read_only_and_complete(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.assertIsNone(harness._validate_terminal_matrix(root))
+            matrix = root / "performance_matrix.json"
+            matrix.write_text("{}\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "publication is partial",
+            ):
+                harness._validate_terminal_matrix(root)
+            expected = {
+                "schema_version": (
+                    "dual_frequency_task17_performance_acceptance_v1"
+                ),
+                "status": "validated",
+                "row_count": 72,
+            }
+            acceptance = root / "performance_acceptance.json"
+            acceptance.write_text(
+                json.dumps(expected),
+                encoding="utf-8",
+            )
+            with patch(
+                "my_helper.fiber.pipelines."
+                "validate_task17_performance_acceptance.validate",
+                return_value=expected,
+            ):
+                result = harness._validate_terminal_matrix(root)
+            self.assertEqual(result["row_count"], 72)
+            acceptance.write_text(
+                json.dumps({**expected, "row_count": 71}),
+                encoding="utf-8",
+            )
+            with (
+                patch(
+                    "my_helper.fiber.pipelines."
+                    "validate_task17_performance_acceptance.validate",
+                    return_value=expected,
+                ),
+                self.assertRaisesRegex(
+                    harness.PerformanceMatrixHarnessError,
+                    "report differs",
+                ),
+            ):
+                harness._validate_terminal_matrix(root)
+
+    def test_public_parser_exposes_resumable_matrix_run(self) -> None:
+        arguments = harness._parser().parse_args(
+            (
+                "run",
+                "--request",
+                "request.json",
+                "--benchmark-root",
+                "benchmark",
+            )
+        )
+        self.assertEqual(arguments.operation, "run")
+
+    def test_public_main_dispatches_resumable_matrix_run(self) -> None:
+        expected = {
+            "status": "completed",
+            "matrix_path": "/benchmark/performance_matrix.json",
+        }
+        with (
+            patch.object(
+                harness,
+                "_run_matrix",
+                return_value=expected,
+            ) as run_matrix,
+            patch("builtins.print") as output,
+        ):
+            exit_code = harness.main(
+                (
+                    "run",
+                    "--request",
+                    "request.json",
+                    "--benchmark-root",
+                    "benchmark",
+                )
+            )
+
+        self.assertEqual(exit_code, 0)
+        run_matrix.assert_called_once_with(
+            Path("request.json"),
+            Path("benchmark"),
+        )
+        self.assertEqual(json.loads(output.call_args.args[0]), expected)
 
     def test_finished_execution_segment_requires_exactly_one_segment(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -1,0 +1,14 @@
+{
+  "accepted_independent_oss_root": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719",
+  "accepted_parent_root": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717",
+  "conda_environment": "leaddbs",
+  "direct_voxel_model": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717/inputs/direct_voxel_model.yaml",
+  "maximum_task_tree_rss_bytes": 68719476736,
+  "normative_fiber_model": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717/inputs/normative_fiber_model.yaml",
+  "plan_id": "task17-performance-matrix-v1-20260725",
+  "real_cold_solver_authorization": null,
+  "schema_version": "dual_frequency_task17_performance_benchmark_plan_v1",
+  "study_base": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717/inputs/study_base.json",
+  "workflow_profile": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717/inputs/workflow.yaml",
+  "working_directory": "/Users/mojackhu/Github/leaddbs"
+}

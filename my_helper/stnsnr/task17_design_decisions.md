@@ -1394,3 +1394,16 @@ subsetting parity, and the complete dual-frequency regression. Production
 resume remains guarded by the pinned VAL mount generation, task-tree RSS
 `< 64 GiB`, swap growth `< 1` byte, one solver token, and atomic cache
 publication.
+
+Implementation evidence at this boundary is complete. Documentation commit
+`dc3dc6543` froze this decision before code changed, and implementation commit
+`0d41b5e5d` added the new record, codec, compiler task, cache-first runtime,
+resume validator, downstream cache-only pPAM boundary, and performance-harness
+compatibility. The focused old/new OSS, codec, planner, executor, pPAM, cache,
+and performance set passed 153 tests. The production-checkout dual-frequency
+suite then passed 762 tests. After the previously reviewed performance and
+paired-fit branch was integrated with the Omega-only closure, the integration
+worktree passed 768 dual-frequency tests and 54 visualization tests with
+warnings treated as errors. No expensive producer or production output was
+used by these tests. Production acceptance remains open until the replacement
+lineage closes.

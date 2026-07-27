@@ -43,10 +43,6 @@ from dual_frequency.application.service import (  # noqa: E402
 )
 from dual_frequency.backends.activation.ossdbs import (  # noqa: E402
     OSSRowMaterializer,
-    OSSRowProduct,
-)
-from dual_frequency.backends.activation.ppam import (  # noqa: E402
-    PPAM_LATTICE_ABSOLUTE_TOLERANCE,
 )
 from dual_frequency.cache import ArtifactStore, ContentAddressedCache  # noqa: E402
 from dual_frequency.catalog import CatalogStatus  # noqa: E402
@@ -67,10 +63,8 @@ from dual_frequency.runtime.oss_axis_equivalence import (  # noqa: E402
 from dual_frequency.runtime.oss_shared_omega import (  # noqa: E402
     shared_omega_group_uses_stable_scientific_cache,
 )
-from dual_frequency.runtime.oss_toolchain import (  # noqa: E402
-    OSSRowExecutionEvidence,
-)
 from dual_frequency.workflow import (  # noqa: E402
+    BenchmarkOSSInjectedFixtureSpec,
     ExecutionPlan,
     GateRequirement,
     ExecutionContext,
@@ -175,76 +169,6 @@ class _TaskStateStore(Protocol):
 
     def read_task_state(self, task_id: str) -> dict[str, object] | None:
         """Read one task state."""
-
-
-class _AcceptedOSSInjectedToolchain:
-    """Return deterministic sample evidence from one accepted OSS row closure."""
-
-    def __init__(
-        self,
-        *,
-        cache_root: Path,
-        accepted_row_identities: Sequence[str],
-    ) -> None:
-        identities = tuple(sorted(str(value) for value in accepted_row_identities))
-        if not identities or len(set(identities)) != len(identities):
-            raise PerformanceMatrixHarnessError(
-                "injected OSS rows must be nonempty and unique"
-            )
-        self._cache = ContentAddressedCache(cache_root)
-        self._accepted_row_identities = frozenset(identities)
-
-    def produce_with_evidence(self, request: object) -> OSSRowExecutionEvidence:
-        """Reconstruct one deterministic ten-sample row from accepted probabilities."""
-
-        identity = getattr(request, "scientific_identity", None)
-        row = getattr(request, "row", None)
-        if (
-            type(identity) is not str
-            or identity not in self._accepted_row_identities
-            or row is None
-        ):
-            raise PerformanceMatrixHarnessError(
-                "injected OSS request is outside the accepted row closure"
-            )
-        entry = self._cache.resolve_identity("oss_rows", identity)
-        if entry is None:
-            raise PerformanceMatrixHarnessError(
-                "accepted injected OSS row is unavailable"
-            )
-        try:
-            product = OSSRowMaterializer._validated_row_product(entry, row)
-        except (OSError, RuntimeError, TypeError, ValueError) as exc:
-            raise PerformanceMatrixHarnessError(
-                "accepted injected OSS row differs from the runtime request"
-            ) from exc
-        counts_float = product.probabilities.astype(np.float64) * 10.0
-        counts = np.rint(counts_float).astype(np.int64)
-        if (
-            np.any(counts < 0)
-            or np.any(counts > 10)
-            or not np.allclose(
-                counts_float,
-                counts,
-                rtol=0.0,
-                atol=PPAM_LATTICE_ABSOLUTE_TOLERANCE,
-            )
-        ):
-            raise PerformanceMatrixHarnessError(
-                "accepted OSS probabilities cannot reconstruct ten samples"
-            )
-        sample_numbers = np.arange(10, dtype=np.int64)[:, None]
-        states = np.where(sample_numbers < counts[None, :], 1, 0).astype(
-            np.int8
-        )
-        injected_product = OSSRowProduct(
-            product.feature_ids,
-            product.probabilities,
-            producer_implementation_attestation=(
-                "task17-performance-injected-oss-v1"
-            ),
-        )
-        return OSSRowExecutionEvidence(injected_product, states)
 
 
 def _plain(value: Any) -> Any:
@@ -1552,6 +1476,56 @@ def _prepare_injected_oss_fixture(
         **fixture,
         "fixture_sha256": _canonical_sha256(fixture),
     }
+
+
+def _benchmark_oss_fixture_spec(
+    raw: object,
+) -> BenchmarkOSSInjectedFixtureSpec | None:
+    """Derive the spawn-safe descriptor from one validated fixture document."""
+
+    if raw is None:
+        return None
+    expected_fields = {
+        "schema_version",
+        "accepted_closure_sha256",
+        "fixture_cache_root",
+        "permitted_row_identities",
+        "seed_sha256",
+        "fixture_sha256",
+    }
+    if (
+        not isinstance(raw, Mapping)
+        or set(raw) != expected_fields
+        or raw.get("schema_version")
+        != "dual_frequency_task17_injected_oss_fixture_v1"
+        or raw.get("fixture_sha256")
+        != _canonical_sha256(
+            {
+                key: value
+                for key, value in raw.items()
+                if key != "fixture_sha256"
+            }
+        )
+        or not isinstance(raw.get("permitted_row_identities"), list)
+    ):
+        raise PerformanceMatrixHarnessError(
+            "benchmark injected OSS fixture descriptor differs"
+        )
+    spec = BenchmarkOSSInjectedFixtureSpec(
+        schema_version=str(raw["schema_version"]),
+        cache_root=Path(str(raw["fixture_cache_root"])).expanduser().resolve(),
+        accepted_closure_sha256=str(raw["accepted_closure_sha256"]),
+        permitted_row_identities=tuple(
+            str(value) for value in raw["permitted_row_identities"]
+        ),
+    )
+    try:
+        spec.validate()
+    except ValueError as exc:
+        raise PerformanceMatrixHarnessError(
+            "benchmark injected OSS fixture descriptor is invalid"
+        ) from exc
+    return spec
 
 
 def _empty_cache_proof(cache_root: Path) -> dict[str, object]:
@@ -4035,10 +4009,6 @@ def _execute_unmeasured_warm_seed(
         raise PerformanceMatrixHarnessError(
             "unmeasured warm-seed row identity differs"
         )
-    if row.get("solver_mode") == "injected":
-        raise PerformanceMatrixHarnessError(
-            "spawned injected OSS warm-seed mode is not installed"
-        )
     root = (
         benchmark_root.expanduser().resolve()
         / "warm_seeds"
@@ -4079,6 +4049,19 @@ def _execute_unmeasured_warm_seed(
     attempt_root, attempt_number = _next_attempt(root)
     cache_root = attempt_root / "scientific_cache"
     empty_cache = _empty_cache_proof(cache_root)
+    injected_fixture = None
+    if row.get("solver_mode") == "injected":
+        accepted = resolved.get("accepted_oss_cache")
+        if not isinstance(accepted, Mapping):
+            raise PerformanceMatrixHarnessError(
+                "accepted OSS cache closure is missing"
+            )
+        injected_fixture = _prepare_injected_oss_fixture(
+            accepted_closure=accepted,
+            destination_cache_root=(
+                attempt_root / "injected_fixture_cache"
+            ),
+        )
     seed_plan = {
         "schema_version": "dual_frequency_task17_warm_seed_attempt_v1",
         "slice_id": slice_id,
@@ -4092,6 +4075,7 @@ def _execute_unmeasured_warm_seed(
         "imported_oss_task_ids": descriptor["imported_oss_task_ids"],
         "checkpoint_closure": checkpoint_closure,
         "empty_cache_proof": empty_cache,
+        "injected_fixture": injected_fixture,
         "workers": int(row["workers"]),
     }
     seed_plan["seed_plan_sha256"] = _canonical_sha256(seed_plan)
@@ -4193,6 +4177,9 @@ def _execute_unmeasured_warm_seed(
             work_root=store.root / "runtime_work",
             artifact_roots=artifact_roots,
             cache_root=cache_root,
+            benchmark_oss_fixture=_benchmark_oss_fixture_spec(
+                injected_fixture
+            ),
         ),
     )
     result = None
@@ -4279,10 +4266,6 @@ def _execute_row_child(
         benchmark_root=benchmark_root,
         attempt_root=attempt_root,
     )
-    if row.get("solver_mode") == "injected":
-        raise PerformanceMatrixHarnessError(
-            "spawned injected OSS benchmark mode is not installed"
-        )
     service, bundle = _workflow_bundle_from_resolved(resolved)
     validated = bundle.validated
     configuration = validated.configuration
@@ -4395,6 +4378,9 @@ def _execute_row_child(
             work_root=store.root / "runtime_work",
             artifact_roots=artifact_roots,
             cache_root=cache_root,
+            benchmark_oss_fixture=_benchmark_oss_fixture_spec(
+                cache_state.get("injected_fixture")
+            ),
         ),
     )
     ready = {
@@ -5211,6 +5197,48 @@ def _run_matrix(
     )
 
 
+def _validate_terminal_matrix(
+    benchmark_root: Path,
+) -> dict[str, object] | None:
+    """Recompute a complete terminal report without writing or repairing it."""
+
+    from my_helper.fiber.pipelines.validate_task17_performance_acceptance import (
+        validate as validate_performance,
+    )
+
+    root = benchmark_root.expanduser().resolve()
+    manifest_path = root / "performance_matrix.json"
+    acceptance_path = root / "performance_acceptance.json"
+    if not manifest_path.exists() and not acceptance_path.exists():
+        return None
+    if not manifest_path.is_file() or not acceptance_path.is_file():
+        raise PerformanceMatrixHarnessError(
+            "terminal benchmark matrix publication is partial"
+        )
+    try:
+        expected = validate_performance(manifest_path)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise PerformanceMatrixHarnessError(
+            "terminal benchmark matrix acceptance failed"
+        ) from exc
+    stored = _read_json(
+        acceptance_path,
+        "terminal benchmark acceptance",
+    )
+    if stored != expected:
+        raise PerformanceMatrixHarnessError(
+            "terminal benchmark acceptance report differs"
+        )
+    return {
+        "status": "validated",
+        "matrix_path": str(manifest_path),
+        "matrix_sha256": _sha256_file(manifest_path),
+        "acceptance_path": str(acceptance_path),
+        "acceptance_sha256": _sha256_file(acceptance_path),
+        "row_count": expected["row_count"],
+    }
+
+
 def validate_existing(
     request_path: Path,
     benchmark_root: Path,
@@ -5240,11 +5268,13 @@ def validate_existing(
         resolved,
         marker["row_contracts"],
     )
+    terminal = _validate_terminal_matrix(root)
     return {
         "status": "validated",
         "benchmark_root": str(root),
         "resolved_plan_sha256": marker["resolved_plan_sha256"],
         "row_count": len(resolved["rows"]),
+        "terminal": terminal,
     }
 
 
@@ -5252,7 +5282,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "operation",
-        choices=("prepare", "validate", "_run-child"),
+        choices=("prepare", "run", "validate", "_run-child"),
     )
     parser.add_argument("--request", required=True, type=Path)
     parser.add_argument("--benchmark-root", required=True, type=Path)
@@ -5266,6 +5296,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if arguments.operation == "prepare":
             result = prepare(arguments.request, arguments.benchmark_root)
+        elif arguments.operation == "run":
+            result = _run_matrix(
+                arguments.request,
+                arguments.benchmark_root,
+            )
         elif arguments.operation == "validate":
             result = validate_existing(
                 arguments.request,

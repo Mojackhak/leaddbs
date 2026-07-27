@@ -22,7 +22,12 @@ from .fiber_section_postprocess import (
     prepare_fiber_section_context,
     render_fiber_section_components,
 )
-from .paired_fit_postprocess import render_paired_fit_components
+from .paired_fit_postprocess import (
+    PAIRED_METRIC_FIELDS,
+    load_validated_paired_predictions,
+    render_paired_fit_components,
+    validate_paired_metrics,
+)
 from .plugin.default import get_fiber_section_cfg, get_fit_cfg, get_voxel_section_cfg
 from .published_artifacts import PublicationCatalog, PublishedArtifact
 from .voxel_section_postprocess import (
@@ -34,6 +39,22 @@ from .voxel_section_postprocess import (
 SCHEMA_VERSION = "dual_frequency_formal_postprocess_v1"
 _COMPONENTS = frozenset({"paired_fit", "voxel_2d", "fiber_2d"})
 _SAFE_SCALE = re.compile(r"^[^/]+$")
+_ENDPOINT_INDEX_BASE_FIELDS = (
+    "status",
+    "scale_id",
+    "model_role",
+    "model_unit",
+    "model_family",
+    "endpoint_id",
+    "final_model_id",
+    "final_branch",
+    "selected_tau",
+    "selected_coverage",
+    "paired_fit_status",
+    "spatial_status",
+    "component_manifest_count",
+    "output_count",
+)
 
 
 @dataclass(frozen=True)
@@ -485,6 +506,12 @@ def _resolve_endpoints(
                 final_model=final_model,
                 summary=summary,
             )
+            if "paired_fit" in components:
+                validate_paired_metrics(summary)
+                load_validated_paired_predictions(
+                    core["predictions"].path,
+                    summary,
+                )
             endpoint_id = str(summary.get("endpoint_id", "")).strip()
             if not endpoint_id or endpoint_id in endpoint_ids:
                 raise ValueError(f"endpoint identity is missing or duplicated: {endpoint_id!r}")
@@ -551,28 +578,24 @@ def _component_failure_rows(
 
 
 def _write_endpoint_index(root: Path, endpoints: Sequence[Mapping[str, Any]]) -> None:
-    fields = (
-        "status",
-        "scale_id",
-        "model_role",
-        "model_unit",
-        "model_family",
-        "endpoint_id",
-        "final_model_id",
-        "final_branch",
-        "selected_tau",
-        "selected_coverage",
-        "paired_fit_status",
-        "spatial_status",
-        "component_manifest_count",
-        "output_count",
-    )
+    fields = (*_ENDPOINT_INDEX_BASE_FIELDS, *PAIRED_METRIC_FIELDS)
     temporary = root / "endpoint_index.csv.tmp"
     with temporary.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for item in endpoints:
-            writer.writerow({key: item.get(key) for key in fields})
+            metrics = item.get("metrics", {})
+            writer.writerow(
+                {
+                    key: (
+                        metrics.get(key)
+                        if key in PAIRED_METRIC_FIELDS
+                        and isinstance(metrics, Mapping)
+                        else item.get(key)
+                    )
+                    for key in fields
+                }
+            )
     temporary.replace(root / "endpoint_index.csv")
 
 
@@ -585,7 +608,8 @@ contains {len(scales)} scales and the requested components
 publications; endpoint result JSON files bind their relative paths and hashes.
 
 Browse endpoint outputs below `scales/<scale-id>/<role>/<unit>/` and use
-`endpoint_index.csv` for the cross-scale status summary.
+`endpoint_index.csv` for cross-scale status and the complete paired in-sample
+and LOOCV metric set.
 """
     (root / "README.md").write_text(text, encoding="utf-8")
 
@@ -620,9 +644,22 @@ def _assemble_endpoint_results(
             unit == "voxel" and "voxel_2d" in components
         ) or (unit == "fiber" and "fiber_2d" in components)
         expected_spatial = 3 if unit == "voxel" else 1
+        paired_metrics: dict[str, Any] = {}
+        if len(fit_rows) == 1 and isinstance(fit_rows[0].get("metrics"), Mapping):
+            try:
+                paired_metrics = validate_paired_metrics(
+                    fit_rows[0]["metrics"],
+                    exact_fields=True,
+                )
+            except ValueError:
+                paired_metrics = {}
         fit_complete = (
             not required_fit
-            or (len(fit_rows) == 1 and fit_rows[0].get("status") == "complete")
+            or (
+                len(fit_rows) == 1
+                and fit_rows[0].get("status") == "complete"
+                and bool(paired_metrics)
+            )
         )
         spatial_complete = (
             not required_spatial
@@ -665,6 +702,7 @@ def _assemble_endpoint_results(
                 "component_manifests": unique_component_manifests,
                 "output_count": len(set(outputs)),
                 "outputs": sorted(set(outputs)),
+                "metrics": paired_metrics,
             }
         )
     return endpoint_results
@@ -799,6 +837,17 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
             raise ValueError(
                 f"formal postprocess endpoint is incomplete: {item.get('endpoint_id')}"
             )
+        endpoint_metrics: dict[str, Any] = {}
+        if "paired_fit" in requested_component_set:
+            metrics = item.get("metrics")
+            if not isinstance(metrics, Mapping):
+                raise ValueError(
+                    "formal postprocess endpoint paired metrics are missing"
+                )
+            endpoint_metrics = validate_paired_metrics(
+                metrics,
+                exact_fields=True,
+            )
         outputs = item.get("outputs")
         if not isinstance(outputs, list):
             raise ValueError("formal postprocess endpoint outputs are missing")
@@ -827,6 +876,7 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
             raise ValueError(
                 "formal postprocess endpoint component manifests are empty"
             )
+        paired_component_count = 0
         for relative_value in normalized_manifests:
             relative = Path(relative_value)
             if relative.is_absolute() or ".." in relative.parts:
@@ -861,7 +911,25 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
                 raise ValueError(
                     f"formal postprocess component manifest family differs: {path}"
                 )
+            component_metrics = component.get("metrics")
+            if isinstance(component_metrics, Mapping):
+                validated_component_metrics = validate_paired_metrics(
+                    component_metrics,
+                    exact_fields=True,
+                )
+                paired_component_count += 1
+                if validated_component_metrics != endpoint_metrics:
+                    raise ValueError(
+                        "formal postprocess paired component metrics differ"
+                    )
             component_manifest_paths.add(relative.as_posix())
+        if (
+            "paired_fit" in requested_component_set
+            and paired_component_count != 1
+        ):
+            raise ValueError(
+                "formal postprocess endpoint paired component count differs"
+            )
         normalized = {str(value) for value in outputs}
         if int(item.get("output_count", -1)) != len(normalized):
             raise ValueError("formal postprocess endpoint output count differs")
@@ -890,6 +958,13 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
         for row in family_rows:
             if not isinstance(row, Mapping):
                 raise ValueError("formal postprocess component result row is invalid")
+            if family == "paired_fit":
+                metrics = row.get("metrics")
+                if not isinstance(metrics, Mapping):
+                    raise ValueError(
+                        "formal postprocess paired result metrics are missing"
+                    )
+                validate_paired_metrics(metrics, exact_fields=True)
             result_path = row.get("result_path")
             if not isinstance(result_path, str) or not result_path:
                 raise ValueError(
@@ -903,7 +978,14 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
         raise ValueError("formal postprocess component result closure differs")
 
     with index_path.open("r", encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    expected_index_fields = (
+        *_ENDPOINT_INDEX_BASE_FIELDS,
+        *PAIRED_METRIC_FIELDS,
+    )
+    if tuple(reader.fieldnames or ()) != expected_index_fields:
+        raise ValueError("formal postprocess endpoint index fields differ")
     index_ids = [str(row.get("endpoint_id", "")) for row in rows]
     if len(rows) != expected_count or set(index_ids) != set(resolved_ids):
         raise ValueError("formal postprocess endpoint index closure differs")
@@ -918,6 +1000,17 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
             raise ValueError(
                 "formal postprocess endpoint index component count differs"
             )
+        if "paired_fit" in requested_component_set:
+            metrics = endpoint.get("metrics")
+            if not isinstance(metrics, Mapping):
+                raise ValueError(
+                    "formal postprocess endpoint index metrics are missing"
+                )
+            for key in PAIRED_METRIC_FIELDS:
+                if row.get(key) != str(metrics[key]):
+                    raise ValueError(
+                        f"formal postprocess endpoint index metric {key} differs"
+                    )
 
     forbidden = ("file://", "/.runs/", "/runtime_work/", "/tasks/", "/work/")
     metadata_files = sorted(root.rglob("*.json")) + sorted(root.rglob("*.csv"))

@@ -1441,6 +1441,49 @@ and optimism fields. Standard `in_sample_r2`, `in_sample_relative_r2`,
 in-sample prediction, LOOCV prediction, and both baseline-prediction columns,
 with no empty cell and a row count matching its endpoint summary.
 
+The formal paired-fit publisher must enforce this complete source contract
+before rendering. A completed endpoint requires paired Spearman and Pearson
+statistics, descriptive nominal p values, plus-one two-sided permutation p
+values, model-family and all-endpoint BH values, standard R2,
+relative-R2/Q2, model error, baseline error, finite subject and permutation
+counts, matching subject masks, and all six declared optimism gaps. The
+in-sample and LOOCV permutation requests must use the same positive count, and
+both retained finite counts must cover their complete requests. The paired
+prediction table must contain subject ID, outcome, in-sample prediction,
+LOOCV prediction, in-sample baseline prediction, and LOOCV baseline prediction
+with the same complete subject count. The unsupported
+`in_sample_adjusted_r2` must not be published.
+
+Each endpoint `result.json` and the root `endpoint_index.csv` must expose the
+same complete paired metric set. The two fit panels retain compact annotations
+for rho and the formal permutation p value; descriptive nominal p values and
+the remaining diagnostics stay available in the indexed report without
+overloading the figure. Missing, nonfinite, internally inconsistent, or
+unpaired evidence must fail that endpoint before any figure is published.
+This contract is published as paired-fit postprocess schema v2 so an older v1
+component cannot be reused merely because its source and style request hash is
+unchanged.
+
+The schema-v2 implementation was completed in the isolated integration
+worktree on 2026-07-26. It validates all 43 declared paired metrics, the six
+required prediction-table columns, complete subject and permutation counts,
+probability and correlation domains, nonnegative error metrics, and the
+arithmetic identity of all six optimism gaps before rendering. The same metric
+mapping is retained in each component result, each formal endpoint result, and
+the root endpoint index. Terminal validation independently rechecks the
+component, endpoint, and CSV copies. Formal `--validate-only` must apply the
+same metric and prediction-table contract while resolving canonical endpoints,
+so an invalid source fails during read-only preflight rather than after the
+render transaction begins. As a consistency gate only, validation must
+recalculate the deterministic Spearman, Pearson, standard and relative fit,
+model-error, and baseline-error summaries from the paired prediction table and
+compare them with the published values. Figures and result indexes continue to
+use the published values; the recalculated values are never substituted, and
+formal permutation or BH inference is never recomputed. Forty-four focused
+paired-fit and component tests, the complete 54-test visualization package,
+and the complete dual-frequency plus visualization regression with 846 tests
+and 329 subtests pass with warnings treated as errors.
+
 Validation completed on 2026-07-18:
 
 - the combined dual-frequency and visualization test suite passed with 466
