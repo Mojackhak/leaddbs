@@ -1404,6 +1404,9 @@ and performance set passed 153 tests. The production-checkout dual-frequency
 suite then passed 762 tests. After the previously reviewed performance and
 paired-fit branch was integrated with the Omega-only closure, the integration
 worktree passed 768 dual-frequency tests and 54 visualization tests with
-warnings treated as errors. No expensive producer or production output was
-used by these tests. Production acceptance remains open until the replacement
-lineage closes.
+warnings treated as errors. Merge commit `b8cf39670` then fast-forwarded that
+reviewed integration closure into the production checkout. The production
+checkout independently passed the same 768 dual-frequency tests and 54
+visualization tests with warnings treated as errors. No expensive producer or
+production output was used by these tests. Production acceptance remains open
+until the replacement lineage closes.

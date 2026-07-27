@@ -9360,7 +9360,10 @@ corruption, and performance set passed 153 tests. The production-checkout
 dual-frequency suite passed 762 tests. After integrating the reviewed
 performance and paired-fit branch, the isolated integration worktree passed
 768 dual-frequency tests and 54 visualization tests with warnings treated as
-errors. Production execution remains open.
+errors. Merge commit `b8cf39670` then fast-forwarded that reviewed closure
+into the production checkout, where the same 768 dual-frequency tests and 54
+visualization tests passed again with warnings treated as errors. Production
+execution remains open.
 
 The combined-extension cache-first launch boundary was revalidated on
 2026-07-26 without reading or writing VAL. Ten focused tests covered executor
