@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -35,11 +35,6 @@ def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(json.dumps(dict(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(path)
-
-
-def _canonical_payload_hash(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _resolve_path(base: Path, value: str | Path) -> Path:
@@ -93,17 +88,27 @@ def _output_paths(directory: Path, stem: str, formats: Sequence[str]) -> list[Pa
     return [directory / f"{stem}.{extension}" for extension in normalized]
 
 
-def _completed_reusable(manifest_path: Path, request_hash: str) -> bool:
-    if not manifest_path.is_file():
-        return False
+def _completed_manifest(
+    manifest_path: Path,
+    complete_path: Path,
+) -> dict[str, Any] | None:
+    if not manifest_path.is_file() or not complete_path.is_file():
+        return None
+    return _read_json(manifest_path)
+
+
+def _trash(path: Path) -> None:
     try:
-        payload = _read_json(manifest_path)
-    except (OSError, ValueError, json.JSONDecodeError):
-        return False
-    if payload.get("status") != "complete" or payload.get("request_hash") != request_hash:
-        return False
-    outputs = payload.get("outputs")
-    return isinstance(outputs, list) and all(Path(item).is_file() for item in outputs)
+        subprocess.run(
+            ("/usr/bin/trash", str(path)),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError(
+            f"cannot move existing postprocess output to Trash: {path}"
+        ) from exc
 
 
 def _atlas_layers(specs: Sequence[Mapping[str, Any]], base: Path) -> list[SpatialLayer]:
@@ -219,14 +224,47 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
     endpoints = config.get("endpoints")
     if not isinstance(endpoints, list) or not endpoints:
         raise ValueError("endpoints must be a nonempty list")
+    endpoint_ids: list[str] = []
+    for endpoint in endpoints:
+        if not isinstance(endpoint, Mapping):
+            raise ValueError("each endpoint entry must be an object")
+        endpoint_id = str(endpoint.get("endpoint_id", "")).strip()
+        if (
+            not endpoint_id
+            or endpoint_id in {".", ".."}
+            or Path(endpoint_id).name != endpoint_id
+        ):
+            raise ValueError("endpoint_id must be one safe path component")
+        endpoint_ids.append(endpoint_id)
+    if len(set(endpoint_ids)) != len(endpoint_ids):
+        raise ValueError("endpoint IDs must be unique")
+    output_value = config.get("output_root")
+    if not isinstance(output_value, str) or not output_value.strip():
+        raise ValueError("output_root must be a nonempty path")
+    publication_config = config.get("publications")
+    if not isinstance(publication_config, Mapping) or not publication_config:
+        raise ValueError("publications must be a nonempty object")
     base = config_file.parent
-    publications = PublicationCatalog.from_config(
-        config.get("publications"), config_base=base
-    )
-    output_root = _resolve_path(base, config["output_root"])
+    output_root = _resolve_path(base, output_value)
     defaults = config.get("defaults", {})
     if not isinstance(defaults, Mapping):
         raise ValueError("defaults must be an object")
+    aggregate_path = output_root / "manifest.json"
+    complete_path = output_root / "complete.json"
+    if not force:
+        restored = _completed_manifest(aggregate_path, complete_path)
+        if restored is not None:
+            restored["resume_status"] = "reused"
+            restored["reused_count"] = int(restored.get("completed_count", 0))
+            return restored
+
+    publications = PublicationCatalog.from_config(
+        publication_config, config_base=base
+    )
+    if force and output_root.exists():
+        _trash(output_root)
+    elif complete_path.exists():
+        _trash(complete_path)
 
     aggregate: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -236,18 +274,20 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
         "endpoints": [],
     }
     output_root.mkdir(parents=True, exist_ok=True)
-    aggregate_path = output_root / "manifest.json"
     _write_json_atomic(aggregate_path, aggregate)
 
     failures = 0
-    for endpoint in endpoints:
-        if not isinstance(endpoint, Mapping):
-            raise ValueError("each endpoint entry must be an object")
-        endpoint_id = str(endpoint.get("endpoint_id", "")).strip()
-        if not endpoint_id:
-            raise ValueError("each endpoint requires endpoint_id")
+    for endpoint, endpoint_id in zip(endpoints, endpoint_ids):
         endpoint_dir = output_root / "endpoints" / endpoint_id
         endpoint_manifest = endpoint_dir / "manifest.json"
+        endpoint_complete = endpoint_dir / "complete.json"
+        restored = _completed_manifest(endpoint_manifest, endpoint_complete)
+        if restored is not None:
+            restored["resume_status"] = "reused"
+            aggregate["endpoints"].append(restored)
+            continue
+        if endpoint_dir.exists():
+            _trash(endpoint_dir)
         item: dict[str, Any] = {
             "endpoint_id": endpoint_id,
             "status": "running",
@@ -256,20 +296,7 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
         try:
             source_artifacts = _scientific_sources(endpoint, publications)
             source_records = [item.as_manifest_record() for item in source_artifacts]
-            request_hash = _canonical_payload_hash(
-                {"endpoint": dict(endpoint), "source_artifacts": source_records}
-            )
-            if not force and _completed_reusable(endpoint_manifest, request_hash):
-                restored = _read_json(endpoint_manifest)
-                restored["resume_status"] = "reused"
-                aggregate["endpoints"].append(restored)
-                continue
-            item.update(
-                {
-                    "request_hash": request_hash,
-                    "source_artifacts": source_records,
-                }
-            )
+            item["source_artifacts"] = source_records
             _write_json_atomic(endpoint_manifest, item)
             summary = _summary(endpoint, publications)
             summary_endpoint_id = summary.get("endpoint_id")
@@ -306,7 +333,6 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
             )
         except Exception as error:  # noqa: BLE001 - item-local failure boundary is intentional
             failures += 1
-            item.setdefault("request_hash", _canonical_payload_hash(endpoint))
             item.update(
                 {
                     "status": "failed",
@@ -315,6 +341,15 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
                 }
             )
         _write_json_atomic(endpoint_manifest, item)
+        if item["status"] == "complete":
+            _write_json_atomic(
+                endpoint_complete,
+                {
+                    "schema_version": "dual_frequency_postprocess_endpoint_complete_v1",
+                    "endpoint_id": endpoint_id,
+                    "status": "complete",
+                },
+            )
         aggregate["endpoints"].append(item)
         _write_json_atomic(aggregate_path, aggregate)
 
@@ -323,6 +358,14 @@ def run_postprocess(config_path: str | Path, *, force: bool = False) -> dict[str
     aggregate["reused_count"] = sum(item.get("resume_status") == "reused" for item in aggregate["endpoints"])
     aggregate["failed_count"] = failures
     _write_json_atomic(aggregate_path, aggregate)
+    if failures == 0:
+        _write_json_atomic(
+            complete_path,
+            {
+                "schema_version": "dual_frequency_postprocess_complete_v1",
+                "status": "complete",
+            },
+        )
     return aggregate
 
 

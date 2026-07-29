@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Sequence
 
 from ..config import WorkflowOverrides
+from ..workflow import ExecutionError, RunStoreError
 from .publication import CanonicalPublisher, PublicationError
 from .service import (
     ApplicationError,
@@ -68,7 +69,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
     )
-    sensitivity.add_argument("--resume", action="store_true", default=False)
+    sensitivity_existing = sensitivity.add_mutually_exclusive_group()
+    sensitivity_existing.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+    )
+    sensitivity_existing.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+    )
     sensitivity.add_argument("--rebuild", action="store_true", default=False)
     sensitivity.add_argument("--rebuild-run-id")
     sensitivity.add_argument("--study-base", type=Path)
@@ -198,6 +209,7 @@ def main(
                     workers=arguments.workers,
                     allow_expensive_producers=arguments.allow_expensive_producers,
                     resume=arguments.resume,
+                    force=arguments.force,
                     rebuild_request=rebuild_request,
                     rebuild_run_id=arguments.rebuild_run_id,
                 )
@@ -240,7 +252,7 @@ def main(
             )
             return 0
         raise ApplicationError(f"unsupported command {arguments.command!r}")
-    except (ApplicationError, PublicationError, RuntimeError, ValueError, OSError) as exc:
+    except (ApplicationError, ExecutionError, PublicationError, RunStoreError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

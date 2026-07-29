@@ -145,7 +145,8 @@ accepted display resources, and all three batch visualization components. Run
 its read-only preflight with:
 
 ```bash
-conda run -n leaddbs python -m my_helper.fiber.core.viz.formal_postprocess \
+env -u PYTHONPATH conda run -n leaddbs python -m \
+  my_helper.fiber.core.viz.formal_postprocess \
   --config my_helper/stnsnr/config/four_model_v1/formal_postprocess.json \
   --validate-only
 ```
@@ -153,11 +154,15 @@ conda run -n leaddbs python -m my_helper.fiber.core.viz.formal_postprocess \
 The preflight creates no output root. The same command without
 `--validate-only` owns the immutable formal postprocess transaction after the
 Task 17 publication sequence reaches its required execution boundary.
+Removing a caller-provided `PYTHONPATH` prevents the repository's scientific
+`coverage` module from shadowing the Conda environment package imported by
+Numba.
 Validate the terminal root independently after the first render and identical
 resume with:
 
 ```bash
-conda run -n leaddbs python -m my_helper.fiber.core.viz.formal_postprocess \
+env -u PYTHONPATH conda run -n leaddbs python -m \
+  my_helper.fiber.core.viz.formal_postprocess \
   --validate-output /Volumes/VAL/STNSNr/summary/spot/postprocess/dual_frequency_four_model_v1/task17-formal-postprocess-v1-20260722
 ```
 

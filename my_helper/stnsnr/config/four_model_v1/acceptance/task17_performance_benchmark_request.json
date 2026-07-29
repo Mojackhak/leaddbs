@@ -1,9 +1,8 @@
 {
-  "accepted_independent_oss_root": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719",
+  "accepted_independent_oss_root": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v2-omega-only-formal-20260726",
   "accepted_parent_root": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717",
   "conda_environment": "leaddbs",
   "direct_voxel_model": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717/inputs/direct_voxel_model.yaml",
-  "maximum_task_tree_rss_bytes": 68719476736,
   "normative_fiber_model": "/Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717/inputs/normative_fiber_model.yaml",
   "plan_id": "task17-performance-matrix-v1-20260725",
   "real_cold_solver_authorization": null,

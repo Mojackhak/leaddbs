@@ -186,6 +186,76 @@ class PublicationCatalog:
             raise PublishedArtifactError(f"unknown publication alias: {alias!r}")
         return dict(self._publications[alias].manifest)
 
+    def resolve_scale_display_name(
+        self,
+        alias: str,
+        scale_id: str,
+    ) -> tuple[str, dict[str, Any]]:
+        """Resolve one exact scale label from the publication-local study base."""
+
+        if alias not in self._publications:
+            raise PublishedArtifactError(f"unknown publication alias: {alias!r}")
+        publication = self._publications[alias]
+        declared_path = str(publication.manifest.get("study_base_path", "")).strip()
+        declared_sha256 = str(
+            publication.manifest.get("study_base_sha256", "")
+        ).strip().lower()
+        if not declared_path or len(declared_sha256) != 64:
+            raise PublishedArtifactError(
+                f"publication {alias!r} lacks a valid study_base path or SHA-256"
+            )
+        study_path = publication.root / Path(declared_path).name
+        if not study_path.is_file():
+            raise PublishedArtifactError(
+                f"publication-local study_base is missing: {study_path}"
+            )
+        actual_sha256 = _sha256_file(study_path)
+        if actual_sha256 != declared_sha256:
+            raise PublishedArtifactError(
+                "publication-local study_base SHA-256 does not match manifest"
+            )
+        payload = _read_json(study_path)
+        study = payload.get("study")
+        if not isinstance(study, Mapping):
+            raise PublishedArtifactError("study_base requires a study object")
+        definitions = study.get("scale_definitions")
+        if not isinstance(definitions, list) or not definitions:
+            raise PublishedArtifactError(
+                "study_base requires nonempty study.scale_definitions"
+            )
+        matches = [
+            value
+            for value in definitions
+            if isinstance(value, Mapping) and value.get("scale_id") == scale_id
+        ]
+        if len(matches) != 1:
+            raise PublishedArtifactError(
+                "study.scale_definitions must contain exactly one "
+                f"{scale_id!r} entry"
+            )
+        label = matches[0].get("label")
+        if (
+            not isinstance(label, str)
+            or not label
+            or label != label.strip()
+            or any(marker in label for marker in ("\n", "\r"))
+        ):
+            raise PublishedArtifactError(
+                f"study scale {scale_id!r} requires a clean nonempty label"
+            )
+        return label, {
+            "kind": "study_base",
+            "path": str(study_path),
+            "sha256": actual_sha256,
+            "size_bytes": study_path.stat().st_size,
+            "manifest_declared_path": declared_path,
+            "manifest_declared_sha256": declared_sha256,
+            "label_source": "study.scale_definitions[].label",
+            "scale_definition_count": len(definitions),
+            "resolved_scale_id": scale_id,
+            "resolved_scale_display_name": label,
+        }
+
     def indexed_paths(self, alias: str) -> tuple[str, ...]:
         """Return the publication's ordered indexed relative paths."""
 

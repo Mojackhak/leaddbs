@@ -78,7 +78,7 @@ end
 
 function transformName = validate_transform_name(value)
 transformName = validatestring(char(string(value)), ...
-    {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
+    {'identity', 'flipY', 'flipZ', 'rotX180', 'rotZ180'}, ...
     'mh_fiber_reorient_dwi_image_content', 'Transform');
 end
 
@@ -149,6 +149,7 @@ end
 
 function write_corrected_json(sourceJson, targetJson, opts, paths, correctionContext)
 metadata = jsondecode(fileread(sourceJson));
+metadata = update_phase_encoding_metadata(metadata, correctionContext.IncrementalMatrix);
 metadata.ImageContentOrientationCorrection = true;
 metadata.OrientationCorrectionTransform = correctionContext.NetTransform;
 metadata.OrientationCorrectionBvecMatrix = correctionContext.NetMatrix;
@@ -187,6 +188,54 @@ if fid < 0
 end
 cleanupObj = onCleanup(@() fclose(fid));
 fprintf(fid, '%s\n', jsonencode(metadata, 'PrettyPrint', true));
+end
+
+function metadata = update_phase_encoding_metadata(metadata, incrementalMatrix)
+if isfield(metadata, 'PhaseEncodingDirection') && ...
+        ~isempty(metadata.PhaseEncodingDirection)
+    sourceDirection = char(string(metadata.PhaseEncodingDirection));
+    correctedDirection = transform_phase_encoding_direction( ...
+        sourceDirection, incrementalMatrix);
+    metadata.OrientationCorrectionSourcePhaseEncodingDirection = sourceDirection;
+    metadata.PhaseEncodingDirection = correctedDirection;
+    metadata.OrientationCorrectionPhaseEncodingDirection = correctedDirection;
+    metadata.OrientationCorrectionPhaseEncodingStatus = 'transformed';
+elseif isfield(metadata, 'PhaseEncodingAxis') && ~isempty(metadata.PhaseEncodingAxis)
+    metadata.OrientationCorrectionSourcePhaseEncodingAxis = ...
+        char(string(metadata.PhaseEncodingAxis));
+    metadata.OrientationCorrectionPhaseEncodingStatus = ...
+        'missing_sign_requires_explicit_configuration';
+else
+    metadata.OrientationCorrectionPhaseEncodingStatus = 'not_present';
+end
+end
+
+function corrected = transform_phase_encoding_direction(direction, matrix)
+tokens = regexp(strtrim(direction), '^([ijk])(-?)$', 'tokens', 'once');
+if isempty(tokens)
+    error('mh_fiber_reorient_dwi_image_content:InvalidPhaseEncodingDirection', ...
+        'Unsupported BIDS PhaseEncodingDirection: %s', direction);
+end
+
+axisNames = 'ijk';
+axisIndex = find(axisNames == tokens{1}, 1);
+vector = zeros(3, 1);
+vector(axisIndex) = 1;
+if strcmp(tokens{2}, '-')
+    vector(axisIndex) = -1;
+end
+
+correctedVector = double(matrix) * vector;
+newAxis = find(abs(correctedVector) > 0.5);
+if numel(newAxis) ~= 1 || abs(abs(correctedVector(newAxis)) - 1) > 1e-12
+    error('mh_fiber_reorient_dwi_image_content:InvalidPhaseEncodingTransform', ...
+        'Orientation transform is not a signed axis permutation.');
+end
+
+corrected = axisNames(newAxis);
+if correctedVector(newAxis) < 0
+    corrected = [corrected, '-'];
+end
 end
 
 function text = chain_text(correctionContext)

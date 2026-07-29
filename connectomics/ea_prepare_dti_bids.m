@@ -38,6 +38,7 @@ try
         
         % Target BIDS-compliant file in derivatives/preprocessing/dwi/
         targetDwi = fullfile(derivDwiDir, [dwiBaseName, '.nii']);
+        dwiStaged = false;
         
         if ~exist(targetDwi, 'file')
             disp(['Copying DWI from rawdata: ', dwiBaseName]);
@@ -48,6 +49,7 @@ try
                 % Copy
                 copyfile(rawDwiPath, targetDwi);
             end
+            dwiStaged = true;
         end
         
         % Copy .bval and .bvec
@@ -72,7 +74,10 @@ try
         options.prefs.b0 = fullfile('preprocessing', 'dwi', [dwiBaseName, '_b0.nii']);
         options.prefs.fa = fullfile('preprocessing', 'dwi', [dwiBaseName, '_fa.nii']);
 
-        ea_ensure_b0_from_dwi(options, 'Force', true);
+        targetB0 = fullfile(directory, options.prefs.b0);
+        if dwiStaged || ~isfile(targetB0)
+            ea_ensure_b0_from_dwi(options, 'Force', dwiStaged);
+        end
         
         disp(['DWI files prepared: ', targetDwi]);
     else

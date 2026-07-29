@@ -17,8 +17,13 @@ from unittest.mock import patch
 import yaml
 
 from dual_frequency.application import service as service_module
-from dual_frequency.application.cli import main
-from dual_frequency.application.service import WorkflowRequest, WorkflowService
+from dual_frequency.application.cli import build_parser, main
+from dual_frequency.application.service import (
+    ApplicationError,
+    SensitivityExtensionRequest,
+    WorkflowRequest,
+    WorkflowService,
+)
 from dual_frequency.config import WorkflowOverrides
 from dual_frequency.workflow import RunResult, ServiceRegistry
 
@@ -84,6 +89,72 @@ def _write_fixture(root: Path) -> WorkflowRequest:
 
 
 class ApplicationCliTest(unittest.TestCase):
+    def test_sensitivity_force_is_explicit_and_excludes_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            base_run = Path(temporary_directory) / "parent"
+            captured: list[SensitivityExtensionRequest] = []
+
+            def sensitivity(
+                _service: WorkflowService,
+                request: SensitivityExtensionRequest,
+            ) -> RunResult:
+                captured.append(request)
+                return RunResult(request.run_id, (), 0)
+
+            output = io.StringIO()
+            with (
+                patch.object(WorkflowService, "sensitivity", new=sensitivity),
+                redirect_stdout(output),
+            ):
+                exit_code = main(
+                    [
+                        "sensitivity",
+                        "--base-run",
+                        str(base_run),
+                        "--analyses",
+                        "oss",
+                        "--run-id",
+                        "forced-child",
+                        "--workers",
+                        "2",
+                        "--force",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0].force)
+        self.assertFalse(captured[0].resume)
+        with (
+            redirect_stderr(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            build_parser().parse_args(
+                [
+                    "sensitivity",
+                    "--base-run",
+                    "/tmp/parent",
+                    "--analyses",
+                    "oss",
+                    "--run-id",
+                    "child",
+                    "--resume",
+                    "--force",
+                ]
+            )
+        with self.assertRaisesRegex(
+            ApplicationError,
+            "resume and force cannot both be enabled",
+        ):
+            SensitivityExtensionRequest(
+                base_run=Path("/tmp/parent"),
+                analyses=("oss",),
+                run_id="child",
+                workers=1,
+                resume=True,
+                force=True,
+            )
+
     def test_validate_and_plan_build_two_scale_four_model_dag(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             request = _write_fixture(Path(temporary_directory))
@@ -99,6 +170,30 @@ class ApplicationCliTest(unittest.TestCase):
             {task.model_family for task in bundle.plan.tasks},
             {"reference_voxel", "reference_fiber", "addon_voxel", "addon_fiber"},
         )
+
+    def test_run_ids_must_be_single_safe_path_components(self) -> None:
+        for run_id in (".", "..", "../escape", "nested/escape", "nested\\escape"):
+            with self.subTest(run_id=run_id):
+                with self.assertRaisesRegex(ApplicationError, "path-safe token"):
+                    SensitivityExtensionRequest(
+                        base_run=Path("/tmp/parent"),
+                        analyses=("oss",),
+                        run_id=run_id,
+                        workers=1,
+                    )
+                with self.assertRaisesRegex(ApplicationError, "path-safe token"):
+                    SensitivityExtensionRequest(
+                        base_run=Path("/tmp/parent"),
+                        analyses=("oss",),
+                        run_id="child",
+                        workers=1,
+                        rebuild_run_id=run_id,
+                    )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            request = _write_fixture(Path(temporary_directory))
+            with self.assertRaisesRegex(ApplicationError, "path-safe token"):
+                WorkflowService().run(request, run_id="..")
 
     def test_observed_only_run_resume_force_status_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -175,12 +270,12 @@ class ApplicationCliTest(unittest.TestCase):
         self.assertEqual(len(calls), first_call_count * 2)
         self.assertEqual(
             report_calls,
-            ["synthetic-run", "synthetic-run", forced.run_id],
+            ["synthetic-run", "synthetic-run"],
         )
         self.assertEqual(status["run_manifest"]["final_status"], "completed")
         self.assertTrue(artifacts["artifacts"])
-        self.assertNotEqual(forced.run_id, "synthetic-run")
-        self.assertEqual(forced_manifest["parent_run_id"], "synthetic-run")
+        self.assertEqual(forced.run_id, "synthetic-run")
+        self.assertIsNone(forced_manifest["parent_run_id"])
 
     def test_cli_requires_explicit_profiles_and_scale_selection(self) -> None:
         parser_errors = (

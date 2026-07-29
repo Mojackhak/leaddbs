@@ -115,13 +115,6 @@ def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
-def _payload_hash(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(
-        dict(payload), sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def _file_sha256(path: Path, block_size: int = 1024 * 1024) -> str:
     digest = hashlib.sha256()
     try:
@@ -138,13 +131,56 @@ def _resolve_path(base: Path, value: object) -> Path:
     return (base / path).resolve() if not path.is_absolute() else path.resolve()
 
 
-def _write_or_validate_immutable(path: Path, payload: Mapping[str, Any]) -> None:
-    if path.is_file():
-        current = _read_json(path)
-        if _payload_hash(current) != _payload_hash(payload):
-            raise ValueError(f"immutable postprocess request changed: {path}")
-        return
-    _write_json_atomic(path, payload)
+def _write_if_missing(path: Path, payload: Mapping[str, Any]) -> None:
+    if not path.is_file():
+        _write_json_atomic(path, payload)
+
+
+def _trash(path: Path) -> None:
+    try:
+        subprocess.run(
+            ("/usr/bin/trash", str(path)),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError(f"cannot move existing postprocess output to Trash: {path}") from exc
+
+
+def _restored_manifest(path: Path) -> dict[str, Any]:
+    manifest = _read_json(path)
+    manifest["resume_status"] = "reused"
+    component_results = manifest.get("component_results")
+    if isinstance(component_results, Mapping):
+        for rows in component_results.values():
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, dict):
+                        row["resume_status"] = "reused"
+    return manifest
+
+
+def _component_completion_marker(
+    root: Path,
+    family: str,
+    result_path: str,
+) -> Path:
+    relative = Path(result_path)
+    leaf = root / relative.parent
+    if family == "paired_fit":
+        return leaf / "completion" / "paired_fit" / "complete.json"
+    if family == "voxel_2d":
+        return (
+            leaf
+            / "completion"
+            / "voxel_2d"
+            / relative.stem
+            / "complete.json"
+        )
+    if family == "fiber_2d":
+        return leaf / "completion" / "fiber_2d" / "complete.json"
+    raise ValueError(f"unsupported postprocess component family: {family}")
 
 
 def _artifact_record(artifact: PublishedArtifact) -> dict[str, Any]:
@@ -777,32 +813,27 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
     request_path = root / "request.json"
     resolved_path = root / "resolved_request.json"
     manifest_path = root / "manifest.json"
+    complete_path = root / "complete.json"
     index_path = root / "endpoint_index.csv"
     readme_path = root / "README.md"
-    for path in (request_path, resolved_path, manifest_path, index_path, readme_path):
+    for path in (
+        request_path,
+        resolved_path,
+        manifest_path,
+        complete_path,
+        index_path,
+        readme_path,
+    ):
         if not path.is_file():
             raise ValueError(f"formal postprocess root file is missing: {path}")
 
-    request = _read_json(request_path)
+    _read_json(request_path)
     resolved = _read_json(resolved_path)
     manifest = _read_json(manifest_path)
     if manifest.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("formal postprocess manifest schema differs")
     if manifest.get("status") != "complete":
         raise ValueError("formal postprocess manifest is not terminal complete")
-    request_hash = _payload_hash(request)
-    if resolved.get("request_hash") != request_hash:
-        raise ValueError("formal postprocess request hash differs")
-    resolved_without_hash = dict(resolved)
-    stored_resolved_hash = resolved_without_hash.pop("resolved_request_hash", None)
-    resolved_hash = _payload_hash(resolved_without_hash)
-    if stored_resolved_hash != resolved_hash:
-        raise ValueError("formal postprocess resolved-request hash differs")
-    if manifest.get("request_hash") != request_hash:
-        raise ValueError("formal postprocess manifest request hash differs")
-    if manifest.get("resolved_request_hash") != resolved_hash:
-        raise ValueError("formal postprocess manifest resolved-request hash differs")
-
     resolved_endpoints = resolved.get("endpoints")
     endpoint_results = manifest.get("endpoint_results")
     if not isinstance(resolved_endpoints, list) or not isinstance(endpoint_results, list):
@@ -871,10 +902,6 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
         ):
             raise ValueError(
                 "formal postprocess endpoint component manifest count differs"
-            )
-        if not normalized_manifests:
-            raise ValueError(
-                "formal postprocess endpoint component manifests are empty"
             )
         paired_component_count = 0
         for relative_value in normalized_manifests:
@@ -970,6 +997,11 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
                 raise ValueError(
                     "formal postprocess component result path is missing"
                 )
+            marker = _component_completion_marker(root, family, result_path)
+            if not marker.is_file():
+                raise ValueError(
+                    f"formal postprocess component completion marker is missing: {marker}"
+                )
             root_component_paths.append(result_path)
     if (
         len(set(root_component_paths)) != len(root_component_paths)
@@ -1029,8 +1061,6 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
         "declared_output_count": len(output_paths),
         "component_manifest_count": len(component_manifest_paths),
         "metadata_file_count": len(metadata_files),
-        "request_hash": request_hash,
-        "resolved_request_hash": resolved_hash,
     }
 
 
@@ -1047,15 +1077,27 @@ def run_formal_postprocess(
         raise ValueError(f"schema_version must be {SCHEMA_VERSION}")
     base = config_file.parent
     components = _resolve_components(config)
-    _validate_render_tooling(config, components)
-    output_root = _resolve_path(base, config.get("output_root"))
-    output_root.mkdir(parents=True, exist_ok=True)
-    request_payload = dict(config)
-    request_payload["output_root"] = str(output_root)
-    _write_or_validate_immutable(output_root / "request.json", request_payload)
+    output_value = config.get("output_root")
+    if not isinstance(output_value, str) or not output_value.strip():
+        raise ValueError("output_root must be a nonempty path")
+    publication_config = config.get("publications")
+    if not isinstance(publication_config, Mapping) or not publication_config:
+        raise ValueError("publications must be a nonempty object")
+    styles = config.get("styles", {})
+    if not isinstance(styles, Mapping):
+        raise ValueError("styles must be an object")
+    resources = config.get("resources", {})
+    if not isinstance(resources, Mapping):
+        raise ValueError("resources must be an object")
+    output_root = _resolve_path(base, output_value)
+    manifest_path = output_root / "manifest.json"
+    complete_path = output_root / "complete.json"
+    if not force and complete_path.is_file() and manifest_path.is_file():
+        return _restored_manifest(manifest_path)
 
+    _validate_render_tooling(config, components)
     catalog = PublicationCatalog.from_config(
-        config.get("publications"), config_base=base
+        publication_config, config_base=base
     )
     scales = _resolve_scales(config, catalog)
     resolved_endpoints = _resolve_endpoints(
@@ -1063,24 +1105,28 @@ def run_formal_postprocess(
     )
     resolved_payload = {
         "schema_version": SCHEMA_VERSION,
-        "request_hash": _payload_hash(request_payload),
         "publications": catalog.publication_records(),
         "components": list(components),
         "scales": list(scales),
         "endpoint_count": len(resolved_endpoints),
         "endpoints": resolved_endpoints,
     }
-    resolved_payload["resolved_request_hash"] = _payload_hash(resolved_payload)
-    _write_or_validate_immutable(
+    if force and output_root.exists():
+        _trash(output_root)
+    elif complete_path.is_file():
+        _trash(complete_path)
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    request_payload = dict(config)
+    request_payload["output_root"] = str(output_root)
+    _write_if_missing(output_root / "request.json", request_payload)
+    _write_if_missing(
         output_root / "resolved_request.json", resolved_payload
     )
 
-    manifest_path = output_root / "manifest.json"
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "status": "running",
-        "request_hash": resolved_payload["request_hash"],
-        "resolved_request_hash": resolved_payload["resolved_request_hash"],
         "scale_count": len(scales),
         "endpoint_count": len(resolved_endpoints),
         "components": list(components),
@@ -1088,9 +1134,6 @@ def run_formal_postprocess(
     }
     _write_json_atomic(manifest_path, manifest)
 
-    styles = config.get("styles", {})
-    if not isinstance(styles, Mapping):
-        raise ValueError("styles must be an object")
     paired_results: list[dict[str, Any]] = []
     voxel_results: list[dict[str, Any]] = []
     fiber_results: list[dict[str, Any]] = []
@@ -1106,9 +1149,6 @@ def run_formal_postprocess(
         manifest["component_results"]["paired_fit"] = paired_results
         _write_json_atomic(manifest_path, manifest)
 
-    resources = config.get("resources", {})
-    if not isinstance(resources, Mapping):
-        raise ValueError("resources must be an object")
     shared_background = None
     if {"voxel_2d", "fiber_2d"}.intersection(components):
         try:
@@ -1198,6 +1238,8 @@ def run_formal_postprocess(
     _write_endpoint_index(output_root, endpoint_results)
     _write_readme(output_root, scales, components)
     _write_json_atomic(manifest_path, manifest)
+    if manifest["status"] == "complete":
+        _write_json_atomic(complete_path, {"status": "complete"})
     return manifest
 
 

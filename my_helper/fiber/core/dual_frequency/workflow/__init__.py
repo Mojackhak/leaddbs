@@ -21,6 +21,7 @@ from .planner import (
     PlanningError,
     TaskSpec,
     compile_execution_plan,
+    execution_plan_from_payload,
 )
 from .executor import (
     DependencyState,
@@ -46,6 +47,7 @@ from .run_store import (
     RunIdentity,
     RunStore,
     RunStoreError,
+    migrate_completion_markers,
 )
 from .process_worker import (
     BenchmarkOSSInjectedFixtureSpec,
@@ -67,6 +69,7 @@ __all__ = [
     "PlanningError",
     "TaskSpec",
     "compile_execution_plan",
+    "execution_plan_from_payload",
     "DependencyState",
     "ExecutionContext",
     "ExecutionError",
@@ -86,6 +89,7 @@ __all__ = [
     "RunIdentity",
     "RunStore",
     "RunStoreError",
+    "migrate_completion_markers",
     "BenchmarkOSSInjectedFixtureSpec",
     "SpawnWorkerSpec",
     "WorkerCommand",

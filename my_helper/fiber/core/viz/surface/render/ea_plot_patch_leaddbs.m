@@ -103,6 +103,7 @@ function [hFig, hAx, hPatch, triad, extrema, hCb, hMissingPatch, hBlendPatch] = 
 %   'RASTriadLineWidth' : arrow line width. Default: 2
 %   'RASTriadHeadSize'  : arrow head size (quiver 'MaxHeadSize'). Default: []
 %   'RASTriadFontSize'  : label font size. Default: 10
+%   'RASShowLabels'     : show the R, A, and S letters. Default: true
 %
 %   Min/Max markers (optional)
 %   'MarkExtrema'           : logical. Default: false
@@ -233,6 +234,7 @@ function [hFig, hAx, hPatch, triad, extrema, hCb, hMissingPatch, hBlendPatch] = 
     addParameter(ip, 'RASTriadLineWidth', 2, @(x) isnumeric(x) && isscalar(x) && x > 0);
     addParameter(ip, 'RASTriadHeadSize', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x) && x > 0));
     addParameter(ip, 'RASTriadFontSize', 10, @(x) isnumeric(x) && isscalar(x) && x > 0);
+    addParameter(ip, 'RASShowLabels', true, @(x) islogical(x) && isscalar(x));
 
     % Min/Max markers
     addParameter(ip, 'MarkExtrema', false, @(x) islogical(x) && isscalar(x));
@@ -376,6 +378,7 @@ function [hFig, hAx, hPatch, triad, extrema, hCb, hMissingPatch, hBlendPatch] = 
                     'LineWidth', p.RASTriadLineWidth, ...
                     'HeadSize', p.RASTriadHeadSize, ...
                     'FontSize', p.RASTriadFontSize, ...
+                    'ShowLabels', p.RASShowLabels, ...
                     'FontName', p.FontName);
             catch ME
                 warning('EA_PLOT_PATCH_LEADDBS:RASTriadFailed', ...

@@ -86,7 +86,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         payload = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
     except ConfigurationError:
         raise
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise ConfigurationError(f"failed to read {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ConfigurationError(f"{path} must contain a YAML object")

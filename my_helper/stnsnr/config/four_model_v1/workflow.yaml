@@ -12,7 +12,7 @@ selection: # Defaults may select model domains, but never clinical scales.
 execution: # Runtime controls do not change the scientific model definition.
   through: report # Dependency-complete cutoff: observed, formal, sensitivity, or report.
   resume: false # A run resumes only when the CLI explicitly requests it.
-  force: false # Forced execution creates a new lineage rather than overwriting a run.
+  force: false # Explicit force overwrites the requested run root at the same path.
   continue_on_endpoint_failure: true # One failed scale does not stop independent scales.
   allow_expensive_producers: false # OSS and other expensive cache misses require opt-in.
   workers: 3 # Default endpoint-level worker count; CLI may override it later.

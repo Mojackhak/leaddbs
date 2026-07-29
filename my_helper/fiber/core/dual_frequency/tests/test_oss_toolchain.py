@@ -46,7 +46,6 @@ from dual_frequency.runtime.oss_toolchain import (
     OSSDBS_BOOTSTRAP_PATH,
     OSSExecutableSet,
     OSS_MAX_FIBERS_PER_EXECUTION,
-    OSS_PRODUCER_IMPLEMENTATION_PATHS,
     OSSProducerExecutionError,
     PreparedOSSRow,
     SubprocessOSSRowExecutor,
@@ -54,7 +53,6 @@ from dual_frequency.runtime.oss_toolchain import (
     _hash_oss_source_tree,
     _matlab_installation_identity,
     _terminate_process_group,
-    oss_backend_version,
 )
 from dual_frequency.runtime import ossdbs_bootstrap
 from dual_frequency.runtime.connectome_subset import FilteredConnectome
@@ -181,8 +179,6 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
     def _toolchain(
         self,
         executor: _FakeOSSRowExecutor,
-        *,
-        backend_version_resolver: Callable[[Path], str] | None = None,
     ) -> LeadDBSOSSProducerToolchain:
         return LeadDBSOSSProducerToolchain(
             artifact_store=self.artifact_store,
@@ -193,10 +189,6 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
             environment_file=self.environment_file,
             subject_roots=self.subject_roots,
             executor=executor,
-            backend_version_resolver=(
-                backend_version_resolver
-                or (lambda _root: "synthetic-toolchain-v1")
-            ),
         )
 
     def _publish_source(
@@ -726,19 +718,14 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
 
         self.assertEqual(executor.rows, [])
 
-    def test_scientific_version_is_independent_of_execution_attestation(
-        self,
-    ) -> None:
+    def test_real_row_omits_source_identity_attestation(self) -> None:
         executor = _FakeOSSRowExecutor()
         source = self._publish_source(
             "attestation-mismatch-source",
             subject_id="generic-attestation-subject",
             delivery_mode="alternating",
         )
-        toolchain = self._toolchain(
-            executor,
-            backend_version_resolver=lambda _root: "different-toolchain-version",
-        )
+        toolchain = self._toolchain(executor)
 
         product = toolchain.produce(
             self._request((source,), delivery_mode="alternating")
@@ -746,92 +733,29 @@ class LeadDBSOSSProducerToolchainTest(unittest.TestCase):
 
         self.assertEqual(len(executor.rows), 1)
         np.testing.assert_array_equal(product.feature_ids, self.feature_ids)
-        self.assertEqual(
-            product.producer_implementation_attestation,
-            "different-toolchain-version",
-        )
+        self.assertIsNone(product.producer_implementation_attestation)
 
-    def test_backend_attestation_is_checked_around_each_row(self) -> None:
-        executor = _FakeOSSRowExecutor()
-        source = self._publish_source(
-            "attestation-change-source",
-            subject_id="generic-attestation-change-subject",
-            delivery_mode="alternating",
-        )
-        calls = 0
-
-        def resolver(_root: Path) -> str:
-            nonlocal calls
-            calls += 1
-            return (
-                "synthetic-toolchain-v1"
-                if calls < 3
-                else "changed-toolchain-version"
+    def test_repository_change_during_row_does_not_fail(self) -> None:
+        implementation = self.repository_root / "producer.py"
+        implementation.write_text("VERSION = 1\n", encoding="utf-8")
+        executor = _FakeOSSRowExecutor(
+            mutation=lambda: implementation.write_text(
+                "VERSION = 2\n",
+                encoding="utf-8",
             )
-
-        toolchain = self._toolchain(
-            executor,
-            backend_version_resolver=resolver,
         )
-        request = self._request((source,), delivery_mode="alternating")
-        toolchain.produce(request)
-        toolchain.produce(request)
-        self.assertEqual(calls, 4)
-        self.assertEqual(len(executor.rows), 2)
-
-    def test_backend_attestation_rejects_in_flight_change(self) -> None:
-        executor = _FakeOSSRowExecutor()
         source = self._publish_source(
             "attestation-drift-source",
             subject_id="generic-attestation-drift-subject",
             delivery_mode="alternating",
         )
-        calls = 0
-
-        def resolver(_root: Path) -> str:
-            nonlocal calls
-            calls += 1
-            return (
-                "synthetic-toolchain-v1"
-                if calls == 1
-                else "changed-toolchain-version"
-            )
-
-        toolchain = self._toolchain(
-            executor,
-            backend_version_resolver=resolver,
+        product = self._toolchain(executor).produce(
+            self._request((source,), delivery_mode="alternating")
         )
-        with self.assertRaisesRegex(
-            OSSProducerExecutionError,
-            "implementation changed during row production",
-        ):
-            toolchain.produce(
-                self._request((source,), delivery_mode="alternating")
-            )
-        self.assertEqual(calls, 2)
+
+        self.assertEqual(implementation.read_text(encoding="utf-8"), "VERSION = 2\n")
         self.assertEqual(len(executor.rows), 1)
-
-    def test_backend_attestation_covers_all_core_python_modules(self) -> None:
-        repository = self.root / "attestation-repository"
-        for relative in OSS_PRODUCER_IMPLEMENTATION_PATHS:
-            path = repository / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"fixed:{relative}\n", encoding="utf-8")
-        dynamic = (
-            repository
-            / "my_helper"
-            / "fiber"
-            / "core"
-            / "dual_frequency"
-            / "workflow"
-            / "planner.py"
-        )
-        dynamic.parent.mkdir(parents=True, exist_ok=True)
-        dynamic.write_text("VALUE = 1\n", encoding="utf-8")
-        first = oss_backend_version(repository)
-        dynamic.write_text("VALUE = 2\n", encoding="utf-8")
-        second = oss_backend_version(repository)
-        self.assertNotEqual(first, second)
+        self.assertIsNone(product.producer_implementation_attestation)
 
     def test_installed_source_hash_covers_non_generated_package_resources(self) -> None:
         site_packages = self.root / "site-packages"

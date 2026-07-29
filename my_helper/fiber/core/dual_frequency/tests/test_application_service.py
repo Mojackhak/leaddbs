@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 from dual_frequency.application import service as service_module
 from dual_frequency.application.service import (
-    ApplicationError,
     WorkflowRequest,
     WorkflowService,
 )
@@ -68,6 +67,46 @@ class WorkflowServiceOrchestrationTest(unittest.TestCase):
         registry = WorkflowService._default_registry()
         self.assertTrue(registry.service_ids)
 
+    def test_exact_run_root_rejects_malformed_manifest_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            root.mkdir()
+            manifest = root / RunStore.MANIFEST_NAME
+            manifest.write_text("{", encoding="utf-8")
+            with self.assertRaisesRegex(
+                service_module.ApplicationError,
+                "run manifest is unreadable",
+            ):
+                WorkflowService._exact_run_root(root)
+            manifest.write_text("[]", encoding="utf-8")
+            with self.assertRaisesRegex(
+                service_module.ApplicationError,
+                "must be a JSON object",
+            ):
+                WorkflowService._exact_run_root(root)
+
+    def test_existing_sensitivity_plan_requires_its_task_graph(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "sensitivity_plan.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "dual_frequency_sensitivity_plan_v1",
+                        "analyses": ["oss"],
+                        "plan": {"tasks": []},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                service_module.ApplicationError,
+                "structurally incomplete",
+            ):
+                service_module._persisted_sensitivity_plan(
+                    path,
+                    configuration_hash="a" * 64,
+                )
+
     def test_v1_sensitivity_plan_accepts_omitted_scheduler_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "sensitivity_plan.json"
@@ -101,7 +140,7 @@ class WorkflowServiceOrchestrationTest(unittest.TestCase):
 
             self.assertEqual(path.read_bytes(), original_bytes)
 
-    def test_v1_sensitivity_plan_rejects_nondefault_scheduler_values(self) -> None:
+    def test_existing_sensitivity_plan_is_not_compared_on_resume(self) -> None:
         persisted = {
             "schema_version": "dual_frequency_sensitivity_plan_v1",
             "analyses": ["oss"],
@@ -123,16 +162,16 @@ class WorkflowServiceOrchestrationTest(unittest.TestCase):
                     current = json.loads(json.dumps(persisted))
                     current["plan"]["tasks"][0][field] = value
 
-                    with self.assertRaisesRegex(
-                        ApplicationError,
-                        "immutable extension document changed",
-                    ):
-                        WorkflowService._write_immutable_sensitivity_plan(
-                            path,
-                            current,
-                        )
+                    WorkflowService._write_immutable_sensitivity_plan(
+                        path,
+                        current,
+                    )
+                    self.assertEqual(
+                        json.loads(path.read_text(encoding="utf-8")),
+                        persisted,
+                    )
 
-    def test_v1_sensitivity_plan_rejects_scientific_task_change(self) -> None:
+    def test_existing_scientific_plan_is_not_compared_on_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "sensitivity_plan.json"
             persisted = {
@@ -156,11 +195,11 @@ class WorkflowServiceOrchestrationTest(unittest.TestCase):
             current = json.loads(json.dumps(persisted))
             current["plan"]["tasks"][0]["key"]["tau"] = "600"
 
-            with self.assertRaisesRegex(
-                ApplicationError,
-                "immutable extension document changed",
-            ):
-                WorkflowService._write_immutable_sensitivity_plan(path, current)
+            WorkflowService._write_immutable_sensitivity_plan(path, current)
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8")),
+                persisted,
+            )
 
     def test_reporting_publication_rolls_back_all_replaced_documents(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -323,7 +362,7 @@ class WorkflowServiceOrchestrationTest(unittest.TestCase):
         self.assertIs(captured_contexts[0].registry, registry)
         self.assertIs(captured_contexts[0].provider, provider)
 
-    def test_resume_aggregation_failure_preserves_prior_decisions_and_fails_run(self) -> None:
+    def test_resume_of_completed_run_returns_without_reaggregation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             request = _report_request(root)
@@ -357,28 +396,54 @@ class WorkflowServiceOrchestrationTest(unittest.TestCase):
                 finalizations.append(status)
                 original_finalize(store, status)
 
+            aggregation_calls = 0
+
+            def fail_if_aggregated(*_args, **_kwargs):
+                nonlocal aggregation_calls
+                aggregation_calls += 1
+                raise RuntimeError("report aggregation failed")
+
             with (
                 patch.object(service_module, "execute_plan", side_effect=execute),
                 patch.object(
                     service_module,
                     "build_report_documents",
-                    side_effect=RuntimeError("report aggregation failed"),
+                    side_effect=fail_if_aggregated,
+                ),
+                patch.object(
+                    WorkflowService,
+                    "_configuration_sources",
+                    side_effect=AssertionError(
+                        "resume must not recompute configuration-source hashes"
+                    ),
+                ),
+                patch.object(
+                    service_module,
+                    "compile_execution_plan",
+                    side_effect=AssertionError(
+                        "completed run resume must not compile the DAG"
+                    ),
+                ),
+                patch.object(
+                    RunStore,
+                    "read_task_completion",
+                    side_effect=AssertionError(
+                        "completed run resume must not read task states"
+                    ),
                 ),
                 patch.object(RunStore, "finalize", new=finalize),
             ):
-                with self.assertRaisesRegex(
-                    ApplicationError,
-                    "report aggregation failed",
-                ):
-                    service.run(resumed_request, run_id="resume-report")
+                result = service.run(resumed_request, run_id="resume-report")
 
             manifest = json.loads(
                 (run_root / "run_manifest.json").read_text(encoding="utf-8")
             )
             preserved_decisions = decision_path.read_bytes()
 
-        self.assertEqual(finalizations, ["failed"])
-        self.assertEqual(manifest["final_status"], "failed")
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(aggregation_calls, 0)
+        self.assertEqual(finalizations, [])
+        self.assertEqual(manifest["final_status"], "completed")
         self.assertEqual(preserved_decisions, original_decisions)
 
 

@@ -195,7 +195,7 @@ class Task17PlanAuditTest(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_evidence_matrix_status_and_final_closure_are_consistent(self) -> None:
-        self.assertEqual(len(self.evidence_rows), 24)
+        self.assertEqual(len(self.evidence_rows), 25)
         self.assertTrue(all(len(row) == 4 for row in self.evidence_rows))
         statuses = {row[0]: row[1] for row in self.evidence_rows}
         self.assertEqual(len(statuses), len(self.evidence_rows))
@@ -216,7 +216,7 @@ class Task17PlanAuditTest(unittest.TestCase):
         references = _repository_file_references(
             (FOUR_MODEL_PLAN, DUAL_FREQUENCY_PLAN, POSTPROCESS_PLAN)
         )
-        self.assertEqual(len(references), 123)
+        self.assertEqual(len(references), 124)
         missing = tuple(
             reference
             for reference in references
@@ -225,6 +225,44 @@ class Task17PlanAuditTest(unittest.TestCase):
         self.assertEqual(missing, (MOVED_PRODUCTION_ENTRYPOINT,))
         self.assertFalse((REPOSITORY_ROOT / MOVED_PRODUCTION_ENTRYPOINT).exists())
         self.assertTrue((REPOSITORY_ROOT / LEGACY_CONFIGURED_ENTRYPOINT).is_file())
+
+    def test_benchmark_rows_do_not_restore_repository_code_identity(self) -> None:
+        service = _read(
+            REPOSITORY_ROOT
+            / "my_helper/fiber/core/dual_frequency/application/service.py"
+        )
+        benchmark = _read(
+            REPOSITORY_ROOT
+            / "my_helper/fiber/pipelines/run_task17_performance_matrix.py"
+        )
+        self.assertNotIn("def _code_identity(", service)
+        self.assertNotIn("._code_identity(", benchmark)
+
+    def test_benchmark_oss_path_is_omega_only(self) -> None:
+        benchmark = _read(
+            REPOSITORY_ROOT
+            / "my_helper/fiber/pipelines/run_task17_performance_matrix.py"
+        )
+        self.assertIn("OSSSharedOmegaGroupRecord", benchmark)
+        self.assertIn("prepare_oss_omega_max_rows", benchmark)
+        self.assertNotIn("OSSAxisEquivalenceGroupRecord", benchmark)
+        self.assertNotIn("establish_oss_axis_equivalence", benchmark)
+        self.assertNotIn("oss_axis_equivalence", benchmark)
+
+    def test_production_services_use_only_omega_groups(self) -> None:
+        adapters = _read(
+            REPOSITORY_ROOT
+            / "my_helper/fiber/core/dual_frequency/runtime/service_adapters.py"
+        )
+        executor = _read(
+            REPOSITORY_ROOT
+            / "my_helper/fiber/core/dual_frequency/workflow/executor.py"
+        )
+        for source in (adapters, executor):
+            self.assertIn("oss_omega_max_", source)
+            self.assertNotIn("OSSAxisEquivalenceGroupRecord", source)
+            self.assertNotIn("establish_oss_axis_equivalence", source)
+            self.assertNotIn("oss_axis_equivalence_", source)
 
 
 if __name__ == "__main__":

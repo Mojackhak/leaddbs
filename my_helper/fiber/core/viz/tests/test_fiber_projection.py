@@ -8,19 +8,32 @@ from pathlib import Path
 import h5py
 import nibabel as nib
 import numpy as np
+import pytest
 import yaml
+from scipy.stats import rankdata
 
+from my_helper.fiber.core.viz import fiber_section_postprocess
+from my_helper.fiber.core.seed_target_connectivity.connectome import open_connectome
+from my_helper.fiber.core.viz.fiber_composition import (
+    apply_target_scores_to_composition,
+    build_whole_connectome_composition,
+    compute_selected_target_scores,
+    compute_target_scores,
+    target_membership_from_bits,
+)
 from my_helper.fiber.core.viz.fiber_section_postprocess import (
+    _smooth_sparse_original_roi,
     prepare_fiber_section_context,
     render_fiber_section_components,
     run_single_scale_fiber_section_postprocess,
 )
 from my_helper.fiber.core.viz.fiber_projection import (
-    compute_fiber_spatial_projection,
+    compute_selected_direct_projection,
     load_binary_projection_mask,
     streamline_flat_voxels,
 )
 from my_helper.fiber.core.viz.published_artifacts import PublicationCatalog
+from my_helper.fiber.core.viz.target_inference import prepare_target_inference
 
 
 def _write_mask(
@@ -40,7 +53,59 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _write_fiber_publication(tmp_path: Path) -> tuple[Path, Path]:
+def test_formal_target_catalog_excludes_presma_and_uses_fixed_chart_order() -> None:
+    repository_root = Path(__file__).resolve().parents[5]
+    config_path = (
+        repository_root
+        / "my_helper/stnsnr/config/four_model_v1/fiber_spatial_projection.yaml"
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert config["target_chart"]["order_policy"] == "configured_target_catalog"
+    assert [target["name"] for target in config["targets"]] == [
+        "GPe",
+        "GPi",
+        "caudate",
+        "posterior_putamen",
+        "VLP_thalamus",
+        "VLA_thalamus",
+        "RN",
+        "VA_thalamus",
+        "VM_thalamus",
+        "PPN",
+        "SMA",
+        "M1",
+        "sPf_thalamus",
+        "premotor",
+        "CM_thalamus",
+        "DLPFC",
+        "Pf_thalamus",
+    ]
+    assert [target["label"] for target in config["targets"]] == [
+        "GPe",
+        "GPi",
+        "Caudate",
+        "Posterior putamen",
+        "VLP thalamus",
+        "VLA thalamus",
+        "RN",
+        "VA thalamus",
+        "VM thalamus",
+        "PPN",
+        "SMA",
+        "M1",
+        "sPf thalamus",
+        "Premotor",
+        "CM thalamus",
+        "DLPFC",
+        "Pf thalamus",
+    ]
+
+
+def _write_fiber_publication(
+    tmp_path: Path,
+    *,
+    with_target_inference: bool = False,
+) -> tuple[Path, Path]:
     root = tmp_path / "publication"
     connectome_path = tmp_path / "connectome" / "data.mat"
     connectome_path.parent.mkdir(parents=True)
@@ -61,6 +126,44 @@ def _write_fiber_publication(tmp_path: Path) -> tuple[Path, Path]:
         )
 
     rows: list[dict[str, object]] = []
+    inference_arrays: dict[str, np.ndarray] | None = None
+    inference_weights = np.asarray([2.0, -1.0, 1.0, -0.5])
+    if with_target_inference:
+        outcome = np.asarray([7.0, 3.0, 6.0, 2.0, 5.0, 1.0])
+        baseline = np.asarray([1.0, 4.0, 2.0, 6.0, 3.0, 5.0])
+        exposure = np.asarray(
+            [
+                [1.0, 3.0, 6.0, 2.0],
+                [2.0, 6.0, 1.0, 4.0],
+                [3.0, 2.0, 5.0, 6.0],
+                [4.0, 5.0, 2.0, 1.0],
+                [5.0, 1.0, 4.0, 3.0],
+                [6.0, 4.0, 3.0, 5.0],
+            ]
+        )
+        ranked_outcome = rankdata(outcome, method="average")
+        ranked_exposure = np.column_stack(
+            [rankdata(exposure[:, index], method="average") for index in range(4)]
+        )
+        ranked_design = np.column_stack(
+            [np.ones(outcome.size), rankdata(baseline, method="average")]
+        )
+        prepared = prepare_target_inference(
+            ranked_outcome=ranked_outcome,
+            ranked_exposure=ranked_exposure,
+            ranked_nuisance_design=ranked_design,
+            target_membership=np.ones((4, 1), dtype=np.bool_),
+            benefit_direction="lower",
+        )
+        inference_weights = prepared.observed_fiber_weights
+        inference_arrays = {
+            "valid_fiber_exposure.npy": exposure,
+            "ranked_valid_fiber_exposure.npy": ranked_exposure,
+            "valid_fiber_ids.npy": np.asarray([1, 2, 3, 4], dtype=np.int64),
+            "outcome.npy": outcome,
+            "ranked_outcome.npy": ranked_outcome,
+            "ranked_nuisance_design.npy": ranked_design,
+        }
     for role in ("reference", "addon"):
         resolver_relative = (
             f"pdq39_score/{role}/connectomes/synthetic_connectome/resolver"
@@ -69,9 +172,9 @@ def _write_fiber_publication(tmp_path: Path) -> tuple[Path, Path]:
         resolver.mkdir(parents=True)
         artifacts = {
             "valid_fiber_ids.npy": np.asarray([1, 2, 3, 4], dtype=np.int64),
-            "full_weights.npy": np.asarray([2.0, -1.0, 1.0, -0.5]),
-            "selected_sweet_fiber_ids.npy": np.asarray([1, 3], dtype=np.int64),
-            "selected_sour_fiber_ids.npy": np.asarray([2, 4], dtype=np.int64),
+            "full_weights.npy": inference_weights,
+            "selected_sweet_fiber_ids.npy": np.asarray([1], dtype=np.int64),
+            "selected_sour_fiber_ids.npy": np.asarray([2], dtype=np.int64),
         }
         for name, value in artifacts.items():
             path = resolver / name
@@ -83,6 +186,97 @@ def _write_fiber_publication(tmp_path: Path) -> tuple[Path, Path]:
                     "size_bytes": path.stat().st_size,
                     "status": "completed",
                     "artifact_kind": name.removesuffix(".npy"),
+                }
+            )
+        if inference_arrays is not None:
+            inference_root = resolver / "target_inference"
+            inference_root.mkdir()
+            inference_hashes: dict[str, str] = {}
+            for name, values in inference_arrays.items():
+                path = inference_root / name
+                np.save(path, values)
+                inference_hashes[name] = _sha256(path)
+                rows.append(
+                    {
+                        "relative_path": (
+                            f"{resolver_relative}/target_inference/{name}"
+                        ),
+                        "sha256": inference_hashes[name],
+                        "size_bytes": path.stat().st_size,
+                        "status": "completed",
+                        "artifact_kind": f"target_inference_{name}",
+                    }
+                )
+            subject_order = inference_root / "subject_order.csv"
+            exchangeability = inference_root / "exchangeability_blocks.csv"
+            with subject_order.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=("subject_index", "subject_id"),
+                )
+                writer.writeheader()
+                writer.writerows(
+                    {"subject_index": index, "subject_id": f"s{index + 1}"}
+                    for index in range(6)
+                )
+            with exchangeability.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=(
+                        "subject_index",
+                        "subject_id",
+                        "exchangeability_block",
+                    ),
+                )
+                writer.writeheader()
+                writer.writerows(
+                    {
+                        "subject_index": index,
+                        "subject_id": f"s{index + 1}",
+                        "exchangeability_block": "all_subjects",
+                    }
+                    for index in range(6)
+                )
+            for path, kind in (
+                (subject_order, "target_inference_subject_order"),
+                (exchangeability, "target_inference_exchangeability_blocks"),
+            ):
+                inference_hashes[path.name] = _sha256(path)
+                rows.append(
+                    {
+                        "relative_path": (
+                            f"{resolver_relative}/target_inference/{path.name}"
+                        ),
+                        "sha256": inference_hashes[path.name],
+                        "size_bytes": path.stat().st_size,
+                        "status": "completed",
+                        "artifact_kind": kind,
+                    }
+                )
+            inference_input = inference_root / "inference_input.json"
+            inference_input.write_text(
+                json.dumps(
+                    {
+                        "schema_version": (
+                            "conditional_signed_target_inference_input_v1"
+                        ),
+                        "scale_id": "pdq39_score",
+                        "model_role": role,
+                        "benefit_direction": "lower",
+                        "artifact_sha256": inference_hashes,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rows.append(
+                {
+                    "relative_path": (
+                        f"{resolver_relative}/target_inference/inference_input.json"
+                    ),
+                    "sha256": _sha256(inference_input),
+                    "size_bytes": inference_input.stat().st_size,
+                    "status": "completed",
+                    "artifact_kind": "target_inference_input_manifest",
                 }
             )
         source_selection_path = resolver / "source_selection.json"
@@ -140,6 +334,44 @@ def _write_fiber_publication(tmp_path: Path) -> tuple[Path, Path]:
         ],
     }
     root.mkdir(parents=True, exist_ok=True)
+    study_base_path = root / "study_base.json"
+    study_base_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "synthetic_study_base_v1",
+                "study": {
+                    "scale_definitions": [
+                        {"scale_id": "pdq39_score", "label": "PDQ39 score"}
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest["study_base_path"] = "/original-machine/publication/study_base.json"
+    manifest["study_base_sha256"] = _sha256(study_base_path)
+    resolved_profile_path = root / "resolved_normative_fiber_model.yaml"
+    resolved_profile_path.write_text(
+        yaml.safe_dump(
+            {
+                "formal_resampling": {
+                    "seed": 42,
+                    "permutation_resamples": 8,
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    rows.append(
+        {
+            "relative_path": "resolved_normative_fiber_model.yaml",
+            "sha256": _sha256(resolved_profile_path),
+            "size_bytes": resolved_profile_path.stat().st_size,
+            "status": "completed",
+            "artifact_kind": "resolved_model_profile",
+        }
+    )
     (root / "model_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with (root / "artifact_index.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
@@ -170,9 +402,10 @@ def test_streamline_projection_uses_segment_aware_once_per_voxel_incidence() -> 
     np.testing.assert_array_equal(voxels, expected)
 
 
-def test_target_score_and_fractional_seed_composition_are_separate(
+def test_selected_target_scores_and_all_connectome_composition_are_separate(
     tmp_path: Path,
 ) -> None:
+    _, connectome_path = _write_fiber_publication(tmp_path)
     seed = load_binary_projection_mask(
         _write_mask(
             tmp_path / "seed.nii.gz",
@@ -198,48 +431,89 @@ def test_target_score_and_fractional_seed_composition_are_separate(
             role="target",
         ),
     )
-    streamlines = (
-        np.asarray([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.0, 0.0]]),
-        np.asarray([[0.0, 0.0, 0.0], [2.0, 1.0, 0.0]]),
-        np.asarray([[1.0, 0.0, 0.0], [1.0, 0.0, 1.0]]),
-    )
-    result = compute_fiber_spatial_projection(
-        fiber_ids=np.asarray([1, 2, 3]),
-        scores=np.asarray([2.0, -1.0, 1.0]),
-        is_sweet=np.asarray([True, False, True]),
-        streamlines=streamlines,
-        seed=seed,
+    physical = build_whole_connectome_composition(
+        connectome=open_connectome(connectome_path),
+        seeds={"reference": seed, "addon": seed},
         targets=targets,
+        fiber_chunk_size=2,
     )
-
+    selected_ids = np.asarray([1, 2], dtype=np.int64)
+    selected_scores = np.asarray([2.0, -1.0])
+    membership = target_membership_from_bits(
+        physical.fiber_target_bits,
+        selected_ids,
+        len(targets),
+    )
     np.testing.assert_array_equal(
-        result.target_membership,
+        membership,
         np.asarray(
             [
                 [True, True, False],
                 [False, True, False],
-                [False, False, False],
             ]
         ),
     )
-    np.testing.assert_allclose(result.target_scores[:2], [2.0, 0.5])
-    assert np.isnan(result.target_scores[2])
-    np.testing.assert_allclose(
-        result.target_membership_fraction[0], [0.5, 0.5, 0.0]
+    target_scores = compute_selected_target_scores(
+        selected_scores=selected_scores,
+        target_membership=membership,
     )
-    np.testing.assert_allclose(
-        result.target_membership_fraction[1], [0.0, 1.0, 0.0]
+    np.testing.assert_allclose(target_scores[:2], [2.0, 0.5])
+    assert np.isnan(target_scores[2])
+    coverage_ids = np.asarray([1, 2, 3, 4], dtype=np.int64)
+    coverage_scores = np.asarray([2.0, -1.0, 1.0, -0.5])
+    coverage_membership = target_membership_from_bits(
+        physical.fiber_target_bits,
+        coverage_ids,
+        len(targets),
     )
-    assert result.mass_conservation_max_abs_error < 1e-12
-    np.testing.assert_allclose(
-        result.target_composition_mass.sum(axis=1),
-        result.target_assigned_mass,
+    coverage_target_scores = compute_target_scores(
+        fiber_scores=coverage_scores,
+        target_membership=coverage_membership,
     )
-    assert np.all(
-        (result.target_assignment_fraction >= 0.0)
-        & (result.target_assignment_fraction <= 1.0)
+    np.testing.assert_allclose(coverage_target_scores[:2], [0.75, 0.5])
+    assert np.isnan(coverage_target_scores[2])
+    result = apply_target_scores_to_composition(
+        composition=physical.for_role("reference"),
+        target_scores=target_scores,
     )
-    assert np.all(np.isfinite(result.target_conditioned_score[result.target_assigned_mass > 0]))
+    voxel_zero = int(np.ravel_multi_index((0, 0, 0), seed.shape, order="C"))
+    position = int(np.searchsorted(result.seed_voxel_indices, voxel_zero))
+    assert result.all_streamline_support_count[position] == 3.0
+    assert result.target_scored_streamline_count[position] == 3.0
+    assert result.target_unscored_streamline_count[position] == 0.0
+    assert result.target_conditioned_score[position] == 1.25
+    assert physical.n_all_fibers == 4
+
+    missing_target = apply_target_scores_to_composition(
+        composition=physical.for_role("reference"),
+        target_scores=np.asarray([2.0, np.nan, np.nan]),
+    )
+    assert missing_target.all_streamline_support_count[position] == 3.0
+    assert missing_target.target_scored_streamline_count[position] == 2.0
+    assert missing_target.target_unscored_streamline_count[position] == 1.0
+    assert missing_target.target_conditioned_score[position] == 2.0
+
+    one_fiber_chunks = build_whole_connectome_composition(
+        connectome=open_connectome(connectome_path),
+        seeds={"reference": seed, "addon": seed},
+        targets=targets,
+        fiber_chunk_size=1,
+    )
+    np.testing.assert_array_equal(
+        one_fiber_chunks.fiber_target_bits,
+        physical.fiber_target_bits,
+    )
+    for role in ("reference", "addon"):
+        expected = physical.for_role(role)
+        observed = one_fiber_chunks.for_role(role)
+        np.testing.assert_array_equal(
+            observed.seed_voxel_indices, expected.seed_voxel_indices
+        )
+        np.testing.assert_array_equal(
+            observed.voxel_pattern_indptr, expected.voxel_pattern_indptr
+        )
+        np.testing.assert_array_equal(observed.pattern_bits, expected.pattern_bits)
+        np.testing.assert_array_equal(observed.pattern_counts, expected.pattern_counts)
 
 
 def test_projection_rejects_selected_fiber_outside_seed(tmp_path: Path) -> None:
@@ -248,19 +522,13 @@ def test_projection_rejects_selected_fiber_outside_seed(tmp_path: Path) -> None:
         roi_id="seed",
         role="seed",
     )
-    target = load_binary_projection_mask(
-        _write_mask(tmp_path / "target.nii.gz", [(4, 4, 4)]),
-        roi_id="target",
-        role="target",
-    )
     try:
-        compute_fiber_spatial_projection(
+        compute_selected_direct_projection(
             fiber_ids=[1],
             scores=[1.0],
             is_sweet=[True],
             streamlines=[np.asarray([[3.0, 3.0, 3.0], [4.0, 4.0, 4.0]])],
             seed=seed,
-            targets=(target,),
         )
     except ValueError as error:
         assert "configured role seed" in str(error)
@@ -268,10 +536,65 @@ def test_projection_rejects_selected_fiber_outside_seed(tmp_path: Path) -> None:
         raise AssertionError("projection accepted a selected fiber outside the seed")
 
 
+def test_fiber_display_smoothing_preserves_exact_sparse_support() -> None:
+    shape = (9, 9, 9)
+    coordinates = np.asarray([(4, 4, 3), (4, 4, 4), (4, 4, 5)])
+    indices = np.ravel_multi_index(coordinates.T, shape, order="C")
+    values = np.asarray([-1.0, 0.5, 2.0], dtype=np.float64)
+
+    output_indices, output_values, metadata = _smooth_sparse_original_roi(
+        voxel_indices=indices,
+        values=values,
+        grid_shape=shape,
+        affine=np.diag([0.5, 0.5, 0.5, 1.0]),
+        fwhm_mm=1.0,
+    )
+
+    np.testing.assert_array_equal(output_indices, indices)
+    assert np.all(np.isfinite(output_values))
+    assert not np.allclose(output_values, values)
+    assert metadata["algorithm"] == "masked_normalized_gaussian_original_roi_v2"
+    assert metadata["support_policy"] == "original_finite_support"
+    assert metadata["input_finite_voxels"] == 3
+    assert metadata["output_finite_voxels"] == 3
+    np.testing.assert_allclose(
+        metadata["sigma_voxels"],
+        np.repeat(1.0 / 2.354820045 / 0.5, 3),
+    )
+
+
+def test_scale_display_name_comes_from_study_definition(tmp_path: Path) -> None:
+    publication, _ = _write_fiber_publication(tmp_path)
+    manifest = json.loads(
+        (publication / "model_manifest.json").read_text(encoding="utf-8")
+    )
+    catalog = PublicationCatalog.from_config(
+        {"main": {"root": str(publication)}},
+        config_base=tmp_path,
+    )
+    display_name, record = catalog.resolve_scale_display_name(
+        "main", "pdq39_score"
+    )
+
+    assert display_name == "PDQ39 score"
+    assert record["kind"] == "study_base"
+    assert record["label_source"] == "study.scale_definitions[].label"
+    assert record["scale_definition_count"] == 1
+    assert record["resolved_scale_id"] == "pdq39_score"
+    assert record["resolved_scale_display_name"] == "PDQ39 score"
+    assert record["sha256"] == manifest["study_base_sha256"]
+
+
+@pytest.mark.parametrize("with_target_inference", [False, True])
 def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    with_target_inference: bool,
 ) -> None:
-    publication, _ = _write_fiber_publication(tmp_path)
+    publication, _ = _write_fiber_publication(
+        tmp_path,
+        with_target_inference=with_target_inference,
+    )
     resources = tmp_path / "resources"
     resources.mkdir()
     seed = _write_mask(
@@ -284,7 +607,7 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
     anatomy = resources / "anatomy.nii"
     nib.save(nib.Nifti1Image(anatomy_data, np.eye(4)), anatomy)
     config = {
-        "schema_version": "normative_fiber_spatial_projection_v1",
+        "schema_version": "normative_fiber_spatial_projection_v7",
         "background": {
             "path": str(anatomy),
             "loading": "panel_local_lazy",
@@ -292,22 +615,60 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
         },
         "projection": {
             "grid_source": "role_seed",
-            "direct_streamline_scope": "complete_path",
+            "direct_streamline_scope": "selected_sweet_sour_complete_path",
+            "primary_target_score_fiber_scope": (
+                "final_resolver_valid_fiber_axis"
+            ),
+            "sensitivity_target_score_fiber_scope": "selected_sweet_sour",
+            "voxel_composition_fiber_scope": "formal_connectome_all",
             "target_conditioned_scope": "seed_only",
             "per_fiber_per_voxel": "once",
             "target_hit_method": "segment_intersection",
             "target_membership": "independent_binary",
-            "target_composition": "fractional_by_hit_count",
+            "streamline_target_score": "equal_mean_over_finite_target_scores",
+            "target_composition": "seed_voxel_target_pattern_counts",
             "streamline_weight_source": "uniform_one",
-            "no_target_policy": "exclude_and_report",
+            "missing_target_score_policy": "exclude_target_then_renormalize_per_streamline",
+            "no_scored_target_policy": "exclude_and_report",
         },
+        "cache": {
+            "physical_cache_kind": "whole_connectome_seed_voxel_target_patterns",
+            "fiber_chunk_size": 2,
+        },
+        "display_smoothing": {
+            "fwhm_mm": [1.0, 2.0],
+            "algorithm": "masked_normalized_gaussian_original_roi_v2",
+            "support_policy": "original_finite_support",
+            "purpose": "display_only",
+        },
+        "display_labels": {
+            "direct_streamline_colorbar_template": (
+                "Mean selected-fiber partial Spearman ρ with "
+                "{scale_display_name}"
+            ),
+            "target_conditioned_colorbar_template": (
+                "Target-derived fiber partial Spearman ρ with "
+                "{scale_display_name}"
+            ),
+        },
+        "target_chart": {"order_policy": "configured_target_catalog"},
         "seeds": {
             "reference": {"side": "rh", "path": str(seed)},
             "addon": {"side": "rh", "path": str(seed)},
         },
         "targets": [
-            {"name": "target_a", "side": "rh", "path": str(target_a)},
-            {"name": "target_b", "side": "rh", "path": str(target_b)},
+            {
+                "name": "target_a",
+                "label": "Target A",
+                "side": "rh",
+                "path": str(target_a),
+            },
+            {
+                "name": "target_b",
+                "label": "Target B",
+                "side": "rh",
+                "path": str(target_b),
+            },
         ],
     }
     config_path = tmp_path / "fiber_spatial_projection.yaml"
@@ -318,6 +679,7 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
         "output_root": output,
         "normative_fiber_publication_root": publication,
         "spatial_config_path": config_path,
+        "shared_cache_root": tmp_path / "shared_cache",
         "style_overrides": {
             "dpi": 72,
             "resolution_mm": 1.0,
@@ -332,28 +694,167 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
     assert first["completed_count"] == 2
     assert first["failed_count"] == 0
     assert first["reused_count"] == 0
+    assert first["physical_cache"]["cache_status"] == "computed"
+    assert (output / "README.md").read_text(encoding="utf-8").startswith(
+        "# PDQ39 score Normative-Fiber Spatial Postprocess"
+    )
+    scatter_min, scatter_max = first["target_score_chart"][
+        "shared_scatter_bounds"
+    ]
+    scatter_span = scatter_max - scatter_min
+    assert first["target_score_chart"]["shared_y_limits"] == pytest.approx(
+        (
+            scatter_min - 0.10 * scatter_span,
+            scatter_max + 0.15 * scatter_span,
+        )
+    )
+    assert first["target_score_chart"]["axis_lower_padding_fraction"] == 0.10
+    assert first["target_score_chart"]["axis_upper_padding_fraction"] == 0.15
     for role in ("reference", "addon"):
         leaf = output / "scales" / "pdq39_score" / role / "fiber"
+        assert (leaf / "completion/fiber_2d/complete.json").is_file()
         assert (leaf / "direct_streamline/maps/streamline_score_mean.nii.gz").is_file()
-        assert (leaf / "target_conditioned/maps/target_conditioned_score.nii.gz").is_file()
-        assert (leaf / "target_conditioned/tables/target_scores.csv").is_file()
+        for family, stem in (
+            (Path("direct_streamline"), "streamline_score_mean"),
+            (
+                Path("target_conditioned/all_coverage"),
+                "target_conditioned_score",
+            ),
+            (
+                Path("target_conditioned/selected_sweet_sour"),
+                "target_conditioned_score",
+            ),
+        ):
+            raw_path = leaf / family / "maps" / f"{stem}.nii.gz"
+            raw = np.asarray(nib.load(raw_path).dataobj, dtype=np.float32)
+            raw_finite = np.isfinite(raw)
+            for fwhm in (1, 2):
+                smooth_path = (
+                    leaf
+                    / family
+                    / "maps"
+                    / f"{stem}_smooth_fwhm{fwhm}mm.nii.gz"
+                )
+                smooth = np.asarray(
+                    nib.load(smooth_path).dataobj,
+                    dtype=np.float32,
+                )
+                np.testing.assert_array_equal(np.isfinite(smooth), raw_finite)
+                assert np.all(np.isnan(smooth[~raw_finite]))
+                if np.ptp(raw[raw_finite]) > 0.0:
+                    assert not np.allclose(smooth[raw_finite], raw[raw_finite])
+                else:
+                    np.testing.assert_allclose(
+                        smooth[raw_finite], raw[raw_finite], atol=1e-7
+                    )
+                assert (
+                    leaf
+                    / family
+                    / "figures"
+                    / f"{stem}_smooth_fwhm{fwhm}mm_sections.png"
+                ).is_file()
+        for branch, scope in (
+            ("all_coverage", "final_resolver_valid_fiber_axis"),
+            ("selected_sweet_sour", "selected_sweet_sour"),
+        ):
+            branch_root = leaf / "target_conditioned" / branch
+            assert (branch_root / "maps/all_streamline_support_count.nii.gz").is_file()
+            assert (
+                branch_root / "maps/target_scored_streamline_count.nii.gz"
+            ).is_file()
+            assert (branch_root / "tables/target_scores.csv").is_file()
+            target_qc = json.loads(
+                (branch_root / "target_score_qc.json").read_text(encoding="utf-8")
+            )
+            assert target_qc["target_score_fiber_scope"] == scope
+            composition_qc = json.loads(
+                (branch_root / "voxel_composition_qc.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            assert composition_qc["support_conservation_max_abs_error"] < 1e-12
+            assert composition_qc["target_score_fiber_scope"] == scope
+            assert composition_qc["voxel_composition_fiber_scope"] == (
+                "formal_connectome_all"
+            )
+            assert composition_qc["n_all_fibers"] == 4
+        with (
+            leaf
+            / "target_conditioned/all_coverage/tables/target_scores.csv"
+        ).open(encoding="utf-8", newline="") as handle:
+            coverage_rows = {
+                row["target_id"]: row for row in csv.DictReader(handle)
+            }
+        with (
+            leaf
+            / "target_conditioned/selected_sweet_sour/tables/target_scores.csv"
+        ).open(encoding="utf-8", newline="") as handle:
+            selected_rows = {
+                row["target_id"]: row for row in csv.DictReader(handle)
+            }
+        published_weights = np.load(
+            publication
+            / "pdq39_score"
+            / role
+            / "connectomes/synthetic_connectome/resolver/full_weights.npy",
+            allow_pickle=False,
+        )
+        expected_coverage_a = float(np.mean(published_weights[[0, 3]]))
+        expected_selected_a = float(published_weights[0])
+        assert float(coverage_rows["target_a"]["target_score"]) == pytest.approx(
+            expected_coverage_a
+        )
+        assert int(coverage_rows["target_a"]["fiber_count"]) == 2
+        assert float(selected_rows["target_a"]["target_score"]) == pytest.approx(
+            expected_selected_a
+        )
+        assert int(selected_rows["target_a"]["fiber_count"]) == 1
+        coverage_map = np.asarray(
+            nib.load(
+                leaf
+                / "target_conditioned/all_coverage/maps/target_conditioned_score.nii.gz"
+            ).dataobj,
+            dtype=np.float32,
+        )
+        selected_map = np.asarray(
+            nib.load(
+                leaf
+                / "target_conditioned/selected_sweet_sour/maps/"
+                "target_conditioned_score.nii.gz"
+            ).dataobj,
+            dtype=np.float32,
+        )
+        common_finite = np.isfinite(coverage_map) & np.isfinite(selected_map)
+        assert np.any(common_finite)
+        assert not np.allclose(
+            coverage_map[common_finite], selected_map[common_finite]
+        )
+        assert (
+            leaf / "target_conditioned/tables/target_fiber_distributions.csv"
+        ).is_file()
         assert (
             leaf / "direct_streamline/figures/streamline_score_mean_sections.png"
         ).is_file()
         assert (
-            leaf / "target_conditioned/figures/target_conditioned_score_sections.png"
+            leaf
+            / "target_conditioned/all_coverage/figures/"
+            "target_conditioned_score_sections.png"
         ).is_file()
-        target_qc = json.loads(
-            (leaf / "target_conditioned/target_membership_qc.json").read_text(
-                encoding="utf-8"
-            )
+        target_chart_path = (
+            leaf
+            / "target_conditioned/figures/target_score_dual_raincloud.png"
         )
-        assert target_qc["mass_conservation_max_abs_error"] < 1e-12
+        assert target_chart_path.is_file()
         figure_json = json.loads(
             (
                 leaf
-                / "target_conditioned/figures/target_conditioned_score_sections.json"
+                / "target_conditioned/all_coverage/figures/"
+                "target_conditioned_score_sections.json"
             ).read_text(encoding="utf-8")
+        )
+        assert figure_json["analysis_role"] == "primary"
+        assert figure_json["target_score_fiber_scope"] == (
+            "final_resolver_valid_fiber_axis"
         )
         assert figure_json["render_metadata"]["slice_support_source"] == (
             "positive_geometry_image"
@@ -361,11 +862,123 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
         assert figure_json["render_metadata"]["background_loading_mode"] == (
             "panel_local_lazy"
         )
+        smooth_figure_json = json.loads(
+            (
+                leaf
+                / "target_conditioned/all_coverage/figures/"
+                "target_conditioned_score_smooth_fwhm2mm_sections.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert smooth_figure_json["display_smoothing"]["fwhm_mm"] == 2.0
+        assert smooth_figure_json["display_smoothing"][
+            "finite_support_identical"
+        ] is True
+        assert smooth_figure_json["scale_display_name"] == "PDQ39 score"
+        assert smooth_figure_json["colorbar_semantic_label"] == (
+            "Target-derived fiber partial Spearman ρ with PDQ39 score"
+        )
+        assert smooth_figure_json["style"]["colorbar_label"] == (
+            "Target-derived fiber partial Spearman ρ\nwith PDQ39 score"
+        )
+        direct_figure_json = json.loads(
+            (
+                leaf
+                / "direct_streamline/figures/streamline_score_mean_sections.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert direct_figure_json["colorbar_semantic_label"] == (
+            "Mean selected-fiber partial Spearman ρ with PDQ39 score"
+        )
+        assert direct_figure_json["style"]["colorbar_label"] == (
+            "Mean selected-fiber partial Spearman ρ\nwith PDQ39 score"
+        )
+        result_json = json.loads((leaf / "result.json").read_text(encoding="utf-8"))
+        assert result_json["figure_count"] == 10
+        assert set(result_json["finite_target_score_count"]) == {
+            "all_coverage",
+            "selected_sweet_sour",
+        }
+        assert len(
+            [
+                value
+                for value in result_json["outputs"]
+                if value.endswith("_sections.png")
+            ]
+        ) == 9
+        target_chart_json = json.loads(
+            (
+                leaf
+                / "target_conditioned/figures/target_score_dual_raincloud.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert target_chart_json["render_metadata"]["boxsize_mm"] == [16.0, 25.0]
+        assert target_chart_json["render_metadata"]["target_order"] == [
+            "target_a",
+            "target_b",
+        ]
+        assert target_chart_json["render_metadata"]["target_display_labels"] == [
+            "Target A",
+            "Target B",
+        ]
+        assert target_chart_json["render_metadata"]["target_order_policy"] == (
+            "configured_target_catalog"
+        )
+        assert target_chart_json["render_metadata"]["jitter_is_descriptive_only"]
+        assert target_chart_json["style"]["negative_color"] == "#0E6AAF"
+        assert target_chart_json["style"]["coverage_color"] == "#CCCCCC"
+        assert target_chart_json["render_metadata"][
+            "all_coverage_distribution_includes_selected"
+        ] is True
+        assert target_chart_json["render_metadata"]["shared_y_limits"] == (
+            first["target_score_chart"]["shared_y_limits"]
+        )
+        if with_target_inference:
+            inference_root = leaf / "target_conditioned/inference"
+            inference_manifest = json.loads(
+                (
+                    inference_root / "target_group_permutation_manifest.json"
+                ).read_text(encoding="utf-8")
+            )
+            assert inference_manifest["status"] == "complete"
+            assert inference_manifest["requested_replicates"] == 8
+            assert inference_manifest["multiplicity_primary"] == (
+                "holm_strong_fwer"
+            )
+            assert inference_manifest["observed_parity"][
+                "fiber_weight_max_abs_difference"
+            ] < 1e-12
+            assert inference_manifest["observed_parity"][
+                "target_statistic_max_abs_difference"
+            ] < 1e-12
+            assert (
+                inference_root / "input/valid_fiber_target_membership.npz"
+            ).is_file()
+            assert target_chart_json["plotted_p_value"] == (
+                "p_net_targetwise_significance_stars"
+            )
+            assert target_chart_json["render_metadata"][
+                "formal_inference_annotation"
+            ] == "p_net_targetwise_significance_stars"
+            assert target_chart_json["render_metadata"]["annotation_strip_mm"] == 0.0
+            assert set(
+                target_chart_json["render_metadata"][
+                    "targetwise_significance_star_by_target"
+                ].values()
+            ) == {None}
+        else:
+            assert result_json["target_inference"]["status"] == (
+                "not_available_parent_publication_missing_basis"
+            )
+            assert target_chart_json["plotted_p_value"] is None
+            assert target_chart_json["render_metadata"][
+                "formal_inference_annotation"
+            ] is None
 
     second = run_single_scale_fiber_section_postprocess(**arguments)
     assert second["status"] == "complete"
     assert second["failed_count"] == 0
     assert second["reused_count"] == 2
+    assert second["physical_cache"]["cache_status"] == "reused"
 
     formal_output = tmp_path / "formal_components"
     catalog = PublicationCatalog.from_config(
@@ -394,6 +1007,13 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
     assert not (formal_output / "endpoint_index.csv").exists()
     assert not (formal_output / "README.md").exists()
 
+    monkeypatch.setattr(
+        fiber_section_postprocess,
+        "_resolve_role_artifacts",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("completed fiber component reopened its sources")
+        ),
+    )
     component_second = render_fiber_section_components(
         scale_ids=("pdq39_score",),
         output_root=formal_output,

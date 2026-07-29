@@ -58,6 +58,7 @@ if ~isempty(opts.TileSize) && ~isempty(opts.TileGrid) && ~isempty(opts.SliceCoun
     geometry.TileGrid = round(double(opts.TileGrid(:)'));
     geometry.SliceCount = round(double(opts.SliceCount));
     geometry.GeometrySource = 'explicit';
+    geometry.SliceCountSource = 'explicit';
 elseif ~isempty(dicomDir)
     geometry = infer_from_dicom(geometry, dicomDir);
 elseif ~isempty(referenceNifti)
@@ -66,6 +67,11 @@ else
     error('mh_fiber_infer_mosaic_geometry:MissingGeometrySource', ...
         ['Provide DicomDir, ReferenceNifti, or explicit TileSize, TileGrid, ', ...
         'and SliceCount values.']);
+end
+
+if ~isempty(opts.SliceCount) && ~strcmp(geometry.GeometrySource, 'explicit')
+    geometry.SliceCount = round(double(opts.SliceCount));
+    geometry.SliceCountSource = 'explicit_override';
 end
 
 geometry = validate_geometry(geometry);
@@ -86,6 +92,7 @@ geometry.SliceCount = [];
 geometry.TileSlotCount = [];
 geometry.UnusedTileCount = [];
 geometry.GeometrySource = '';
+geometry.SliceCountSource = '';
 geometry.DicomDir = '';
 geometry.ReferenceNifti = '';
 geometry.Warning = '';
@@ -130,6 +137,7 @@ geometry.TileSize = tileSize;
 geometry.TileGrid = tileGrid;
 geometry.SliceCount = sliceCount;
 geometry.GeometrySource = 'dicom';
+geometry.SliceCountSource = 'dicom';
 geometry.DicomDir = dicomDir;
 geometry.DicomExample = dicomPath;
 geometry.DicomRows = mosaicHeight;
@@ -154,6 +162,7 @@ geometry.TileSize = tileSize;
 geometry.TileGrid = tileGrid;
 geometry.SliceCount = refSize(3);
 geometry.GeometrySource = 'reference_nifti';
+geometry.SliceCountSource = 'reference_nifti';
 geometry.ReferenceNifti = referenceNifti;
 geometry.Warning = ['Geometry was inferred from a reference NIfTI rather than ', ...
     'subject DICOM metadata; review spatial orientation before downstream use.'];

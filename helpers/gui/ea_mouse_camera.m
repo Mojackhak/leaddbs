@@ -49,8 +49,8 @@ set(hfig, 'WindowScrollWheelFcn', {@(src, evt) zoom_fcn(evt)});
         prefs = ea_prefs;
         v = prefs.machine.view;
         togglestates = prefs.machine.togglestates;
-        ea_defaultview_transition(v,togglestates);
-        ea_defaultview(v,togglestates);
+        ea_defaultview_transition(hfig,v,togglestates);
+        ea_defaultview(hfig,v,togglestates);
     end
 
     function [] = motion_callback(hfig, clickType)

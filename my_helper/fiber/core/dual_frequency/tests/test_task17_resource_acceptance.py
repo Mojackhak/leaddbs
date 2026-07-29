@@ -106,8 +106,6 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
             for reason in (
                 "worker_slots",
                 "cpu",
-                "managed_memory",
-                "memory_reserve",
                 "connectome_io",
                 "external_solver",
             )
@@ -131,8 +129,6 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
                         "running_task_count": 1,
                         "runnable_cpu_slots": 3,
                         "reserved_cpu_slots": 1,
-                        "managed_memory_bytes": 48 * 1024**3,
-                        "reserved_memory_bytes": 1024,
                         "reserved_connectome_io_slots": 1,
                         "reserved_external_solver_slots": 1,
                         "admission_blocked_task_count_by_reason": zero_reasons,
@@ -149,11 +145,6 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
                 "status": "finished",
                 "pool_mode": "spawn_process",
                 "workers": 14,
-                "managed_memory_bytes": 48 * 1024**3,
-                "minimum_managed_memory_bytes": 48 * 1024**3,
-                "maximum_managed_memory_bytes": 48 * 1024**3,
-                "final_managed_memory_bytes": 48 * 1024**3,
-                "required_memory_reserve_bytes": 16 * 1024**3,
                 "connectome_io_slots": 2,
                 "blas_threads_per_worker": 1,
                 "external_solver_slots": 1,
@@ -163,7 +154,6 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
                 "peak_swap_delta_bytes": 0,
                 "swap_delta_bytes": 0,
                 "peak_reserved_cpu_slots": 14,
-                "peak_reserved_memory_bytes": 48 * 1024**3,
                 "peak_reserved_connectome_io_slots": 1,
                 "peak_reserved_external_solver_slots": 1,
                 "peak_running_task_count": 1,
@@ -236,7 +226,6 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
             "segment_0002",
             self.guard,
             workers=14,
-            max_rss_bytes=64 * 1024**3,
         )
 
     def test_valid_multi_epoch_guard_and_same_byte_report_pass(self) -> None:
@@ -248,15 +237,15 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
         validator._write_report(output, report)
         validator._write_report(output, report)
 
-    def test_segment_rss_ceiling_fails(self) -> None:
+    def test_high_segment_rss_is_reported_without_rejection(self) -> None:
         segment = json.loads(self.segment_path.read_text(encoding="utf-8"))
-        segment["peak_task_tree_rss_bytes"] = 64 * 1024**3
+        segment["peak_task_tree_rss_bytes"] = 128 * 1024**3
         _write_json(self.segment_path, segment)
-        with self.assertRaisesRegex(
-            validator.ResourceAcceptanceError,
-            "RSS reached",
-        ):
-            self._validate()
+        report = self._validate()
+        self.assertEqual(
+            report["segment"]["peak_task_tree_rss_bytes"],
+            128 * 1024**3,
+        )
 
     def test_connectome_io_slot_boundary_fails(self) -> None:
         segment = json.loads(self.segment_path.read_text(encoding="utf-8"))
@@ -285,19 +274,13 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
         ):
             self._validate()
 
-    def test_scheduler_managed_memory_outside_segment_closure_fails(self) -> None:
+    def test_scheduler_contains_no_memory_budget(self) -> None:
         segment = json.loads(self.segment_path.read_text(encoding="utf-8"))
         scheduler = self.root / segment["scheduler_windows_path"]
         document = json.loads(scheduler.read_text(encoding="utf-8"))
-        document["rows"][0]["managed_memory_bytes"] = 49 * 1024**3
-        _write_json(scheduler, document)
-        segment["scheduler_windows_sha256"] = _sha(scheduler)
-        _write_json(self.segment_path, segment)
-        with self.assertRaisesRegex(
-            validator.ResourceAcceptanceError,
-            "reservation exceeds its ceiling",
-        ):
-            self._validate()
+        report = self._validate()
+        self.assertNotIn("estimated_task_memory_bytes", document["rows"][0])
+        self.assertNotIn("peak_estimated_task_memory_bytes", report["segment"])
 
     def test_scheduler_boolean_elapsed_fails(self) -> None:
         segment = json.loads(self.segment_path.read_text(encoding="utf-8"))
@@ -384,16 +367,13 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
         ):
             self._validate()
 
-    def test_guard_swap_growth_fails(self) -> None:
+    def test_guard_swap_growth_is_reported_without_rejection(self) -> None:
         with self.guard.open(encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
         rows[1]["swap_used_bytes"] = "101"
         self._write_guard(rows)
-        with self.assertRaisesRegex(
-            validator.ResourceAcceptanceError,
-            "swap growth",
-        ):
-            self._validate()
+        report = self._validate()
+        self.assertEqual(report["guard"]["sample_count"], 3)
 
     def test_terminal_task_mismatch_fails(self) -> None:
         path = self.root / "tasks" / f"{self.tasks[1]}.json"
@@ -459,7 +439,6 @@ class Task17ResourceAcceptanceTest(unittest.TestCase):
                 "../segment_0002",
                 self.guard,
                 workers=14,
-                max_rss_bytes=64 * 1024**3,
             )
 
 

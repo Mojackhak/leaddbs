@@ -6,6 +6,7 @@ parser.FunctionName = 'mh_fiber_convert_dicom_dwi_to_leaddbs_batch';
 parser.addRequired('inputs', @(x) istable(x) || isstruct(x));
 parser.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
 parser.addParameter('TileOrder', 'row_major_right_to_left', @(x) ischar(x) || isstring(x));
+parser.addParameter('SkipPaddingTiles', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
@@ -29,8 +30,10 @@ end
 function opts = normalize_options(opts)
 opts.RepoDir = char(string(opts.RepoDir));
 opts.TileOrder = validatestring(char(string(opts.TileOrder)), ...
-    {'row_major_right_to_left', 'row_major_left_to_right'}, ...
+    {'row_major_right_to_left', 'row_major_left_to_right', ...
+    'bottom_to_top_left_to_right'}, ...
     'mh_fiber_convert_dicom_dwi_to_leaddbs_batch', 'TileOrder');
+opts.SkipPaddingTiles = logical(opts.SkipPaddingTiles);
 opts.Parallel = logical(opts.Parallel);
 opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
 opts.Force = logical(opts.Force);
@@ -64,6 +67,8 @@ row.OutputBase = row_value(inputTable, rowIndex, 'OutputBase');
 row.WorkDir = optional_row_value(inputTable, rowIndex, 'WorkDir');
 row.ReferenceNifti = optional_row_value(inputTable, rowIndex, 'ReferenceNifti');
 row.TileOrder = optional_row_value(inputTable, rowIndex, 'TileOrder', opts.TileOrder);
+row.SkipPaddingTiles = optional_logical_row_value(inputTable, rowIndex, ...
+    'SkipPaddingTiles', opts.SkipPaddingTiles);
 row.Status = 'started';
 
 try
@@ -74,7 +79,9 @@ try
         'RepoDir', opts.RepoDir, ...
         'WorkDir', row.WorkDir, ...
         'ReferenceNifti', row.ReferenceNifti, ...
+        'SliceCount', optional_numeric_row_value(inputTable, rowIndex, 'SliceCount'), ...
         'TileOrder', row.TileOrder, ...
+        'SkipPaddingTiles', row.SkipPaddingTiles, ...
         'Parallel', useVolumeParallel, ...
         'ParallelWorkers', opts.ParallelWorkers, ...
         'Force', opts.Force, ...
@@ -92,6 +99,7 @@ try
     row.OutputImageSize = result.OutputImageSize;
     row.Dcm2niixSource = result.Dcm2niixSource;
     row.TileOrder = result.TileOrder;
+    row.SkipPaddingTiles = result.SkipPaddingTiles;
 catch ME
     row.Status = 'failed';
     row.Message = mh_fiber_compact_message(ME.message);
@@ -110,6 +118,7 @@ row.OutputBase = '';
 row.WorkDir = '';
 row.ReferenceNifti = '';
 row.TileOrder = '';
+row.SkipPaddingTiles = false;
 row.OutputNifti = '';
 row.OutputJson = '';
 row.OutputBval = '';
@@ -140,4 +149,34 @@ if ismember(column, inputTable.Properties.VariableNames)
 else
     value = defaultValue;
 end
+end
+
+function value = optional_numeric_row_value(inputTable, rowIndex, column)
+value = [];
+if ~ismember(column, inputTable.Properties.VariableNames)
+    return;
+end
+raw = inputTable.(column)(rowIndex);
+if iscell(raw)
+    raw = raw{1};
+end
+if isempty(raw)
+    return;
+end
+value = double(raw);
+end
+
+function value = optional_logical_row_value(inputTable, rowIndex, column, defaultValue)
+value = defaultValue;
+if ~ismember(column, inputTable.Properties.VariableNames)
+    return;
+end
+raw = inputTable.(column)(rowIndex);
+if iscell(raw)
+    raw = raw{1};
+end
+if isempty(raw)
+    return;
+end
+value = logical(raw);
 end

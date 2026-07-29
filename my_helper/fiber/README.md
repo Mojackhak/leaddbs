@@ -412,7 +412,7 @@ The STN/SNr DWI registration batch is documented in:
 /Users/mojackhu/Github/leaddbs/my_helper/stnsnr/dwi_registration_technical_details.md
 ```
 
-Lead-DBS DWI import/staging now recreates the staged b0 image automatically from the imported 4D DWI and gradient sidecars. Existing staged b0 files are overwritten during import/staging. The b0 extraction helper uses `bval < 10`, averages multiple b0 volumes, and preserves the original DWI affine/header without independently recentering the b0 image.
+Lead-DBS DWI import/staging creates the staged b0 image from the imported 4D DWI and gradient sidecars when the DWI is newly staged or the expected b0 is missing. Routine subject-option resolution only discovers an existing b0 and refreshes the BIDS subject fields; it does not regenerate or overwrite the image. Explicit DWI preprocessing and publication workflows remain responsible for replacing the b0 when they replace the DWI. The generic Lead-DBS staging helper selects `bval < 50` and averages multiple matching volumes. Project preprocessing workflows may instead use their configured b0 threshold and reference strategy. Both paths preserve the corresponding DWI affine/header without independently recentering the b0 image.
 
 When a staged b0 exists under `preprocessing/dwi/`, the Lead-DBS Coregister UI exposes it as a pseudo-preop modality named `B0`. `B0` reuses the existing MR coregistration methods and writes formal UI outputs under:
 

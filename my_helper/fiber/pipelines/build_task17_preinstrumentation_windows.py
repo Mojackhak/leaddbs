@@ -26,11 +26,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-root", required=True, type=Path)
     parser.add_argument("--cache-root", required=True, type=Path)
     parser.add_argument("--guard-csv", required=True, type=Path)
-    parser.add_argument(
-        "--max-rss-bytes",
-        type=int,
-        default=64 * 1024**3,
-    )
     parser.add_argument("--output", required=True, type=Path)
     return parser
 
@@ -42,7 +37,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.run_root,
             arguments.cache_root,
             arguments.guard_csv,
-            max_rss_bytes=arguments.max_rss_bytes,
         )
         _write_report(arguments.output, document)
         print(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=True))

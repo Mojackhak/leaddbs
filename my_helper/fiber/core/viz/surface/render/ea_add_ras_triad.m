@@ -32,6 +32,7 @@ function triad = ea_add_ras_triad(hMainAx, varargin)
 %   'HeadSize'    : arrow head size (quiver 'MaxHeadSize'). Default: []
 %   'FontSize'    : label font size. Default: 10
 %   'FontName'    : label font name. Default: 'Arial'
+%   'ShowLabels'  : show the R, A, and S letters. Default: true
 %   'LabelOffset' : offset from arrow tip as a fraction of Length.
 %                   Default: 0.12
 %   'Projection'  : triad projection. Default: 'orthographic'
@@ -68,6 +69,7 @@ function triad = ea_add_ras_triad(hMainAx, varargin)
     addParameter(ip, 'HeadSize', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x) && x > 0));
     addParameter(ip, 'FontSize', 10, @(x) isnumeric(x) && isscalar(x) && x > 0);
     addParameter(ip, 'FontName', 'Arial', @(s) ischar(s) || (isstring(s) && isscalar(s)));
+    addParameter(ip, 'ShowLabels', true, @(x) islogical(x) && isscalar(x));
     addParameter(ip, 'LabelOffset', 0.12, @(x) isnumeric(x) && isscalar(x) && x >= 0);
 
     addParameter(ip, 'Projection', 'orthographic', @(s) ischar(s) || (isstring(s) && isscalar(s)));
@@ -202,17 +204,28 @@ function triad = ea_add_ras_triad(hMainAx, varargin)
     local_set_quiver_noscale(qS);
 
     fn = char(p.FontName);
+    labelVisibility = 'on';
+    if ~p.ShowLabels
+        labelVisibility = 'off';
+    end
 
     % Labels near arrow tips.
     tR = text(hTriadAx, L + off, 0, 0, 'R', 'Color', colR, 'FontWeight', 'bold', ...
         'FontSize', p.FontSize, 'FontName', fn, 'HorizontalAlignment', 'center', ...
-        'VerticalAlignment', 'middle', 'HitTest', 'off', 'Clipping', 'off');
+        'VerticalAlignment', 'middle', 'HitTest', 'off', 'Clipping', 'off', ...
+        'Visible', labelVisibility, 'Tag', 'EA_RAS_TRIAD_LABEL_R');
     tA = text(hTriadAx, 0, L + off, 0, 'A', 'Color', colA, 'FontWeight', 'bold', ...
         'FontSize', p.FontSize, 'FontName', fn, 'HorizontalAlignment', 'center', ...
-        'VerticalAlignment', 'middle', 'HitTest', 'off', 'Clipping', 'off');
+        'VerticalAlignment', 'middle', 'HitTest', 'off', 'Clipping', 'off', ...
+        'Visible', labelVisibility, 'Tag', 'EA_RAS_TRIAD_LABEL_A');
     tS = text(hTriadAx, 0, 0, L + off, 'S', 'Color', colS, 'FontWeight', 'bold', ...
         'FontSize', p.FontSize, 'FontName', fn, 'HorizontalAlignment', 'center', ...
-        'VerticalAlignment', 'middle', 'HitTest', 'off', 'Clipping', 'off');
+        'VerticalAlignment', 'middle', 'HitTest', 'off', 'Clipping', 'off', ...
+        'Visible', labelVisibility, 'Tag', 'EA_RAS_TRIAD_LABEL_S');
+    try
+        uistack([tR, tA, tS], 'top');
+    catch
+    end
 
     % Sync triad orientation with main axes.
     local_update_view();

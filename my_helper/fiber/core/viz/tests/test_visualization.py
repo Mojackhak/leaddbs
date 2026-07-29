@@ -17,7 +17,12 @@ import pandas as pd
 import pytest
 from scipy.io import loadmat
 
-from my_helper.fiber.core.viz import formal_postprocess
+from my_helper.fiber.core.viz import (
+    formal_postprocess,
+    postprocess,
+    scene_example_inputs,
+    voxel_section_postprocess,
+)
 from my_helper.fiber.core.viz.artifacts import restore_voxel_vector_to_nifti
 from my_helper.fiber.core.viz.layout import build_figure_layout
 from my_helper.fiber.core.viz.model_fit import plot_in_sample_loocv_fit
@@ -239,6 +244,9 @@ def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
     study = {
         "schema_version": "study_base_v1",
         "study": {
+            "scale_definitions": [
+                {"scale_id": "pdq39_score", "label": "PDQ39 score"}
+            ],
             "spot_model_sources": {
                 "canonical_space": "MNI152NLin2009bAsym",
                 "hemisphere_mapping": {"canonical_hemisphere": "R"},
@@ -264,11 +272,22 @@ def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
     direct_root = tmp_path / "direct_voxel" / "dual_frequency_four_model_v1"
     direct_resolver = direct_root / "pdq39_score" / "reference" / "resolver"
     direct_resolver.mkdir(parents=True)
+    (direct_root / study_path.name).write_bytes(study_path.read_bytes())
     benefit_map = direct_resolver / "benefit_map.nii.gz"
     benefit_data = np.full(shape, np.nan, dtype=np.float32)
     benefit_data[2, 0, 0] = 0.7
     benefit_data[3, 1, 0] = -0.5
     nib.save(nib.Nifti1Image(benefit_data, affine), benefit_map)
+    display_map = (
+        direct_root
+        / "pdq39_score/reference/report/display/"
+        "benefit_map_smooth_fwhm1mm.nii.gz"
+    )
+    display_map.parent.mkdir(parents=True)
+    display_data = np.full(shape, np.nan, dtype=np.float32)
+    display_data[2, 0, 0] = 0.6
+    display_data[3, 1, 0] = -0.4
+    nib.save(nib.Nifti1Image(display_data, affine), display_map)
     direct_final_path = direct_root / "pdq39_score" / "reference" / "final_model.json"
     direct_final_path.parent.mkdir(parents=True, exist_ok=True)
     direct_final = {
@@ -295,6 +314,10 @@ def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
                 benefit_map,
                 "benefit_map",
             ),
+            (
+                "pdq39_score/reference/report/display/"
+                "benefit_map_smooth_fwhm1mm.nii.gz"
+            ): (display_map, "benefit_map_smooth_fwhm1mm"),
         },
         manifest=common_manifest,
     )
@@ -309,11 +332,14 @@ def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
         / "resolver"
     )
     fiber_resolver.mkdir(parents=True)
+    (fiber_root / study_path.name).write_bytes(study_path.read_bytes())
     valid_ids_path = fiber_resolver / "valid_fiber_ids.npy"
+    candidate_ids_path = fiber_resolver / "candidate_fiber_ids.npy"
     fiber_weights_path = fiber_resolver / "full_weights.npy"
     sweet_path = fiber_resolver / "selected_sweet_fiber_ids.npy"
     sour_path = fiber_resolver / "selected_sour_fiber_ids.npy"
     np.save(valid_ids_path, np.asarray([1, 2, 3, 4], dtype=np.int64))
+    np.save(candidate_ids_path, np.asarray([1, 2, 3, 4], dtype=np.int64))
     np.save(fiber_weights_path, np.asarray([0.8, -0.6, 0.4, -0.2], dtype=np.float32))
     np.save(sweet_path, np.asarray([1, 3], dtype=np.int64))
     np.save(sour_path, np.asarray([2, 4], dtype=np.int64))
@@ -344,6 +370,10 @@ def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
             f"{resolver_relative}/valid_fiber_ids.npy": (
                 valid_ids_path,
                 "valid_fiber_ids",
+            ),
+            f"{resolver_relative}/candidate_fiber_ids.npy": (
+                candidate_ids_path,
+                "candidate_fiber_ids",
             ),
             f"{resolver_relative}/full_weights.npy": (
                 fiber_weights_path,
@@ -454,7 +484,28 @@ def _voxel_section_publication(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
                 json.dumps(metadata),
                 encoding="utf-8",
             )
-    _write_publication(root, artifacts)
+    study_base_path = root / "study_base.json"
+    study_base_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "synthetic_study_base_v1",
+                "study": {
+                    "scale_definitions": [
+                        {"scale_id": "pdq39_score", "label": "PDQ39 score"}
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_publication(
+        root,
+        artifacts,
+        manifest={
+            "study_base_path": "/original-machine/publication/study_base.json",
+            "study_base_sha256": _sha256(study_base_path),
+        },
+    )
     return root, anatomy_path, mask_path, mask_path
 
 
@@ -638,7 +689,10 @@ def test_restore_voxel_vector_requires_explicit_index_semantics(tmp_path: Path) 
     assert sidecar["artifact_role"] == "voxel_model_visualization"
 
 
-def test_manifest_postprocess_and_resume(tmp_path: Path) -> None:
+def test_manifest_postprocess_and_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     publication_root = tmp_path / "direct_voxel" / "model_set"
     scientific_root = publication_root / "scale_test" / "reference" / "report"
     scientific_root.mkdir(parents=True)
@@ -702,9 +756,133 @@ def test_manifest_postprocess_and_resume(tmp_path: Path) -> None:
     first = run_postprocess(config_path)
     assert first["status"] == "complete"
     assert first["completed_count"] == 1
+    output_root = tmp_path / "outputs"
+    root_complete = output_root / "complete.json"
+    endpoint_root = output_root / "endpoints" / "endpoint_test"
+    endpoint_manifest = endpoint_root / "manifest.json"
+    endpoint_complete = endpoint_root / "complete.json"
+    assert root_complete.is_file()
+    assert endpoint_complete.is_file()
+    assert "request_hash" not in json.loads(
+        endpoint_manifest.read_text(encoding="utf-8")
+    )
+    endpoint_mtime = endpoint_manifest.stat().st_mtime_ns
+
+    root_complete.replace(tmp_path / "removed-root-complete.json")
     second = run_postprocess(config_path)
     assert second["status"] == "complete"
     assert second["reused_count"] == 1
+    assert root_complete.is_file()
+    assert endpoint_manifest.stat().st_mtime_ns == endpoint_mtime
+
+    trashed: list[Path] = []
+
+    def move_to_trash(path: Path) -> None:
+        target = tmp_path / f"trashed-{len(trashed)}"
+        path.replace(target)
+        trashed.append(target)
+
+    monkeypatch.setattr(postprocess, "_trash", move_to_trash)
+    forced = run_postprocess(config_path, force=True)
+    assert forced["status"] == "complete"
+    assert trashed == [tmp_path / "trashed-0"]
+    assert (trashed[0] / "complete.json").is_file()
+    assert root_complete.is_file()
+    assert endpoint_complete.is_file()
+
+    config_path.write_text(
+        json.dumps(config, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    with monkeypatch.context() as context:
+        context.setattr(
+            postprocess.PublicationCatalog,
+            "from_config",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("terminal postprocess reopened its publications")
+            ),
+        )
+        restored = run_postprocess(config_path)
+    assert restored["resume_status"] == "reused"
+    assert restored["reused_count"] == 1
+
+    endpoint_text = endpoint_manifest.read_text(encoding="utf-8")
+    root_complete.replace(tmp_path / "removed-root-complete-again.json")
+    endpoint_complete.replace(tmp_path / "removed-endpoint-complete.json")
+    with monkeypatch.context() as context:
+        context.setattr(
+            postprocess,
+            "_trash",
+            lambda _path: (_ for _ in ()).throw(ValueError("trash unavailable")),
+        )
+        with pytest.raises(ValueError, match="trash unavailable"):
+            run_postprocess(config_path)
+    assert endpoint_manifest.read_text(encoding="utf-8") == endpoint_text
+
+
+def test_manifest_postprocess_force_validates_before_trash(tmp_path: Path) -> None:
+    output_root = tmp_path / "outputs"
+    output_root.mkdir()
+    sentinel = output_root / "keep.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+    config_path = tmp_path / "postprocess.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "output_root": "outputs",
+                "publications": {"main": {"root": str(tmp_path / "missing")}},
+                "endpoints": [{"endpoint_id": "endpoint_test"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PublishedArtifactError):
+        run_postprocess(config_path, force=True)
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
+
+
+def test_manifest_postprocess_validates_required_fields_before_resume(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "outputs"
+    output_root.mkdir()
+    (output_root / "manifest.json").write_text(
+        json.dumps({"status": "complete"}),
+        encoding="utf-8",
+    )
+    (output_root / "complete.json").write_text("{}\n", encoding="utf-8")
+    config_path = tmp_path / "postprocess.json"
+    base = {
+        "schema_version": SCHEMA_VERSION,
+        "output_root": "outputs",
+        "endpoints": [{"endpoint_id": "endpoint_test"}],
+    }
+    config_path.write_text(json.dumps(base), encoding="utf-8")
+    with pytest.raises(ValueError, match="publications must be a nonempty object"):
+        run_postprocess(config_path)
+
+    duplicate = dict(base)
+    duplicate["publications"] = {"main": {}}
+    duplicate["endpoints"] = [
+        {"endpoint_id": "endpoint_test"},
+        {"endpoint_id": "endpoint_test"},
+    ]
+    config_path.write_text(json.dumps(duplicate), encoding="utf-8")
+    with pytest.raises(ValueError, match="endpoint IDs must be unique"):
+        run_postprocess(config_path)
+
+    for endpoint_id in (".", "..", "../escape", "nested/escape"):
+        unsafe = dict(base)
+        unsafe["publications"] = {"main": {}}
+        unsafe["endpoints"] = [{"endpoint_id": endpoint_id}]
+        config_path.write_text(json.dumps(unsafe), encoding="utf-8")
+        with pytest.raises(
+            ValueError,
+            match="endpoint_id must be one safe path component",
+        ):
+            run_postprocess(config_path)
 
 
 def test_manifest_rejects_mismatched_endpoint_summary(tmp_path: Path) -> None:
@@ -805,28 +983,136 @@ def test_postprocess_rejects_run_store_as_publication(
         run_postprocess(config_path)
 
 
-def test_scene_example_prepares_and_reuses_voxel_input(tmp_path: Path) -> None:
+def test_scene_example_prepares_and_reuses_voxel_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     direct_root, _ = _scene_example_publications(tmp_path)
+    output_root = tmp_path / "outputs"
     first = prepare_scene_example_input(
         direct_root,
-        tmp_path / "outputs",
+        output_root,
         scale_id="pdq39_score",
         model_family="reference_voxel",
     )
+    target = output_root / "pdq39_score-reference_voxel"
+    assert (target / "manifest.json").is_file()
+    assert (target / "complete.json").is_file()
+    monkeypatch.setattr(
+        scene_example_inputs,
+        "_catalog",
+        lambda publication: (_ for _ in ()).throw(
+            AssertionError("completed scene input reopened its publication")
+        ),
+    )
     second = prepare_scene_example_input(
         direct_root,
-        tmp_path / "outputs",
+        output_root,
         scale_id="pdq39_score",
         model_family="reference_voxel",
     )
     assert first["input_path"] == second["input_path"]
+    assert first["scale_display_name"] == "PDQ39 score"
     assert first["selected_tau"] == 200.0
+    assert first["details"]["display_smoothing_fwhm_mm"] == 1.0
+    assert first["details"]["display_only"] is True
     data = nib.load(first["input_path"]).get_fdata()
     finite = data[np.isfinite(data)]
-    np.testing.assert_allclose(np.sort(finite), [-0.5, 0.7])
+    np.testing.assert_allclose(np.sort(finite), [-0.4, 0.6])
 
 
-def test_scene_example_prepares_selected_scored_fibers(tmp_path: Path) -> None:
+def test_scene_example_force_replaces_completed_target_after_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    direct_root, _ = _scene_example_publications(tmp_path)
+    output_root = tmp_path / "outputs"
+    prepare_scene_example_input(
+        direct_root,
+        output_root,
+        scale_id="pdq39_score",
+        model_family="reference_voxel",
+    )
+    target = output_root / "pdq39_score-reference_voxel"
+    trashed = tmp_path / "trashed-scene-input"
+
+    monkeypatch.setattr(scene_example_inputs, "_trash", lambda path: path.rename(trashed))
+    result = prepare_scene_example_input(
+        direct_root,
+        output_root,
+        scale_id="pdq39_score",
+        model_family="reference_voxel",
+        force=True,
+    )
+
+    assert result["status"] == "complete"
+    assert (trashed / "complete.json").is_file()
+    assert (target / "complete.json").is_file()
+
+
+def test_scene_example_rebuilds_only_incomplete_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    direct_root, _ = _scene_example_publications(tmp_path)
+    output_root = tmp_path / "outputs"
+    prepare_scene_example_input(
+        direct_root,
+        output_root,
+        scale_id="pdq39_score",
+        model_family="reference_voxel",
+    )
+    target = output_root / "pdq39_score-reference_voxel"
+    incomplete = tmp_path / "incomplete-scene-input"
+    (target / "complete.json").unlink()
+    monkeypatch.setattr(
+        scene_example_inputs, "_trash", lambda path: path.rename(incomplete)
+    )
+
+    result = prepare_scene_example_input(
+        direct_root,
+        output_root,
+        scale_id="pdq39_score",
+        model_family="reference_voxel",
+    )
+
+    assert result["status"] == "complete"
+    assert not (incomplete / "complete.json").exists()
+    assert (target / "complete.json").is_file()
+
+
+def test_scene_example_force_validates_before_replacing_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    direct_root, _ = _scene_example_publications(tmp_path)
+    output_root = tmp_path / "outputs"
+    prepare_scene_example_input(
+        direct_root,
+        output_root,
+        scale_id="pdq39_score",
+        model_family="reference_voxel",
+    )
+    target = output_root / "pdq39_score-reference_voxel"
+    (direct_root / "model_manifest.json").write_text("{", encoding="utf-8")
+    monkeypatch.setattr(
+        scene_example_inputs,
+        "_trash",
+        lambda path: (_ for _ in ()).throw(
+            AssertionError("invalid source replaced the completed target")
+        ),
+    )
+
+    with pytest.raises(SceneExampleInputError):
+        prepare_scene_example_input(
+            direct_root,
+            output_root,
+            scale_id="pdq39_score",
+            model_family="reference_voxel",
+            force=True,
+        )
+    assert (target / "complete.json").is_file()
+
+
+def test_scene_example_prepares_all_categorical_candidate_fibers(
+    tmp_path: Path,
+) -> None:
     _, fiber_root = _scene_example_publications(tmp_path)
     result = prepare_scene_example_input(
         fiber_root,
@@ -834,12 +1120,18 @@ def test_scene_example_prepares_selected_scored_fibers(tmp_path: Path) -> None:
         scale_id="pdq39_score",
         model_family="reference_fiber",
     )
+    assert result["scale_display_name"] == "PDQ39 score"
     assert result["selected_tau"] == 400.0
     assert result["details"]["sweet_fiber_count"] == 2
     assert result["details"]["sour_fiber_count"] == 2
+    assert result["details"]["candidate_fiber_count"] == 4
+    assert result["details"]["unselected_candidate_fiber_count"] == 0
     payload = loadmat(result["input_path"])
     np.testing.assert_array_equal(payload["fiber_ids"].reshape(-1), [1, 2, 3, 4])
     np.testing.assert_allclose(payload["scores"].reshape(-1), [0.8, -0.6, 0.4, -0.2])
+    np.testing.assert_array_equal(
+        payload["fiber_roles"].reshape(-1), [1, -1, 1, -1]
+    )
     np.testing.assert_array_equal(payload["idx"].reshape(-1), [2, 2, 2, 2])
     assert payload["fibers"].shape == (8, 3)
 
@@ -873,7 +1165,8 @@ def test_scene_example_rejects_run_store_connectome_geometry(
     _, fiber_root = _scene_example_publications(tmp_path)
     manifest_path = fiber_root / "model_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    study_path = Path(manifest["study_base_path"])
+    study_path = fiber_root / Path(manifest["study_base_path"]).name
+    manifest["study_base_path"] = str(study_path)
     study = json.loads(study_path.read_text(encoding="utf-8"))
     streamlines = study["study"]["spot_model_sources"]["connectomes"][0][
         "streamlines"
@@ -1024,9 +1317,23 @@ def test_single_scale_voxel_section_postprocess_writes_and_reuses_six_figures(
         ):
             for extension in ("png", "pdf", "json"):
                 assert (leaf / f"{stem}.{extension}").is_file()
+            assert (
+                leaf
+                / "completion"
+                / "voxel_2d"
+                / stem
+                / "complete.json"
+            ).is_file()
             result = json.loads((leaf / f"{stem}.json").read_text(encoding="utf-8"))
             assert result["status"] == "complete"
             assert result["model_role"] == role
+            assert result["scale_display_name"] == "PDQ39 score"
+            assert result["colorbar_semantic_label"] == (
+                "Benefit-oriented partial Spearman ρ with PDQ39 score"
+            )
+            assert result["style"]["colorbar_label"] == (
+                "Benefit-oriented partial Spearman ρ\nwith PDQ39 score"
+            )
             assert result["render_metadata"]["background_full_float_loaded"] is False
             assert result["render_metadata"]["mask_layer"] == "top"
             if stem == "benefit_map_sections":
@@ -1040,7 +1347,9 @@ def test_single_scale_voxel_section_postprocess_writes_and_reuses_six_figures(
     assert second["reused_count"] == 6
 
 
-def test_voxel_components_do_not_write_formal_root_metadata(tmp_path: Path) -> None:
+def test_voxel_components_do_not_write_formal_root_metadata(
+    tmp_path: Path, monkeypatch
+) -> None:
     publication, anatomy, reference_mask, addon_mask = _voxel_section_publication(
         tmp_path
     )
@@ -1082,6 +1391,13 @@ def test_voxel_components_do_not_write_formal_root_metadata(tmp_path: Path) -> N
     assert not (output_root / "figure_index.csv").exists()
     assert not (output_root / "README.md").exists()
 
+    monkeypatch.setattr(
+        voxel_section_postprocess,
+        "_resolve_sources",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("completed voxel component reopened its sources")
+        ),
+    )
     second = render_voxel_section_components(
         scale_ids=("pdq39_score",),
         output_root=output_root,
@@ -1145,14 +1461,28 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
         "mh_fiber_make_scene.m",
         "mh_fiber_open_scene.m",
         "mh_fiber_style_electrodes.m",
+        "mh_viz_default_fiber_scene_spec.m",
+        "mh_viz_default_fiber_views.m",
+        "mh_viz_default_model_views.m",
+        "mh_viz_apply_soft_camera_lighting.m",
+        "mh_viz_export_pdq39_fiber_coefficient_pdfs.m",
+        "mh_viz_export_pdq39_fiber_pdfs.m",
+        "mh_viz_export_pdq39_voxel_pdfs.m",
+        "mh_viz_export_scene_views.m",
         "mh_viz_make_sweet_sour_scene.m",
         "mh_viz_prepare_scene_example_input.m",
+        "mh_viz_show_categorical_fibers.m",
+        "mh_viz_show_coefficient_fibers.m",
         "mh_viz_show_scored_fibers.m",
     ):
         assert (viz_root / name).is_file()
     for name in (
         "open_pdq39_reference_voxel_scene.m",
         "open_pdq39_reference_fiber_scene.m",
+        "open_pdq39_addon_voxel_scene.m",
+        "open_pdq39_addon_fiber_scene.m",
+        "open_pdq39_reference_fiber_coefficient_scene.m",
+        "open_pdq39_addon_fiber_coefficient_scene.m",
     ):
         assert (viz_root / "examples" / name).is_file()
     voxel_example_path = (
@@ -1160,3 +1490,381 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
     )
     voxel_example = voxel_example_path.read_text(encoding="utf-8")
     assert "spec.VoxelSampleDepthMm = 0.5;" in voxel_example
+    prepare_scene_helper = (
+        viz_root / "mh_viz_prepare_scene_example_input.m"
+    ).read_text(encoding="utf-8")
+    assert "addParameter(parser, 'Force', false" in prepare_scene_helper
+    assert "commandParts{end + 1} = '--force';" in prepare_scene_helper
+    assert "spec.AtlasName = 'Custom_STNSNr';" in voxel_example
+    assert "spec.AtlasRoiIndices = 2;" in voxel_example
+    assert "spec.ViewStruct = modelViews.reference{1};" in voxel_example
+    assert "spec.AtlasEdgeAlpha = 0.15;" in voxel_example
+    assert "Benefit-oriented partial Spearman ρ with %s" in voxel_example
+    fiber_example = (
+        viz_root / "examples" / "open_pdq39_reference_fiber_scene.m"
+    ).read_text(encoding="utf-8")
+    assert "spec.FiberCategoricalMat = pdq39FiberInput.input_path;" in (
+        fiber_example
+    )
+    assert "fiberStyle = mh_viz_default_fiber_scene_spec();" in fiber_example
+    assert "spec.CandidateFiberAlpha = fiberStyle.CandidateFiberAlpha;" in (
+        fiber_example
+    )
+    assert "spec.FiberLegendTextColor = fiberStyle.FiberLegendTextColor;" in (
+        fiber_example
+    )
+    assert "spec.BackgroundColor = fiberStyle.BackgroundColor;" in fiber_example
+    assert "spec.AddRASTriad = fiberStyle.AddRASTriad;" in fiber_example
+    assert "spec.AnatomyNifti = fiberStyle.AnatomyNifti;" in fiber_example
+    assert "spec.AtlasRoiIndices = 2;" in fiber_example
+    assert "fiberViews = mh_viz_default_fiber_views();" in fiber_example
+    assert "spec.ViewStruct = fiberViews.reference{1};" in fiber_example
+    for model_family, scene_kind in (
+        ("addon_voxel", "voxel"),
+        ("addon_fiber", "fiber"),
+    ):
+        addon_example = (
+            viz_root / "examples" / f"open_pdq39_addon_{scene_kind}_scene.m"
+        ).read_text(encoding="utf-8")
+        assert f"publicationRoot, '{model_family}'" in addon_example
+        assert "spec.AtlasRoiIndices = 1;" in addon_example
+        if scene_kind == "voxel":
+            assert "spec.ViewStruct = modelViews.addon{1};" in addon_example
+        else:
+            assert "spec.ViewStruct = fiberViews.addon{1};" in addon_example
+    scene_source = (viz_root / "mh_viz_make_sweet_sour_scene.m").read_text(
+        encoding="utf-8"
+    )
+    assert "defaults.VoxelSampleDepthMm = 1.0;" in scene_source
+    assert "defaults.AtlasName = 'Custom_STNSNr';" in scene_source
+    assert "defaults.AtlasReduceFactor = 0.5;" in scene_source
+    assert "defaults.AtlasEdgeAlpha = 0.15;" in scene_source
+    assert "defaults.AtlasRoiIndices = [];" in scene_source
+    assert "defaults.FigureBackend = 'leaddbs';" in scene_source
+    assert "defaults.StrictHeadless = false;" in scene_source
+    assert "defaults.FiberCategoricalMat = '';" in scene_source
+    assert "defaults.FiberCoefficientMat = '';" in scene_source
+    assert "defaults.CandidateFiberColor = [204, 204, 204] / 255;" in (
+        scene_source
+    )
+    assert "defaults.CandidateFiberAlpha = 1.0;" in scene_source
+    assert "defaults.CoefficientFiberAlpha = 1.0;" in scene_source
+    assert "defaults.CoefficientFiberLineWidth = 0.25;" in scene_source
+    assert "defaults.SweetFiberColor = [242, 0, 14] / 255;" in scene_source
+    assert "defaults.SourFiberColor = [14, 106, 175] / 255;" in scene_source
+    assert "defaults.SelectedFiberRenderMode = 'tube';" in scene_source
+    assert "defaults.SelectedFiberLineWidth = 0.50;" in scene_source
+    assert "mh_viz_show_categorical_fibers(" in scene_source
+    assert "mh_viz_show_coefficient_fibers(" in scene_source
+    assert "'SelectedRenderMode', spec.SelectedFiberRenderMode" in scene_source
+    assert "'SelectedLineWidth', spec.SelectedFiberLineWidth" in scene_source
+    assert "'%s: %d'" in scene_source
+    assert "'LineStyle', '-'" in scene_source
+    assert "'Marker', 'none'" in scene_source
+    assert "'Tag', 'mh_viz_fiber_legend'" in scene_source
+    assert "hLegend.Position = [0.72, 0.43, 0.25, 0.14];" in scene_source
+    assert "'TextColor', spec.FiberLegendTextColor" in scene_source
+    assert "'mh_viz_fiber_legend_colors'" in scene_source
+    assert "'mh_viz_fiber_legend_labels'" in scene_source
+    assert "local_apply_categorical_fiber_layer_order(hAx, objects);" in (
+        scene_source
+    )
+    assert "set(hAx, 'SortMethod', 'childorder');" in scene_source
+    assert "objects.fiberCandidate," in scene_source
+    assert "objects.fiberSweet," in scene_source
+    assert "objects.fiberSour};" in scene_source
+    assert "uistack(handles, 'top');" in scene_source
+    assert "plotConfig.FigureBackend = char(string(spec.FigureBackend));" in (
+        scene_source
+    )
+    assert "plotConfig.StrictHeadless = logical(spec.StrictHeadless);" in (
+        scene_source
+    )
+    assert "mh_viz_make_sweet_sour_scene:StrictHeadlessVisibleFigure" in (
+        scene_source
+    )
+    assert "defaults.RASShowLabels = true;" in scene_source
+    assert "fiberDefaults = mh_viz_default_fiber_scene_spec();" in scene_source
+    assert "local_add_explicit_anatomy_slice(hFig, hAx, spec)" in scene_source
+    assert "volume = nifti(pathValue);" in scene_source
+    assert "handle = slice3i(" in scene_source
+    assert "set(hFig, 'Color', spec.BackgroundColor);" in scene_source
+    assert "set(hAx, 'Color', 'none');" in scene_source
+    assert "if ~isempty(spec.ViewStruct)" in scene_source
+    assert "elseif ~usesReferenceVoxelHeatmap" in scene_source
+    assert "mh_viz_apply_soft_camera_lighting(hAx);" in scene_source
+    surface_defaults = (
+        viz_root / "surface/batch_helper/default_nifti2patch_config.m"
+    ).read_text(encoding="utf-8")
+    assert "cfg_nifti2patch.SampleDepthMm              = 1.0;" in (
+        surface_defaults
+    )
+    model_views = (viz_root / "mh_viz_default_model_views.m").read_text(
+        encoding="utf-8"
+    )
+    assert "views.reference = {reference1, reference2};" in model_views
+    assert "views.addon = {addon1, addon2};" in model_views
+    assert "reference1.camva = 0.3500;" in model_views
+    assert "reference1.campos = [-841.1497 -1.6125e+03 481.0182];" in model_views
+    assert "addon1.camva = 0.5000;" in model_views
+    assert "reference1.camtarget = [9.8725 -14.8273 -6.5437];" in model_views
+    assert "reference2.camtarget = [8.5895 -16.9006 -8.6190];" in model_views
+    assert "addon2.camtarget = [9.1244 -16.2821 -12.1207];" in model_views
+    assert "addon1.camtarget = [9.6266 -16.6089 -12.8113];" in model_views
+    fiber_views = (viz_root / "mh_viz_default_fiber_views.m").read_text(
+        encoding="utf-8"
+    )
+    assert "fiberView.az = 0;" in fiber_views
+    assert "fiberView.el = 0;" in fiber_views
+    assert "fiberView.camva = 3.8000;" in fiber_views
+    assert "fiberView.camup = [0 0 1];" in fiber_views
+    assert "fiberView.camproj = 'orthographic';" in fiber_views
+    assert "fiberView.camtarget = [9.8538 -48.8761 9.6955];" in fiber_views
+    assert "fiberView.campos = [1.8846e+03 -48.8761 9.6955];" in fiber_views
+    assert "views.reference = {fiberView};" in fiber_views
+    assert "views.addon = {fiberView};" in fiber_views
+    fiber_style = (
+        viz_root / "mh_viz_default_fiber_scene_spec.m"
+    ).read_text(encoding="utf-8")
+    assert "spec.CandidateFiberAlpha = 1.0;" in fiber_style
+    assert "spec.CoefficientFiberAlpha = 1.0;" in fiber_style
+    assert "spec.CoefficientFiberLineWidth = 0.25;" in fiber_style
+    assert "spec.FiberColorbarTextColor = [1, 1, 1];" in fiber_style
+    assert "spec.SelectedFiberRenderMode = 'line';" in fiber_style
+    assert "spec.SelectedFiberLineWidth = 0.50;" in fiber_style
+    assert "spec.FiberLegendTextColor = [1, 1, 1];" in fiber_style
+    assert "spec.BackgroundColor = [0, 0, 0];" in fiber_style
+    assert "spec.AddRASTriad = false;" in fiber_style
+    assert "spec.AnatomySliceAlpha = 1.0;" in fiber_style
+    assert "spec.AnatomySlicePlane = 'x';" in fiber_style
+    assert "spec.AnatomySliceCoordinateMm = 5;" in fiber_style
+    assert "spec.AnatomySliceTransparencyPercent = 100;" in fiber_style
+    assert "7T_100um_Edlow_2019.nii" in fiber_style
+    exporter = (viz_root / "mh_viz_export_scene_views.m").read_text(
+        encoding="utf-8"
+    )
+    assert "{'reference', 'addon'}" in exporter
+    assert "'Transparent', false" in exporter
+    assert "addParameter(parser, 'ContentType', 'mixed'" in exporter
+    assert "addParameter(parser, 'IncludeAnatomySlices', false" in exporter
+    assert "addParameter(parser, 'RequireRASLabels', true" in exporter
+    assert "requiredRoiIndex = 2;" in exporter
+    assert "requiredRoiIndex = 1;" in exporter
+    assert "'Custom_STNSNr'" in exporter
+    assert "mh_viz_export_scene_views:MissingRoleRoi" in exporter
+    assert "mh_viz_export_scene_views:CameraMismatch" in exporter
+    assert "local_assert_camera(hAx, viewSpec, role, viewIndex);" in exporter
+    assert "local_apply_camera_lighting(hAx);" in exporter
+    mixed_pdf_exporter = (
+        viz_root / "surface/render/ea_export_figure_transparent.m"
+    ).read_text(encoding="utf-8")
+    assert "fiberLegendSpecs = local_capture_fiber_legends(hFig);" in (
+        mixed_pdf_exporter
+    )
+    assert "set(fiberLegends(i), 'Visible', 'off');" in (
+        mixed_pdf_exporter
+    )
+    assert "local_draw_vector_fiber_legend(compFig, fiberLegendSpecs(i));" in (
+        mixed_pdf_exporter
+    )
+    assert "local_capture_vector_fiber_layers" not in mixed_pdf_exporter
+    assert "convertDataSpaceCoordsToViewerCoords" not in mixed_pdf_exporter
+    assert "set(fiberGraphics(i), 'Visible', 'off');" not in (
+        mixed_pdf_exporter
+    )
+    assert "'Tag', 'mh_viz_fiber_legend_matte'" in mixed_pdf_exporter
+    assert "'Color', spec.TextColor" in mixed_pdf_exporter
+    silent_exporter = (
+        viz_root / "mh_viz_export_pdq39_voxel_pdfs.m"
+    ).read_text(encoding="utf-8")
+    assert "spec.FigureVisible = 'off';" in silent_exporter
+    assert "spec.FigureBackend = 'matlab';" in silent_exporter
+    assert "spec.StrictHeadless = true;" in silent_exporter
+    assert "spec.AtlasEdgeAlpha = 0.15;" in silent_exporter
+    assert "mh_viz_export_pdq39_voxel_pdfs:VisibleFigure" in silent_exporter
+    assert "numel(exports) ~= 4" in silent_exporter
+    fiber_exporter = (
+        viz_root / "mh_viz_export_pdq39_fiber_pdfs.m"
+    ).read_text(encoding="utf-8")
+    assert "spec.FiberCategoricalMat = prepared.input_path;" in fiber_exporter
+    assert "addParameter(parser, 'Views', mh_viz_default_fiber_views()" in (
+        fiber_exporter
+    )
+    assert "fiberStyle = mh_viz_default_fiber_scene_spec();" in fiber_exporter
+    assert "spec.CandidateFiberAlpha = fiberStyle.CandidateFiberAlpha;" in (
+        fiber_exporter
+    )
+    assert (
+        "spec.SelectedFiberRenderMode = fiberStyle.SelectedFiberRenderMode;"
+        in fiber_exporter
+    )
+    assert (
+        "spec.SelectedFiberLineWidth = fiberStyle.SelectedFiberLineWidth;"
+        in fiber_exporter
+    )
+    assert "spec.BackgroundColor = fiberStyle.BackgroundColor;" in fiber_exporter
+    assert "spec.AddRASTriad = fiberStyle.AddRASTriad;" in fiber_exporter
+    assert "spec.AnatomyNifti = fiberStyle.AnatomyNifti;" in fiber_exporter
+    assert "spec.FigureVisible = 'off';" in fiber_exporter
+    assert "spec.FigureBackend = 'matlab';" in fiber_exporter
+    assert "spec.StrictHeadless = true;" in fiber_exporter
+    assert "spec.AddToolbarToggles = false;" in fiber_exporter
+    assert "'BackgroundColor', fiberStyle.BackgroundColor" in fiber_exporter
+    assert "'IncludeAnatomySlices', true" in fiber_exporter
+    assert "'RequireRASLabels', false" in fiber_exporter
+    assert "numel(exports) ~= expectedExportCount" in fiber_exporter
+    assert "'candidate_alpha_hex', 'FF'" in fiber_exporter
+    assert "'legend_symbol', 'horizontal_line'" in fiber_exporter
+    assert "'legend_text_color', '#FFFFFF'" in fiber_exporter
+    assert "'background_color', '#000000'" in fiber_exporter
+    assert "'ras_triad_default_enabled', false" in fiber_exporter
+    assert "'scene_alignment', 'single_native_3d_axes'" in fiber_exporter
+    assert "'axes_sort_method', 'childorder'" in fiber_exporter
+    assert (
+        "'fiber_layer_order', 'candidate_back_sweet_sour_front'"
+        in fiber_exporter
+    )
+    assert "'fiber_pdf_layer', 'same_axes_raster'" in fiber_exporter
+    assert "'anatomy_atlas_pdf_layer', 'same_axes_raster'" in fiber_exporter
+    assert "addParameter(parser, 'Resolution', 600" in fiber_exporter
+    assert "'anatomy_atlas_raster_dpi', resolution" in fiber_exporter
+    assert "'legend_pdf_layer', 'vector'" in fiber_exporter
+    assert "pdq39_categorical_fiber_3d_export_v7" in fiber_exporter
+    assert "local_assert_layer_order(scene, role);" in fiber_exporter
+    assert "metadata.rendered_fiber_count ~= metadata.candidate_fiber_count" in (
+        fiber_exporter
+    )
+    categorical_renderer = (
+        viz_root / "mh_viz_show_categorical_fibers.m"
+    ).read_text(encoding="utf-8")
+    assert "'CandidateColor', [204, 204, 204] / 255" in categorical_renderer
+    assert "'CandidateAlpha', 1.0" in categorical_renderer
+    assert "'SweetColor', [242, 0, 14] / 255" in categorical_renderer
+    assert "'SourColor', [14, 106, 175] / 255" in categorical_renderer
+    assert "'SelectedRenderMode', 'line'" in categorical_renderer
+    assert "'SelectedLineWidth', 0.50" in categorical_renderer
+    assert "handles.sweet = local_selected_patch(" in categorical_renderer
+    assert "handles.sour = local_selected_patch(" in categorical_renderer
+    assert "maximumRenderedFibers" not in categorical_renderer
+    assert "numFiberThreshold" not in categorical_renderer
+    assert "metadata.rendered_fiber_count ~= fiberCount" in categorical_renderer
+    coefficient_renderer = (
+        viz_root / "mh_viz_show_coefficient_fibers.m"
+    ).read_text(encoding="utf-8")
+    assert "ea_colormap_vik(256)" in coefficient_renderer
+    assert "'EdgeColor', 'flat'" in coefficient_renderer
+    assert "'FaceVertexCData', vertexColors" in coefficient_renderer
+    assert "'Tag', 'mh_viz_fiber_coefficient'" in coefficient_renderer
+    assert "maximumRenderedFibers" not in coefficient_renderer
+    assert "streamtube" not in coefficient_renderer
+    coefficient_exporter = (
+        viz_root / "mh_viz_export_pdq39_fiber_coefficient_pdfs.m"
+    ).read_text(encoding="utf-8")
+    assert "spec.FiberCoefficientMat = prepared.input_path;" in (
+        coefficient_exporter
+    )
+    assert "spec.ShowFiberLegend = false;" in coefficient_exporter
+    assert "'colormap', 'vik'" in coefficient_exporter
+    assert "'colormap_samples', 256" in coefficient_exporter
+    assert "'fiber_sampling', 'none'" in coefficient_exporter
+    assert "'point_sampling', 'none'" in coefficient_exporter
+    assert "'count_legend', false" in coefficient_exporter
+    assert "'right_colorbar', true" in coefficient_exporter
+    assert "'colorbar_text_color', '#FFFFFF'" in coefficient_exporter
+    assert "pdq39_coefficient_fiber_3d_export_v2" in coefficient_exporter
+    for role in ("reference", "addon"):
+        coefficient_example = (
+            viz_root
+            / "examples"
+            / f"open_pdq39_{role}_fiber_coefficient_scene.m"
+        ).read_text(encoding="utf-8")
+        assert (
+            "spec.FiberCoefficientMat = pdq39FiberInput.input_path;"
+            in coefficient_example
+        )
+        assert "spec.ShowFiberLegend = false;" in coefficient_example
+        assert "Benefit-oriented partial Spearman ρ with %s" in (
+            coefficient_example
+        )
+    lighting_source = (
+        viz_root / "mh_viz_apply_soft_camera_lighting.m"
+    ).read_text(encoding="utf-8")
+    assert "'Tag', 'mh_viz_camera_key_light'" in lighting_source
+    assert "camlight(keyLight, 'headlight');" in lighting_source
+    assert "'Tag', 'mh_viz_camera_fill_light'" in lighting_source
+    assert "camlight(leftLight, 'left');" in lighting_source
+    assert "'Tag', 'mh_viz_camera_ceiling_light'" in lighting_source
+    assert "'AmbientStrength', 0.78" in lighting_source
+    assert "'DiffuseStrength', 0.22" in lighting_source
+    assert "'Color', [0.98, 0.98, 0.98]" in lighting_source
+    assert "'Color', [0.14, 0.14, 0.14]" in lighting_source
+    assert "'Color', [0.08, 0.08, 0.08]" in lighting_source
+    assert "'SpecularStrength', 0.12" in lighting_source
+    assert "'SpecularExponent', 24" in lighting_source
+    assert "'SpecularColorReflectance', 0.20" in lighting_source
+    assert "getappdata(hFig, appDataName)" in lighting_source
+    assert "setappdata(hFig, 'CamLight', keyLight);" in lighting_source
+    assert "setappdata(hFig, 'RightLight', rightLight);" in lighting_source
+    assert "setappdata(hFig, 'LeftLight', leftLight);" in lighting_source
+    assert "setappdata(hFig, 'CeilingLight', ceilingLight);" in lighting_source
+    assert "setappdata(hFig, 'mh_viz_lighting_preset', preset);" in lighting_source
+    assert "mh_viz_open_elvis_lighting_control(hFig)" in lighting_source
+    assert "set(rightLight, 'Visible', 'off'" in lighting_source
+    assert "'Visible', 'on'" in lighting_source
+    assert "delete(existingLights);" not in lighting_source
+    assert "findall(hFig, 'Type', 'patch')" in lighting_source
+    assert "findall(hFig, 'Type', 'surface')" in lighting_source
+    assert "FaceColor" not in lighting_source
+    lighting_adapter = (
+        viz_root / "mh_viz_open_elvis_lighting_control.m"
+    ).read_text(encoding="utf-8")
+    assert "app = ea_set_lighting(hFig);" in lighting_adapter
+    assert "app.AmbientStrengthSlider.Value" in lighting_adapter
+    assert "app.DiffuseStrengthSlider.Value" in lighting_adapter
+    assert "app.SpecularStrengthSlider.Value" in lighting_adapter
+    assert "app.SpecularExponentSlider.Value" in lighting_adapter
+    assert "app.SpecularColorReflectanceSlider.Value" in lighting_adapter
+    repo_root = viz_root.parents[3]
+    default_view_source = (repo_root / "ea_defaultview.m").read_text(
+        encoding="utf-8"
+    )
+    assert "[resultfig, arguments] = local_resolve_figure(varargin);" in (
+        default_view_source
+    )
+    assert "isgraphics(arguments{1}, 'figure')" in default_view_source
+    transition_source = (
+        repo_root / "ea_defaultview_transition.m"
+    ).read_text(encoding="utf-8")
+    assert "[resultfig, v, ~] = local_resolve_inputs(varargin);" in (
+        transition_source
+    )
+    elvis_source = (repo_root / "ea_elvis.m").read_text(encoding="utf-8")
+    assert (
+        "'ClickedCallback',{@save_currentview_callback,resultfig}"
+        in elvis_source
+    )
+    assert (
+        "'ClickedCallback',{@set_defaultview_callback,resultfig}"
+        in elvis_source
+    )
+    assert "ea_defaultview_transition(resultfig,v,togglestates);" in elvis_source
+    mouse_camera_source = (
+        repo_root / "helpers/gui/ea_mouse_camera.m"
+    ).read_text(encoding="utf-8")
+    assert "ea_defaultview_transition(hfig,v,togglestates);" in (
+        mouse_camera_source
+    )
+    view_application = (
+        viz_root / "surface/render/ea_apply_view_struct.m"
+    ).read_text(encoding="utf-8")
+    assert "camproj(hAx, char(v.camproj));" in view_application
+    assert "camva(hAx, double(v.camva));" in view_application
+    assert "camup(hAx, double(v.camup(:))');" in view_application
+    assert "camtarget(hAx, double(v.camtarget(:))');" in view_application
+    assert "campos(hAx, double(v.campos(:))');" in view_application
+    ras_triad = (
+        viz_root / "surface/render/ea_add_ras_triad.m"
+    ).read_text(encoding="utf-8")
+    assert "addParameter(ip, 'ShowLabels', true" in ras_triad
+    for label in ("R", "A", "S"):
+        assert f"EA_RAS_TRIAD_LABEL_{label}" in ras_triad

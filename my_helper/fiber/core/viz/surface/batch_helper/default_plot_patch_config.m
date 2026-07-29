@@ -42,6 +42,7 @@ function cfg_plot_patch = default_plot_patch_config()
     cfg_plot_patch.RASTriadLocation        = [0.040 0.040 0.175 0.175];
     cfg_plot_patch.RASTriadAxesPadding     = 0.50;
     cfg_plot_patch.RASTriadFontSize        = tickfontsize;
+    cfg_plot_patch.RASShowLabels           = true;
     cfg_plot_patch.RASTriadLineWidth       = 5;
     cfg_plot_patch.RASTriadHeadSize        = 1.0;
     cfg_plot_patch.ExportResolution        = 450;

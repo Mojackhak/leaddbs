@@ -24,7 +24,12 @@ from dual_frequency.application.sensitivity import (
     compile_sensitivity_extension_plan,
     load_sensitivity_checkpoint,
 )
-from dual_frequency.cache import RunScopedArtifactPublisher
+from dual_frequency.cache import (
+    CacheFileMetadata,
+    ContentAddressedCache,
+    RunScopedArtifactPublisher,
+    ScientificCacheKey,
+)
 from dual_frequency.cache.identity import sha256_file
 from dual_frequency.contracts import (
     ArtifactRef,
@@ -361,7 +366,7 @@ class SensitivityCheckpointTest(unittest.TestCase):
             restored = _remap_value(portable, physical_mapper)
             self.assertIsInstance(restored, PreparedExposureRecord)
             for artifact in record_artifacts(portable):
-                resolved = physical_mapper.verify(artifact)
+                resolved = physical_mapper(artifact)
                 self.assertTrue(
                     Path(resolved.uri.removeprefix("file://")).is_file()
                 )
@@ -723,7 +728,7 @@ class SensitivityCheckpointTest(unittest.TestCase):
             )
         )
 
-    def test_loader_hashes_final_artifact_once_and_ignores_unselected_seed(self) -> None:
+    def test_loader_does_not_hash_checkpoint_or_final_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             work = root / "run" / "work"
@@ -746,15 +751,9 @@ class SensitivityCheckpointTest(unittest.TestCase):
                     _seed_outcome("task-unrelated", unrelated_artifact),
                 ),
             )
-            calls: list[Path] = []
-
-            def counted(path: Path) -> str:
-                calls.append(Path(path).resolve())
-                return sha256_file(path)
-
             with patch(
                 "dual_frequency.application.sensitivity.sha256_file",
-                side_effect=counted,
+                side_effect=AssertionError("checkpoint loading must not hash payloads"),
             ):
                 checkpoint = load_sensitivity_checkpoint(
                     run_root,
@@ -765,10 +764,8 @@ class SensitivityCheckpointTest(unittest.TestCase):
 
         self.assertEqual(len(outcomes), 1)
         self.assertEqual(outcomes[0].task_id, "task-required")
-        self.assertEqual(calls.count(final_path.resolve()), 1)
-        self.assertNotIn(unrelated_path.resolve(), calls)
 
-    def test_loader_rejects_corrupted_final_artifact_before_rehydration(self) -> None:
+    def test_loader_accepts_payload_drift_when_array_structure_is_readable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             work = root / "run" / "work"
@@ -782,15 +779,171 @@ class SensitivityCheckpointTest(unittest.TestCase):
                 seed_outcomes=(_seed_outcome("task-required", artifact),),
             )
             final_path.write_bytes(final_path.read_bytes() + b"corruption")
+            checkpoint = load_sensitivity_checkpoint(
+                run_root,
+                cache_root=cache_root,
+                output_root=output_root,
+            )
+            outcomes = checkpoint.seed_outcomes_for(("task-required",))
+
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0].task_id, "task-required")
+
+    def test_loader_requires_omega_descriptor_only_for_oss(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            work = root / "run" / "work"
+            work.mkdir(parents=True)
+            final_path = work / "final.npy"
+            np.save(final_path, np.arange(3, dtype=np.float64))
+            artifact = _artifact(final_path, portable_name="final.npy")
+            run_root, cache_root, output_root = _write_checkpoint(
+                root,
+                final_artifacts=(artifact,),
+                seed_outcomes=(_seed_outcome("task-required", artifact),),
+            )
+            index = json.loads(
+                (run_root / "sensitivity_bases" / "index.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            base_path = (
+                run_root
+                / "sensitivity_bases"
+                / str(index["bases"][0]["relative_path"])
+            )
+            base = json.loads(base_path.read_text(encoding="utf-8"))
+            base["model_family"] = "reference_fiber"
+            base["shared_exposure_entries"] = [
+                {
+                    "kind": "fiber_exposures",
+                    "semantic_sha256": "2" * 64,
+                }
+            ]
+            base_path.write_text(
+                json.dumps(base, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            jitter_checkpoint = load_sensitivity_checkpoint(
+                run_root,
+                cache_root=cache_root,
+                output_root=output_root,
+            )
             with self.assertRaisesRegex(
                 SensitivityCheckpointError,
-                "failed SHA-256",
+                "must resolve one exact Omega_max cache manifest",
             ):
                 load_sensitivity_checkpoint(
                     run_root,
                     cache_root=cache_root,
                     output_root=output_root,
+                    require_omega_max=True,
                 )
+
+        self.assertEqual(jitter_checkpoint.endpoint_ids, ("endpoint-checkpoint",))
+
+    def test_new_oss_child_ignores_unrelated_cache_failures_without_parent_write(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            work = root / "run" / "work"
+            work.mkdir(parents=True)
+            final_path = work / "final.npy"
+            fiber_ids_path = work / "fiber_ids.npy"
+            np.save(final_path, np.arange(3, dtype=np.float64))
+            np.save(fiber_ids_path, np.arange(4, dtype=np.int64))
+            artifact = _artifact(final_path, portable_name="final.npy")
+            run_root, cache_root, output_root = _write_checkpoint(
+                root,
+                final_artifacts=(artifact,),
+                seed_outcomes=(_seed_outcome("task-required", artifact),),
+            )
+            key = ScientificCacheKey(
+                geometry_hash="1" * 64,
+                stimulation_hash="2" * 64,
+                component_frequency_hash="3" * 64,
+                transform_hash="4" * 64,
+                connectome_feature_hash="5" * 64,
+                backend_name="normative_fiber_omega_max",
+                backend_version="1",
+                scientific_parameter_hashes=(("omega", "6" * 64),),
+                kind="fiber_exposures",
+            )
+            omega_axis = AxisRef("omega-axis", 4, "7" * 64)
+            cache = ContentAddressedCache(cache_root)
+            entry = cache.publish(
+                key,
+                {"fiber_ids.npy": fiber_ids_path},
+                metadata={
+                    "fiber_ids.npy": CacheFileMetadata(
+                        dtype="int64",
+                        shape=(4,),
+                        axes=(omega_axis,),
+                        units="fiber_id",
+                    )
+                },
+            )
+            index = json.loads(
+                (run_root / "sensitivity_bases" / "index.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            base_path = (
+                run_root
+                / "sensitivity_bases"
+                / str(index["bases"][0]["relative_path"])
+            )
+            base = json.loads(base_path.read_text(encoding="utf-8"))
+            base.update(
+                {
+                    "model_family": "reference_fiber",
+                    "shared_exposure_semantic_sha256": key.stimulation_hash,
+                    "shared_exposure_entries": [
+                        {
+                            "kind": "prepared_artifacts",
+                            "semantic_sha256": "not-an-omega-digest",
+                        },
+                        {
+                            "kind": "fiber_exposures",
+                            "semantic_sha256": "8" * 64,
+                        },
+                        {
+                            "kind": key.kind,
+                            "semantic_sha256": key.digest,
+                        }
+                    ],
+                }
+            )
+            base_path.write_text(
+                json.dumps(base, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                ContentAddressedCache,
+                "resolve_identity",
+                side_effect=AssertionError(
+                    "historical descriptor derivation must not verify payloads"
+                ),
+            ):
+                checkpoint = load_sensitivity_checkpoint(
+                    run_root,
+                    cache_root=cache_root,
+                    output_root=output_root,
+                    require_omega_max=True,
+                )
+            descriptor = checkpoint.bases[0]["omega_max"]
+            persisted = json.loads(base_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(descriptor["semantic_sha256"], key.digest)
+        self.assertEqual(descriptor["feature_axis"]["axis_id"], "omega-axis")
+        self.assertEqual(
+            descriptor["payload_sha256"],
+            entry.files[0].sha256,
+        )
+        self.assertNotIn("omega_max", persisted)
 
     def test_extension_plan_stops_at_completed_direct_parent(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")

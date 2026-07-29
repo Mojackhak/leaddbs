@@ -298,8 +298,13 @@ function local_export_mixed_pdf(hFig, outFile, bg, resolution, rendererName, use
 %LOCAL_EXPORT_MIXED_PDF Export a raster scene with vector colorbar overlays.
 
     colorbarSpecs = local_capture_colorbars(hFig, useSymbolForGreek);
+    fiberLegendSpecs = local_capture_fiber_legends(hFig);
     colorbars = findall(hFig, 'Type', 'ColorBar');
+    fiberLegends = findall(hFig, ...
+        'Type', 'Legend', ...
+        'Tag', 'mh_viz_fiber_legend');
     oldVisible = cell(numel(colorbars), 1);
+    oldLegendVisible = cell(numel(fiberLegends), 1);
     for i = 1:numel(colorbars)
         try
             oldVisible{i} = get(colorbars(i), 'Visible');
@@ -308,7 +313,14 @@ function local_export_mixed_pdf(hFig, outFile, bg, resolution, rendererName, use
             oldVisible{i} = [];
         end
     end
-
+    for i = 1:numel(fiberLegends)
+        try
+            oldLegendVisible{i} = get(fiberLegends(i), 'Visible');
+            set(fiberLegends(i), 'Visible', 'off');
+        catch
+            oldLegendVisible{i} = [];
+        end
+    end
     try
         drawnow;
         rasterSpecs = local_capture_raster_axes(hFig, bg, resolution);
@@ -324,6 +336,14 @@ function local_export_mixed_pdf(hFig, outFile, bg, resolution, rendererName, use
             catch
             end
         end
+        for i = 1:numel(fiberLegends)
+            try
+                if ~isempty(oldLegendVisible{i})
+                    set(fiberLegends(i), 'Visible', oldLegendVisible{i});
+                end
+            catch
+            end
+        end
         rethrow(ME);
     end
 
@@ -335,7 +355,14 @@ function local_export_mixed_pdf(hFig, outFile, bg, resolution, rendererName, use
         catch
         end
     end
-
+    for i = 1:numel(fiberLegends)
+        try
+            if ~isempty(oldLegendVisible{i})
+                set(fiberLegends(i), 'Visible', oldLegendVisible{i});
+            end
+        catch
+        end
+    end
     oldFigUnits = get(hFig, 'Units');
     oldFigPos = get(hFig, 'Position');
     compFig = figure( ...
@@ -354,6 +381,10 @@ function local_export_mixed_pdf(hFig, outFile, bg, resolution, rendererName, use
 
     for i = nonTriadIdx(:)'
         local_draw_raster_layer(compFig, rasterSpecs(i));
+    end
+
+    for i = 1:numel(fiberLegendSpecs)
+        local_draw_vector_fiber_legend(compFig, fiberLegendSpecs(i));
     end
 
     for i = 1:numel(colorbarSpecs)
@@ -571,6 +602,115 @@ function local_draw_raster_layer(parentFig, spec)
         'PlotBoxAspectRatio', [size(img, 2) size(img, 1) 1], ...
         'PlotBoxAspectRatioMode', 'manual');
     axis(imgAx, 'off');
+end
+
+function specs = local_capture_fiber_legends(hFig)
+%LOCAL_CAPTURE_FIBER_LEGENDS Capture categorical fiber legends for vector redraw.
+
+    legends = flipud(findall(hFig, ...
+        'Type', 'Legend', ...
+        'Tag', 'mh_viz_fiber_legend'));
+    specs = repmat(local_empty_fiber_legend_spec(), numel(legends), 1);
+    for i = 1:numel(legends)
+        hLegend = legends(i);
+        spec = local_empty_fiber_legend_spec();
+        try
+            oldUnits = hLegend.Units;
+            hLegend.Units = 'normalized';
+            spec.Position = hLegend.Position;
+            hLegend.Units = oldUnits;
+        catch
+        end
+        try
+            spec.FontName = hLegend.FontName;
+        catch
+        end
+        try
+            spec.FontSize = hLegend.FontSize;
+        catch
+        end
+        try
+            spec.TextColor = hLegend.TextColor;
+        catch
+        end
+        try
+            spec.BackgroundColor = hFig.Color;
+        catch
+        end
+        try
+            spec.Colors = getappdata( ...
+                hLegend, 'mh_viz_fiber_legend_colors');
+        catch
+        end
+        try
+            spec.Labels = getappdata( ...
+                hLegend, 'mh_viz_fiber_legend_labels');
+        catch
+        end
+        spec.Labels = local_normalize_tick_labels(spec.Labels);
+        if size(spec.Colors, 2) ~= 3 || ...
+                size(spec.Colors, 1) ~= numel(spec.Labels)
+            spec.Colors = zeros(0, 3);
+            spec.Labels = {};
+        end
+        specs(i) = spec;
+    end
+end
+
+function spec = local_empty_fiber_legend_spec()
+%LOCAL_EMPTY_FIBER_LEGEND_SPEC Return categorical fiber legend defaults.
+
+    spec = struct();
+    spec.Position = [0.72 0.43 0.25 0.14];
+    spec.Labels = {};
+    spec.Colors = zeros(0, 3);
+    spec.TextColor = [1 1 1];
+    spec.BackgroundColor = [0 0 0];
+    spec.FontName = 'Arial';
+    spec.FontSize = 18;
+end
+
+function local_draw_vector_fiber_legend(parentFig, spec)
+%LOCAL_DRAW_VECTOR_FIBER_LEGEND Draw horizontal samples and vector labels.
+
+    if isempty(spec.Labels) || isempty(spec.Colors)
+        return;
+    end
+    overlayAx = local_create_page_overlay_axes(parentFig);
+    pos = double(spec.Position(:))';
+    mattePadding = [0.02 0.03];
+    matteLeft = max(0, pos(1) - mattePadding(1));
+    matteBottom = max(0, pos(2) - mattePadding(2));
+    matteRight = min(1, pos(1) + pos(3) + mattePadding(1));
+    matteTop = min(1, pos(2) + pos(4) + mattePadding(2));
+    patch(overlayAx, ...
+        [matteLeft matteRight matteRight matteLeft], ...
+        [matteBottom matteBottom matteTop matteTop], ...
+        spec.BackgroundColor, ...
+        'EdgeColor', 'none', ...
+        'FaceAlpha', 1, ...
+        'Clipping', 'off', ...
+        'Tag', 'mh_viz_fiber_legend_matte');
+    yPositions = linspace(0.80, 0.20, numel(spec.Labels));
+    xLine = pos(1) + [0.02 0.16] * pos(3);
+    xText = pos(1) + 0.20 * pos(3);
+    for i = 1:numel(spec.Labels)
+        y = pos(2) + yPositions(i) * pos(4);
+        line(overlayAx, xLine, [y y], ...
+            'Color', spec.Colors(i, :), ...
+            'LineStyle', '-', ...
+            'LineWidth', 4, ...
+            'Marker', 'none', ...
+            'Clipping', 'off');
+        text(overlayAx, xText, y, spec.Labels{i}, ...
+            'Color', spec.TextColor, ...
+            'FontName', spec.FontName, ...
+            'FontSize', spec.FontSize, ...
+            'Interpreter', 'none', ...
+            'HorizontalAlignment', 'left', ...
+            'VerticalAlignment', 'middle', ...
+            'Clipping', 'off');
+    end
 end
 
 function specs = local_capture_colorbars(hFig, useSymbolForGreek)

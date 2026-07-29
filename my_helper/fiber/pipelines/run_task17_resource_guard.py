@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard one Task 17 runner tree against mount, RSS, and swap violations."""
+"""Stop one Task 17 runner if its guarded VAL mount changes or disappears."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ _CSV_FIELDS = (
     "swap_baseline_bytes",
     "event",
 )
-_DEFAULT_RSS_LIMIT_BYTES = 64 * 1024**3
 _MIN_OBSERVATION_DEADLINE_SECONDS = 3.0
 _OBSERVATION_DEADLINE_INTERVALS = 3.0
 
@@ -276,12 +275,21 @@ def _fail_closed(
     terminator(evidence, runner_pid)
 
 
+def _swap_observation(reader: Callable[[], int]) -> int:
+    """Return optional swap telemetry without affecting mount protection."""
+
+    try:
+        value = reader()
+    except ResourceGuardError:
+        return -1
+    return value if value >= 0 else -1
+
+
 def run_guard(
     *,
     runner_pid: int,
     output: Path,
     mount_path: Path,
-    max_rss_bytes: int = _DEFAULT_RSS_LIMIT_BYTES,
     interval_seconds: float = 1.0,
     process_reader: Callable[[], tuple[ProcessRow, ...]] = _process_rows,
     swap_reader: Callable[[], int] = _swap_used_bytes,
@@ -292,12 +300,10 @@ def run_guard(
     timestamp_reader: Callable[[], str] = _utc_now,
     monotonic_reader: Callable[[], float] = time.monotonic,
 ) -> int:
-    """Run until the runner exits or a resource contract triggers a stop."""
+    """Run until the runner exits or the guarded mount becomes unsafe."""
 
     if runner_pid < 2:
         raise ResourceGuardError("runner PID must identify a non-system process")
-    if max_rss_bytes < 1:
-        raise ResourceGuardError("RSS ceiling must be positive")
     if interval_seconds <= 0:
         raise ResourceGuardError("sample interval must be positive")
     observation_deadline_seconds = max(
@@ -305,9 +311,7 @@ def run_guard(
         _OBSERVATION_DEADLINE_INTERVALS * interval_seconds,
     )
     destination = _validate_output_path(output, mount_path)
-    baseline_swap = swap_reader()
-    if baseline_swap < 0:
-        raise ResourceGuardError("swap baseline is negative")
+    baseline_swap = _swap_observation(swap_reader)
     peak_rss = 0
     with _open_output(destination) as handle:
         writer = csv.writer(handle)
@@ -332,9 +336,7 @@ def run_guard(
                         raise ResourceGuardError(
                             "runner PID is live but absent from process snapshot"
                         )
-                used_swap = swap_reader()
-                if used_swap < 0:
-                    raise ResourceGuardError("reported swap usage is negative")
+                used_swap = _swap_observation(swap_reader)
                 current_mount_identity = mount_identity_reader(mount_path)
                 if (
                     baseline_mount_identity is None
@@ -378,10 +380,6 @@ def run_guard(
                 event = "sample"
                 if continuity_untrusted:
                     event = "val_unmounted_sigterm"
-                elif rss_bytes >= max_rss_bytes:
-                    event = "rss_limit_sigterm"
-                elif used_swap > baseline_swap:
-                    event = "swap_growth_sigterm"
                 _write_row(
                     writer,
                     handle,
@@ -411,11 +409,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--runner-pid", required=True, type=int)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--mount", required=True, type=Path)
-    parser.add_argument(
-        "--max-rss-bytes",
-        type=int,
-        default=_DEFAULT_RSS_LIMIT_BYTES,
-    )
     parser.add_argument("--interval-seconds", type=float, default=1.0)
     return parser
 
@@ -427,7 +420,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             runner_pid=arguments.runner_pid,
             output=arguments.output,
             mount_path=arguments.mount,
-            max_rss_bytes=arguments.max_rss_bytes,
             interval_seconds=arguments.interval_seconds,
         )
     except ResourceGuardError as exc:

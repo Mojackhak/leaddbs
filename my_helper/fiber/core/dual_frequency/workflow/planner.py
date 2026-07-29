@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import math
+from typing import Any
 
 from ..catalog import CatalogStatus, EndpointRecord
 from ..config import ResolvedWorkflow
@@ -147,6 +149,174 @@ class ExecutionPlan:
 
     def for_endpoint(self, endpoint_id: str) -> tuple[TaskSpec, ...]:
         return tuple(item for item in self.tasks if item.endpoint_id == endpoint_id)
+
+
+def execution_plan_from_payload(
+    raw: object,
+    *,
+    configuration_hash: str | None = None,
+) -> ExecutionPlan:
+    """Decode one persisted execution plan from its required JSON fields."""
+
+    expected_plan_fields = {
+        "scientific_configuration_hash",
+        "through",
+        "tasks",
+    }
+    if configuration_hash is None:
+        expected_plan_fields.add("configuration_hash")
+    if (
+        not isinstance(raw, Mapping)
+        or not expected_plan_fields.issubset(raw)
+    ):
+        raise PlanningError("persisted execution plan fields differ")
+    raw_tasks = raw["tasks"]
+    if not isinstance(raw_tasks, list) or not raw_tasks:
+        raise PlanningError("persisted execution task closure differs")
+    task_fields = {
+        "key",
+        "endpoint_id",
+        "model_family",
+        "connectome_role",
+        "stage",
+        "round_id",
+        "phase",
+        "service_id",
+        "dependencies",
+        "gates",
+        "output_record_type",
+        "execution_parameters",
+        "expensive_producer",
+        "cache_first_expensive",
+        "checkpoint_only",
+        "timeout_seconds",
+        "transient_safe",
+        "max_transient_retries",
+    }
+
+    def text(source: Mapping[str, Any], field: str) -> str:
+        value = source[field]
+        if not isinstance(value, str) or not value.strip():
+            raise TypeError(field)
+        return value
+
+    def flag(source: Mapping[str, Any], field: str) -> bool:
+        value = source[field]
+        if type(value) is not bool:
+            raise TypeError(field)
+        return value
+
+    tasks: list[TaskSpec] = []
+    for index, item in enumerate(raw_tasks):
+        if (
+            not isinstance(item, Mapping)
+            or not task_fields.issubset(item)
+        ):
+            raise PlanningError(
+                f"persisted execution task fields differ: {index}"
+            )
+        key = item["key"]
+        dependencies = item["dependencies"]
+        gates = item["gates"]
+        parameters = item["execution_parameters"]
+        if (
+            not isinstance(key, Mapping)
+            or not {
+                "endpoint_id",
+                "stage",
+                "branch",
+                "parameter_identity",
+            }.issubset(key)
+            or not isinstance(dependencies, list)
+            or not all(isinstance(value, str) for value in dependencies)
+            or not isinstance(gates, list)
+            or not isinstance(parameters, list)
+        ):
+            raise PlanningError(
+                f"persisted execution task collections differ: {index}"
+            )
+        decoded_gates: list[GateRequirement] = []
+        for gate in gates:
+            if (
+                not isinstance(gate, Mapping)
+                or not {"fact", "false_status"}.issubset(gate)
+            ):
+                raise PlanningError(
+                    f"persisted execution gate differs: {index}"
+                )
+            try:
+                decoded_gates.append(
+                    GateRequirement(
+                        fact=text(gate, "fact"),
+                        false_status=text(gate, "false_status"),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise PlanningError(
+                    f"persisted execution gate is invalid: {index}"
+                ) from exc
+        decoded_parameters: list[tuple[str, str]] = []
+        for parameter in parameters:
+            if (
+                not isinstance(parameter, list)
+                or len(parameter) != 2
+                or not all(isinstance(value, str) for value in parameter)
+            ):
+                raise PlanningError(
+                    f"persisted execution parameter differs: {index}"
+                )
+            decoded_parameters.append((parameter[0], parameter[1]))
+        try:
+            tasks.append(
+                TaskSpec(
+                    key=TaskKey(
+                        endpoint_id=text(key, "endpoint_id"),
+                        stage=text(key, "stage"),
+                        branch=text(key, "branch"),
+                        parameter_identity=text(key, "parameter_identity"),
+                    ),
+                    endpoint_id=text(item, "endpoint_id"),
+                    model_family=text(item, "model_family"),
+                    connectome_role=text(item, "connectome_role"),
+                    stage=text(item, "stage"),
+                    round_id=text(item, "round_id"),
+                    phase=text(item, "phase"),
+                    service_id=text(item, "service_id"),
+                    dependencies=tuple(dependencies),
+                    gates=tuple(decoded_gates),
+                    output_record_type=text(item, "output_record_type"),
+                    execution_parameters=tuple(decoded_parameters),
+                    expensive_producer=flag(item, "expensive_producer"),
+                    cache_first_expensive=flag(
+                        item,
+                        "cache_first_expensive",
+                    ),
+                    checkpoint_only=flag(item, "checkpoint_only"),
+                    timeout_seconds=item["timeout_seconds"],
+                    transient_safe=flag(item, "transient_safe"),
+                    max_transient_retries=item["max_transient_retries"],
+                )
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PlanningError(
+                f"persisted execution task is invalid: {index}"
+            ) from exc
+    try:
+        return ExecutionPlan(
+            configuration_hash=(
+                configuration_hash
+                if configuration_hash is not None
+                else text(raw, "configuration_hash")
+            ),
+            scientific_configuration_hash=text(
+                raw,
+                "scientific_configuration_hash",
+            ),
+            through=text(raw, "through"),
+            tasks=tuple(tasks),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PlanningError("persisted execution plan is invalid") from exc
 
 
 class _TaskFactory:

@@ -13,8 +13,16 @@ pdq39VoxelInput = mh_viz_prepare_scene_example_input( ...
 
 spec = struct();
 spec.VoxelSignedNifti = pdq39VoxelInput.input_path;
-spec.VoxelColorbarLabel = 'PDQ-39 benefit-oriented voxel weight';
+spec.VoxelColorbarLabel = sprintf( ...
+    'Benefit-oriented partial Spearman ρ with %s', ...
+    pdq39VoxelInput.scale_display_name);
 spec.VoxelSampleDepthMm = 0.5;
+spec.AtlasName = 'Custom_STNSNr';
+spec.ShowAtlasWireframe = true;
+spec.AtlasRoiIndices = 2;
+spec.AtlasEdgeAlpha = 0.15;
+modelViews = mh_viz_default_model_views();
+spec.ViewStruct = modelViews.reference{1};
 spec.FigureVisible = 'on';
 spec.OutputFig = '';
 spec.OutputImage = '';

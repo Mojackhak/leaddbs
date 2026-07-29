@@ -9,19 +9,23 @@ from .layout import DEFAULT_BOXSIZE_MM, FigureLayout, build_figure_layout
 from .plugin.default import (
     DEFAULT_FIBER_SECTION_CONFIG,
     DEFAULT_FIT_CONFIG,
+    DEFAULT_TARGET_SCORE_RAINCLOUD_CONFIG,
     DEFAULT_VOXEL_SECTION_CONFIG,
     fiber_section_cfg,
     fit_cfg,
+    get_target_score_raincloud_cfg,
     get_fiber_section_cfg,
     get_fit_cfg,
     get_voxel_section_cfg,
     voxel_section_cfg,
+    target_score_raincloud_cfg,
 )
 
 __all__ = [
     "DEFAULT_BOXSIZE_MM",
     "DEFAULT_FIBER_SECTION_CONFIG",
     "DEFAULT_FIT_CONFIG",
+    "DEFAULT_TARGET_SCORE_RAINCLOUD_CONFIG",
     "DEFAULT_VOXEL_SECTION_CONFIG",
     "FigureLayout",
     "SpatialLayer",
@@ -29,6 +33,7 @@ __all__ = [
     "fiber_section_cfg",
     "fit_cfg",
     "get_fit_cfg",
+    "get_target_score_raincloud_cfg",
     "get_fiber_section_cfg",
     "get_voxel_section_cfg",
     "plot_in_sample_loocv_fit",
@@ -41,6 +46,8 @@ __all__ = [
     "run_single_scale_fiber_section_postprocess",
     "run_single_scale_voxel_section_postprocess",
     "voxel_section_cfg",
+    "target_score_raincloud_cfg",
+    "plot_target_score_dual_raincloud",
 ]
 
 
@@ -51,6 +58,10 @@ def __getattr__(name: str):
         from .model_fit import plot_in_sample_loocv_fit
 
         return plot_in_sample_loocv_fit
+    if name == "plot_target_score_dual_raincloud":
+        from .target_score_raincloud import plot_target_score_dual_raincloud
+
+        return plot_target_score_dual_raincloud
     if name in {"SpatialLayer", "plot_sweet_sour_slices"}:
         from .spatial import SpatialLayer, plot_sweet_sour_slices
 

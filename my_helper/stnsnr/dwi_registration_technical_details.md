@@ -128,7 +128,33 @@ preprocessing/dwi/sub-<Subject>_ses-preop_dwi.bvec
   -> preprocessing/dwi/sub-<Subject>_ses-preop_desc-preproc_b0.nii
 ```
 
-The import helper defines b0 volumes as `bval < 10`. If multiple b0 volumes are present, it writes their mean. Existing staged b0 files are overwritten during import/staging so the b0 always matches the current staged DWI and sidecars.
+The import helper defines b0 volumes as `bval < 10`. The backward-compatible
+default for multiple b0 volumes is their mean. Motion-sensitive workflows may
+instead configure an explicit selection strategy such as `last`; the selected
+source volume index and hash must be recorded in provenance. A selected raw
+b0 must not be averaged with a visibly displaced b0 before Synb0 or motion
+correction. Existing staged b0 files are overwritten during import/staging so
+the b0 always matches the current staged DWI, sidecars, and configured b0
+selection strategy.
+
+When the selected b0 is intended to define the eddy reference and the bundled
+eddy executable does not expose a reference-scan option, the DWI volumes,
+b-values, and b-vectors are reordered together so the selected b0 is first.
+The source-to-eddy volume mapping is mandatory provenance. A moved but
+otherwise valid b0 can remain in the series for eddy correction; a corrupted
+or slice-inconsistent b0 may be removed only after separate QC approval.
+
+For the approved SNr017, SNr020, SNr022, and SNr026 reprocessing batch, the
+reference strategy is `last`: the final volume satisfying the configured b0
+threshold is moved to the first eddy input position. This policy controls the
+Synb0 distorted-b0 input, the eddy reference ordering, and the formal
+post-eddy b0. It does not hard-code a particular volume number, although the
+current four series all resolve to source volume 2.
+
+The reference-first ordering is an eddy implementation detail. After eddy,
+the corrected DWI and rotated b-vectors are restored to source acquisition
+order. The formal b-values remain in source order, and the formal corrected
+b0 is extracted from the restored volume matching the selected source b0.
 
 The b0 image must inherit the affine/header of the corresponding 4D DWI frame. It must not be independently recentered. This keeps b0, FA, masks, and tractography products on the same DWI grid.
 

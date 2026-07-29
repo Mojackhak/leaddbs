@@ -1,0 +1,40 @@
+% Open the completed PDQ-39 add-on direct-voxel model as an interactive scene.
+% This example intentionally creates no FIG, image, PDF, or spin export.
+
+exampleRoot = fileparts(mfilename('fullpath'));
+vizRoot = fileparts(exampleRoot);
+repoRoot = fileparts(fileparts(fileparts(fileparts(vizRoot))));
+addpath(genpath(repoRoot));
+
+publicationRoot = ['/Volumes/VAL/STNSNr/summary/spot/direct_voxel/', ...
+    'dual_frequency_four_model_v1'];
+pdq39VoxelInput = mh_viz_prepare_scene_example_input( ...
+    publicationRoot, 'addon_voxel', 'ScaleId', 'pdq39_score');
+
+spec = struct();
+spec.VoxelSignedNifti = pdq39VoxelInput.input_path;
+spec.VoxelColorbarLabel = sprintf( ...
+    'Benefit-oriented partial Spearman ρ with %s', ...
+    pdq39VoxelInput.scale_display_name);
+spec.VoxelSampleDepthMm = 1.0;
+spec.AtlasName = 'Custom_STNSNr';
+spec.ShowAtlasWireframe = true;
+spec.AtlasRoiIndices = 1;
+spec.AtlasEdgeAlpha = 0.15;
+modelViews = mh_viz_default_model_views();
+spec.ViewStruct = modelViews.addon{1};
+spec.FigureVisible = 'on';
+spec.OutputFig = '';
+spec.OutputImage = '';
+spec.OutputPdf = '';
+spec.OutputSpin = '';
+spec.CloseAfterExport = false;
+pdq39VoxelScene = mh_viz_make_sweet_sour_scene(spec);
+
+set(pdq39VoxelScene.figure, ...
+    'Name', sprintf('PDQ-39 add-on voxel | tau %g | Coverage %g', ...
+    pdq39VoxelInput.selected_tau, pdq39VoxelInput.selected_coverage), ...
+    'NumberTitle', 'off');
+figure(pdq39VoxelScene.figure);
+shg;
+drawnow;

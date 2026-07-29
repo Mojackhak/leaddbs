@@ -123,6 +123,8 @@ def _source_identity(source_run: Path) -> dict[str, str]:
     manifest = _read_json(manifest_path, "source child manifest")
     if manifest.get("final_status") != "completed":
         raise ExtensionPublicationError("source child is not terminal-completed")
+    if not (root / "complete.json").is_file():
+        raise ExtensionPublicationError("source child completion marker is missing")
     run_id = str(manifest.get("run_id", "")).strip()
     parent_run_id = str(manifest.get("parent_run_id", "")).strip()
     scientific_hash = _sha(

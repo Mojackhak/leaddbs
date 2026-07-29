@@ -23,6 +23,6 @@ function cfg_nifti2patch = default_nifti2patch_config()
     cfg_nifti2patch.CLimMode                   = 'symmetric';
     cfg_nifti2patch.GeometryUpsampleFactor     = 1;
     cfg_nifti2patch.ColorSampling              = 'insideOnly';
-    cfg_nifti2patch.SampleDepthMm              = 0.25;
+    cfg_nifti2patch.SampleDepthMm              = 1.0;
     cfg_nifti2patch.ReduceFactor               = 1;
 end

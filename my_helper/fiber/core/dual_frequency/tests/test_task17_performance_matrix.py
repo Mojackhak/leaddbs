@@ -25,7 +25,6 @@ from dual_frequency.cache import (
 )
 from dual_frequency.contracts import (
     AxisRef,
-    OSSAxisEquivalenceGroupRecord,
     OSSSharedOmegaGroupRecord,
     TaskKey,
 )
@@ -364,7 +363,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "production-toolchain",
             )
 
-    def test_accepted_oss_cache_closure_binds_only_gate_referenced_rows(
+    def test_accepted_oss_cache_closure_drives_row_cache_states(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -372,82 +371,63 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             cache = ContentAddressedCache(root / "cache")
             final_axis = AxisRef("final-axis", 2, "1" * 64)
             omega_axis = AxisRef("omega-axis", 3, "2" * 64)
-            _final_row, final_identity = self._publish_oss_row(
-                root=root,
-                cache=cache,
-                name="final",
-                axis=final_axis,
-                ids=np.asarray([2, 3], dtype=np.int64),
-                probabilities=np.asarray([0.3, 0.8], dtype=np.float32),
-            )
+            omega_ids = np.asarray([1, 2, 3], dtype=np.int64)
             _omega_row, omega_identity = self._publish_oss_row(
                 root=root,
                 cache=cache,
                 name="omega",
                 axis=omega_axis,
-                ids=np.asarray([1, 2, 3], dtype=np.int64),
+                ids=omega_ids,
                 probabilities=np.asarray([0.1, 0.3, 0.8], dtype=np.float32),
             )
-            decision_key = ScientificCacheKey(
-                geometry_hash=final_identity,
-                stimulation_hash=omega_identity,
+            axis_key = ScientificCacheKey(
+                geometry_hash="1" * 64,
+                stimulation_hash="2" * 64,
                 component_frequency_hash="3" * 64,
                 transform_hash="4" * 64,
                 connectome_feature_hash="5" * 64,
-                backend_name="oss_axis_equivalence",
-                backend_version="1",
-                scientific_parameter_hashes=(
-                    ("final_row", final_identity),
-                    ("omega_row", omega_identity),
-                ),
-                kind="oss_axis_equivalence",
+                backend_name="normative_fiber_omega_max",
+                backend_version="2",
+                scientific_parameter_hashes=(("grid", "6" * 64),),
+                kind="fiber_exposures",
             )
-            decision_path = root / "decision.json"
-            decision_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": (
-                            "dual_frequency_oss_axis_decision_v1"
-                        ),
-                        "decision_id": decision_key.digest,
-                        "group_id": "reference-group",
-                        "status": "pass",
-                        "final_row_identity": final_identity,
-                        "omega_row_identity": omega_identity,
-                        "state_mismatch_count": 0,
-                        "activation_count_mismatch_count": 0,
-                        "max_probability_difference": 0.0,
-                        "probability_tolerance": 1e-7,
-                    }
-                ),
-                encoding="utf-8",
-            )
+            axis_path = root / "omega-axis.npy"
+            np.save(axis_path, omega_ids, allow_pickle=False)
             cache.publish(
-                decision_key,
-                {"decision.json": decision_path},
+                axis_key,
+                {"fiber_ids.npy": axis_path},
+                metadata={
+                    "fiber_ids.npy": CacheFileMetadata(
+                        dtype="int64",
+                        shape=(omega_axis.count,),
+                        axes=(omega_axis,),
+                        units="fiber_id",
+                        space="right_canonical",
+                    )
+                },
             )
-            record = OSSAxisEquivalenceGroupRecord(
+            record = OSSSharedOmegaGroupRecord(
                 group_id="reference-group",
                 model_family="reference_fiber",
-                gate_status="accepted_omega_max",
+                preparation_status="omega_max_ready",
                 final_feature_axis=final_axis,
                 omega_feature_axis=omega_axis,
-                omega_cache_kind="fiber_exposures",
-                omega_cache_semantic_sha256="6" * 64,
+                omega_cache_kind=axis_key.kind,
+                omega_cache_semantic_sha256=axis_key.digest,
                 endpoint_ids=("endpoint-a",),
-                row_decision_ids=(decision_key.digest,),
+                omega_row_ids=(omega_identity,),
             )
             closure = harness._accepted_oss_cache_closure(
-                (("task_gate", record),),
+                (("task_omega", record),),
                 cache_root=cache.root,
             )
             self.assertEqual(
                 [row["scientific_identity"] for row in closure["rows"]],
-                sorted((final_identity, omega_identity)),
+                [omega_identity],
             )
             self.assertEqual(
-                closure["groups"][0]["decision_ids"],
-                [decision_key.digest],
+                closure["groups"][0]["omega_row_ids"],
+                [omega_identity],
             )
             descriptors = harness._accepted_oss_cache_entry_descriptors(
                 closure
@@ -457,19 +437,19 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 destination_cache_root=root / "row-cache",
                 entries=descriptors,
             )
-            self.assertEqual(len(seed["entries"]), 3)
+            self.assertEqual(len(seed["entries"]), 1)
             copied_cache = ContentAddressedCache(root / "row-cache")
             self.assertIsNotNone(
                 copied_cache.resolve_identity(
-                    "oss_axis_equivalence",
-                    decision_key.digest,
+                    "oss_rows",
+                    omega_identity,
                 )
             )
             fixture = harness._prepare_injected_oss_fixture(
                 accepted_closure=closure,
                 destination_cache_root=root / "injected-fixture",
             )
-            self.assertEqual(len(fixture["permitted_row_identities"]), 2)
+            self.assertEqual(len(fixture["permitted_row_identities"]), 1)
             spawn_fixture = harness._benchmark_oss_fixture_spec(fixture)
             self.assertIsInstance(
                 spawn_fixture,
@@ -482,29 +462,38 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             fixture_cache = ContentAddressedCache(
                 root / "injected-fixture"
             )
-            self.assertIsNone(
+            self.assertIsNotNone(
                 fixture_cache.resolve_identity(
-                    "oss_axis_equivalence",
-                    decision_key.digest,
+                    "oss_rows",
+                    omega_identity,
                 )
             )
             empty_proof = harness._empty_cache_proof(
                 root / "empty-row-cache"
             )
             self.assertEqual(empty_proof["entry_count"], 0)
+            shared_cache = cache.root / "shared_exposure_v2"
+            (shared_cache / "._fiber_exposures").write_bytes(
+                b"AppleDouble metadata"
+            )
+            (
+                shared_cache
+                / "fiber_exposures"
+                / f"._{axis_key.digest}"
+            ).write_bytes(b"AppleDouble metadata")
             warm_manifest_path = root / "warm-seed.json"
             warm_manifest = harness._publish_warm_seed_manifest(
                 warm_manifest_path,
                 cache_root=cache.root,
                 slice_id="slice-a",
             )
-            self.assertEqual(len(warm_manifest["entries"]), 3)
+            self.assertEqual(len(warm_manifest["entries"]), 2)
             copied_warm = harness._copy_warm_seed(
                 warm_manifest_path,
                 destination_cache_root=root / "warm-row-cache",
                 expected_slice_id="slice-a",
             )
-            self.assertEqual(len(copied_warm["entries"]), 3)
+            self.assertEqual(len(copied_warm["entries"]), 2)
             with self.assertRaisesRegex(
                 harness.PerformanceMatrixHarnessError,
                 "identity differs",
@@ -563,6 +552,50 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 ordinary_warm_state["cache_source"],
                 "unmeasured_warm_seed",
             )
+            resumed_root = root / "resumed-benchmark"
+            resumed_slice_id = "a" * 64
+            resumed_attempt = (
+                resumed_root
+                / "warm_seeds"
+                / resumed_slice_id
+                / "attempts"
+                / "attempt_0001"
+            )
+            resumed_cache = resumed_attempt / "scientific_cache"
+            harness._copy_verified_cache_entries(
+                source_cache_root=cache.root,
+                destination_cache_root=resumed_cache,
+                entries=harness._isolated_cache_entry_descriptors(
+                    cache.root
+                ),
+            )
+            harness._atomic_json(
+                resumed_attempt / "run" / "complete.json",
+                {"status": "completed"},
+            )
+            harness._atomic_json(
+                resumed_attempt / "seed_attempt_result.json",
+                {
+                    "schema_version": (
+                        "dual_frequency_task17_warm_seed_result_v1"
+                    ),
+                    "slice_id": resumed_slice_id,
+                    "run_root": str(
+                        (resumed_attempt / "run").resolve()
+                    ),
+                },
+            )
+            resumed = harness._execute_unmeasured_warm_seed(
+                resolved={},
+                row={
+                    "cache_state": "warm",
+                    "solver_mode": "none",
+                    "slice_id": resumed_slice_id,
+                },
+                benchmark_root=resumed_root,
+            )
+            self.assertEqual(resumed["slice_id"], resumed_slice_id)
+            self.assertEqual(len(resumed["entries"]), 2)
             with self.assertRaisesRegex(
                 harness.PerformanceMatrixHarnessError,
                 "destination must be empty",
@@ -636,7 +669,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 [row["scientific_identity"] for row in closure["rows"]],
                 [row_id],
             )
-            self.assertEqual(closure["groups"][0]["decisions"], [])
+            self.assertNotIn("decisions", closure["groups"][0])
             descriptors = harness._accepted_oss_cache_entry_descriptors(
                 closure
             )
@@ -653,7 +686,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 ),
             )
 
-    def test_accepted_oss_gate_records_require_both_fiber_families(
+    def test_accepted_oss_groups_require_both_fiber_families(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -661,17 +694,20 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             tasks_root = root / "tasks"
             tasks_root.mkdir()
             axis = AxisRef("fiber-axis", 2, "1" * 64)
-            for family in ("reference_fiber", "addon_fiber"):
-                record = OSSAxisEquivalenceGroupRecord(
+            for index, family in enumerate(
+                ("reference_fiber", "addon_fiber"),
+                start=2,
+            ):
+                record = OSSSharedOmegaGroupRecord(
                     group_id=f"{family}-group",
                     model_family=family,
-                    gate_status="accepted_omega_max",
+                    preparation_status="omega_max_ready",
                     final_feature_axis=axis,
                     omega_feature_axis=axis,
                     omega_cache_kind="fiber_exposures",
-                    omega_cache_semantic_sha256="2" * 64,
+                    omega_cache_semantic_sha256=f"{index:064x}",
                     endpoint_ids=(f"{family}-endpoint",),
-                    row_decision_ids=(f"{family}-decision",),
+                    omega_row_ids=(f"{index + 2:064x}",),
                 )
                 task_id = f"task_{family}"
                 (tasks_root / f"{task_id}.json").write_text(
@@ -679,7 +715,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                         {
                             "task_id": task_id,
                             "endpoint_id": f"{family}-endpoint",
-                            "service_id": "establish_oss_axis_equivalence",
+                            "service_id": "prepare_oss_omega_max_rows",
                             "status": "completed",
                             "reason": "completed",
                             "started_at": None,
@@ -691,7 +727,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-            records = harness._accepted_oss_gate_records(root)
+            records = harness._accepted_oss_group_records(root)
             self.assertEqual(
                 {record.model_family for _, record in records},
                 {"reference_fiber", "addon_fiber"},
@@ -699,9 +735,9 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             (tasks_root / "task_addon_fiber.json").unlink()
             with self.assertRaisesRegex(
                 harness.PerformanceMatrixHarnessError,
-                "exact two fiber gate records",
+                "exact two Omega-only groups",
             ):
-                harness._accepted_oss_gate_records(root)
+                harness._accepted_oss_group_records(root)
 
     def test_accepted_oss_records_decode_shared_omega_groups(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -736,13 +772,59 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-            records = harness._accepted_oss_gate_records(root)
+            records = harness._accepted_oss_group_records(root)
             self.assertTrue(
                 all(
                     isinstance(record, OSSSharedOmegaGroupRecord)
                     for _task_id, record in records
                 )
             )
+
+    def test_terminal_run_requires_the_root_completion_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "run_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "dual_frequency_run_v1",
+                        "run_id": "completed-run",
+                        "final_status": "completed",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                harness.PerformanceMatrixHarnessError,
+                "is not a completed run",
+            ):
+                harness._terminal_run(root, "accepted run")
+            (root / "complete.json").write_text("{}\n", encoding="utf-8")
+            self.assertEqual(
+                harness._terminal_run(root, "accepted run")["run_id"],
+                "completed-run",
+            )
+
+    def test_completed_task_import_requires_the_task_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tasks = root / "tasks"
+            tasks.mkdir()
+            task_id = "task_marker_contract"
+            (tasks / f"{task_id}.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "status": "completed",
+                        "result": {"output_record_type": "SyntheticRecord"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(harness._completed_task_ids(root), set())
+            marker = tasks / task_id / "complete.json"
+            marker.parent.mkdir()
+            marker.write_text("{}\n", encoding="utf-8")
+            self.assertEqual(harness._completed_task_ids(root), {task_id})
 
     def test_exact_three_connectome_key_closure_has_72_rows(self) -> None:
         rows = harness._row_keys(("ppmi", "mgh", "dtor"))
@@ -781,7 +863,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "model_family": "reference_fiber",
                 "subject_axis": {"count": 20},
                 "feature_axis": {"count": 90},
-                "omega_max": {"axis_count": 90},
+                "omega_max": {"feature_axis": {"count": 90}},
             },
         )
         selected, evidence = harness._maximum_base(
@@ -827,7 +909,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
         gate = _task(
             endpoint_id="endpoint_a",
             stage="gate",
-            service_id="establish_oss_axis_equivalence",
+            service_id="prepare_oss_omega_max_rows",
             dependencies=(parent.task_id,),
         )
         measured = _task(
@@ -896,22 +978,22 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
         self,
     ) -> None:
         axis = AxisRef("fiber-axis", 2, "1" * 64)
-        record = OSSAxisEquivalenceGroupRecord(
+        record = OSSSharedOmegaGroupRecord(
             group_id="checkpoint-group",
             model_family="reference_fiber",
-            gate_status="accepted_omega_max",
+            preparation_status="omega_max_ready",
             final_feature_axis=axis,
             omega_feature_axis=axis,
             omega_cache_kind="fiber_exposures",
             omega_cache_semantic_sha256="2" * 64,
             endpoint_ids=("endpoint_a",),
-            row_decision_ids=("decision-a",),
+            omega_row_ids=("3" * 64,),
         )
         parent = _task(
             endpoint_id="endpoint_a",
             stage="parent",
-            service_id="establish_oss_axis_equivalence",
-            output_record_type="OSSAxisEquivalenceGroupRecord",
+            service_id="prepare_oss_omega_max_rows",
+            output_record_type="OSSSharedOmegaGroupRecord",
         )
         selected = _task(
             endpoint_id="endpoint_a",
@@ -929,8 +1011,8 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
         descriptor = harness._slice_descriptor(
             sliced,
             (selected,),
-            parent_completed={parent.task_id},
-            oss_completed=set(),
+            parent_completed=set(),
+            oss_completed={parent.task_id},
             label="ppam",
         )
         with tempfile.TemporaryDirectory() as temporary:
@@ -949,7 +1031,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "finished_at": None,
                 "result": ServiceResult.from_record(record).as_dict(),
             }
-            (parent_root / "tasks" / f"{parent.task_id}.json").write_text(
+            (oss_root / "tasks" / f"{parent.task_id}.json").write_text(
                 json.dumps(state),
                 encoding="utf-8",
             )
@@ -980,7 +1062,6 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "planned_status": "planned",
             }
             resolved = {
-                "maximum_task_tree_rss_bytes": 64 * 1024**3,
                 "rows": [row],
                 "slices": [descriptor],
                 "accepted_parent": {"root": str(parent_root)},
@@ -1058,12 +1139,13 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             harness._execution_plan_from_payload(payload),
             sliced,
         )
+        payload["unexpected_plan_field"] = "ignored"
         payload["tasks"][0]["unexpected"] = True
-        with self.assertRaisesRegex(
-            harness.PerformanceMatrixHarnessError,
-            "task fields differ",
-        ):
-            harness._execution_plan_from_payload(payload)
+        payload["tasks"][0]["key"]["unexpected"] = "ignored"
+        self.assertEqual(
+            harness._execution_plan_from_payload(payload),
+            sliced,
+        )
         descriptor = harness._slice_descriptor(
             sliced,
             (first, second),
@@ -1126,7 +1208,6 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "workflow_profile": str(root / "workflow.yaml"),
                 "conda_environment": "leaddbs",
                 "working_directory": str(root / "work"),
-                "maximum_task_tree_rss_bytes": 64 * 1024**3,
                 "real_cold_solver_authorization": None,
                 "benchmark_class": "direct_voxel",
             }
@@ -1145,6 +1226,97 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "path-safe",
             ):
                 harness._load_request(path)
+
+    def test_request_identity_uses_parsed_semantic_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ("parent", "oss", "work"):
+                (root / name).mkdir()
+            for name in (
+                "study.json",
+                "direct.yaml",
+                "fiber.yaml",
+                "workflow.yaml",
+            ):
+                (root / name).write_text("{}\n", encoding="utf-8")
+            request = {
+                "schema_version": harness._REQUEST_SCHEMA,
+                "plan_id": "plan",
+                "accepted_parent_root": str(root / "parent"),
+                "accepted_independent_oss_root": str(root / "oss"),
+                "study_base": str(root / "study.json"),
+                "direct_voxel_model": str(root / "direct.yaml"),
+                "normative_fiber_model": str(root / "fiber.yaml"),
+                "workflow_profile": str(root / "workflow.yaml"),
+                "conda_environment": "leaddbs",
+                "working_directory": str(root / "work"),
+                "real_cold_solver_authorization": None,
+            }
+            path = root / "request.json"
+            path.write_text(json.dumps(request), encoding="utf-8")
+            first_request, first_identity = harness._load_request(path)
+            equivalent = dict(reversed(tuple(request.items())))
+            equivalent["plan_id"] = " plan "
+            equivalent["accepted_parent_root"] = (
+                f"{root}/work/../parent"
+            )
+            equivalent["study_base"] = f"{root}/./study.json"
+            equivalent["working_directory"] = f"{root}/work/."
+            path.write_text(
+                json.dumps(
+                    equivalent,
+                    indent=4,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            second_request, second_identity = harness._load_request(path)
+            self.assertEqual(first_request, second_request)
+            self.assertEqual(first_identity, second_identity)
+
+    def test_parent_input_bundle_uses_bound_paths_not_source_bytes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary).resolve()
+            inputs = parent / "inputs"
+            inputs.mkdir()
+            roles = {
+                "study_base": "study.json",
+                "direct_voxel_model": "direct.yaml",
+                "normative_fiber_model": "fiber.yaml",
+                "workflow_profile": "workflow.yaml",
+            }
+            request: dict[str, object] = {}
+            files: dict[str, dict[str, str]] = {}
+            for role, name in roles.items():
+                path = inputs / name
+                path.write_text("{}\n", encoding="utf-8")
+                request[role] = str(path)
+                files[role] = {
+                    "relative_path": str(path.relative_to(parent)),
+                }
+            (inputs / "input_bundle.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "dual_frequency_input_bundle_v1",
+                        "files": files,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            first = harness._validate_input_bundle(parent, request)
+            (inputs / "workflow.yaml").write_text(
+                "{ }\n",
+                encoding="utf-8",
+            )
+            second = harness._validate_input_bundle(parent, request)
+            expected = {
+                role: {"path": str(Path(str(path)).resolve())}
+                for role, path in request.items()
+            }
+            self.assertEqual(first, expected)
+            self.assertEqual(second, expected)
 
     def test_benchmark_root_rejects_a_protected_ancestor(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1599,7 +1771,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
     def test_row_contract_is_immutable_and_attempts_are_monotonic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            resolved = {"maximum_task_tree_rss_bytes": 64 * 1024**3}
+            resolved = {}
             row = {
                 "row_id": "row_123",
                 "benchmark_class": "direct_voxel",
@@ -1679,7 +1851,6 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 row["row_id"] = harness._row_id(plan_identity, row)
             resolved = {
                 "schema_version": harness._RESOLVED_SCHEMA,
-                "maximum_task_tree_rss_bytes": 64 * 1024**3,
                 "rows": rows,
             }
             closure = harness._row_contract_closure(resolved)
@@ -1700,7 +1871,6 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
                 "workflow_profile": str(authority / "workflow.yaml"),
                 "conda_environment": "leaddbs",
                 "working_directory": str(authority / "work"),
-                "maximum_task_tree_rss_bytes": 64 * 1024**3,
                 "real_cold_solver_authorization": None,
             }
             for field in (
@@ -1714,6 +1884,9 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             request_path.write_text(
                 json.dumps(request),
                 encoding="utf-8",
+            )
+            _normalized_request, request_identity = harness._load_request(
+                request_path
             )
             parity_root = root / "candidate_parity"
             parity_rows = [
@@ -1747,7 +1920,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             marker = {
                 "schema_version": harness._MARKER_SCHEMA,
                 "plan_id": "prepared-plan",
-                "request_sha256": harness._sha256_file(request_path),
+                "request_sha256": request_identity,
                 "resolved_plan_sha256": harness._canonical_sha256(resolved),
                 "row_contracts": closure,
                 "benchmark_root": str(root.resolve()),
@@ -1840,7 +2013,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
         gate = _task(
             endpoint_id="endpoint_a",
             stage="gate",
-            service_id="establish_oss_axis_equivalence",
+            service_id="prepare_oss_omega_max_rows",
         )
         block = _task(
             endpoint_id="endpoint_a",
@@ -1915,7 +2088,7 @@ class Task17PerformanceMatrixTest(unittest.TestCase):
             )
         )
         self.assertIn(
-            "establish_oss_axis_equivalence",
+            "prepare_oss_omega_max_rows",
             {task.service_id for task in measured_gate_tasks},
         )
         measured_gate_descriptor = harness._slice_descriptor(

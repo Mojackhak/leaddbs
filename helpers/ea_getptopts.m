@@ -242,9 +242,12 @@ if contains(directory, ['derivatives', filesep, 'leaddbs'])
             end
         end
 
-        if isfield(options.prefs, 'dti') && isfield(options.prefs, 'bval') && isfield(options.prefs, 'bvec') && isfield(options.prefs, 'b0')
-            [~, b0Status] = ea_ensure_b0_from_dwi(options, 'Force', true);
-            if b0Status.ok
+        if isfield(options.prefs, 'b0') && ~isempty(options.prefs.b0)
+            b0Path = options.prefs.b0;
+            if ~isfile(b0Path)
+                b0Path = fullfile(options.subj.subjDir, b0Path);
+            end
+            if isfile(b0Path)
                 try
                     options.subj.preproc.anat = options.bids.getPreprocAnat(subjId, options.modality);
                     options.subj.coreg.anat = options.bids.getCoregAnat(subjId, options.modality);

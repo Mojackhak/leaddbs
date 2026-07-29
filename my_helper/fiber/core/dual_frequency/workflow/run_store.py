@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -80,7 +81,7 @@ class ConfigurationSource:
 
 @dataclass(frozen=True)
 class RunIdentity:
-    """Exact identity required to create or resume one run root."""
+    """Creation fields and invocation provenance that do not gate resume."""
 
     study_id: str
     run_id: str
@@ -108,6 +109,7 @@ class RunStore:
     """Atomic persistence for one exact workflow run."""
 
     MANIFEST_NAME = "run_manifest.json"
+    COMPLETE_NAME = "complete.json"
 
     def __init__(
         self,
@@ -132,14 +134,28 @@ class RunStore:
         configuration_sources: tuple[ConfigurationSource, ...],
         allowed_artifact_roots: tuple[Path, ...] = (),
         resume: bool = False,
+        force: bool = False,
     ) -> "RunStore":
         root = Path(root).expanduser().resolve()
+        if resume and force:
+            raise RunStoreError("resume and force cannot both be enabled")
         if root.exists():
-            if not resume:
+            if force:
+                try:
+                    subprocess.run(
+                        ("/usr/bin/trash", str(root)),
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                except (OSError, subprocess.CalledProcessError) as exc:
+                    raise RunStoreError(
+                        f"cannot move existing run root to Trash: {root}"
+                    ) from exc
+            elif not resume:
                 raise RunStoreError(f"run root already exists: {root}")
-            store = cls(root, identity, allowed_artifact_roots)
-            store._validate_resume(resolved_configuration, configuration_sources)
-            return store
+            else:
+                return cls(root, identity, allowed_artifact_roots)
         if resume:
             raise RunStoreError(f"cannot resume missing run root: {root}")
 
@@ -151,6 +167,7 @@ class RunStore:
                 dir=root.parent,
             )
         )
+        published = False
         try:
             cls._write_initial_files(
                 temporary,
@@ -159,9 +176,10 @@ class RunStore:
                 configuration_sources,
             )
             os.replace(temporary, root)
-        except Exception:
-            shutil.rmtree(temporary, ignore_errors=True)
-            raise
+            published = True
+        finally:
+            if not published and temporary.exists():
+                shutil.rmtree(temporary)
         return cls(root, identity, allowed_artifact_roots)
 
     @staticmethod
@@ -205,39 +223,6 @@ class RunStore:
             encoding="utf-8",
         )
 
-    def _validate_resume(
-        self,
-        resolved_configuration: Mapping[str, Any],
-        configuration_sources: tuple[ConfigurationSource, ...],
-    ) -> None:
-        del resolved_configuration
-        manifest = self.read_manifest()
-        if manifest.get("study_base_sha256") != self.identity.study_base_sha256:
-            raise RunStoreError("resume input JSON content mismatch")
-
-        try:
-            existing_document = json.loads(
-                (self.root / "configuration_sources.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            existing_sources = tuple(existing_document["sources"])
-            existing_digests = tuple(str(source["sha256"]) for source in existing_sources)
-        except (OSError, KeyError, TypeError, ValueError) as exc:
-            raise RunStoreError("resume input YAML record is unreadable") from exc
-        expected_digests = tuple(source.sha256 for source in configuration_sources)
-        if configuration_sources:
-            if (
-                expected_digests[0] != self.identity.study_base_sha256
-                or not existing_digests
-                or existing_digests[0] != self.identity.study_base_sha256
-            ):
-                raise RunStoreError("resume input JSON content mismatch")
-            existing_digests = existing_digests[1:]
-            expected_digests = expected_digests[1:]
-        if existing_digests != expected_digests:
-            raise RunStoreError("resume input YAML content mismatch")
-
     @property
     def run_id(self) -> str:
         return self.identity.run_id
@@ -267,16 +252,40 @@ class RunStore:
         document = dict(payload)
         document["task_id"] = task_id
         with self._lock:
+            state_path = self.root / "tasks" / f"{task_id}.json"
+            complete_path = self.root / "tasks" / task_id / self.COMPLETE_NAME
             _atomic_write_text(
-                self.root / "tasks" / f"{task_id}.json",
+                state_path,
                 json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n",
             )
+            if document.get("status") == "completed":
+                _atomic_write_text(
+                    complete_path,
+                    json.dumps(
+                        {
+                            "schema_version": "dual_frequency_task_complete_v1",
+                            "task_state": f"../{task_id}.json",
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                )
+
 
     def read_task_state(self, task_id: str) -> dict[str, Any] | None:
         path = self.root / "tasks" / f"{_token(task_id, 'task_id')}.json"
         if not path.is_file():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def read_task_completion(self, task_id: str) -> dict[str, Any] | None:
+        task_id = _token(task_id, "task_id")
+        state_path = self.root / "tasks" / f"{task_id}.json"
+        complete_path = self.root / "tasks" / task_id / self.COMPLETE_NAME
+        if not state_path.is_file() or not complete_path.is_file():
+            return None
+        return json.loads(state_path.read_text(encoding="utf-8"))
 
     def task_states(self) -> tuple[dict[str, Any], ...]:
         return tuple(
@@ -518,3 +527,116 @@ class RunStore:
                 self.root / self.MANIFEST_NAME,
                 json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             )
+            complete_path = self.root / self.COMPLETE_NAME
+            if status == "completed":
+                _atomic_write_text(
+                    complete_path,
+                    json.dumps(
+                        {
+                            "schema_version": "dual_frequency_run_complete_v1",
+                            "run_id": self.run_id,
+                            "status": "completed",
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                )
+
+
+def migrate_completion_markers(root: Path) -> dict[str, Any]:
+    """Create path-based completion markers for one pre-marker run."""
+
+    root = Path(root).expanduser().resolve()
+    tasks_root = root / "tasks"
+    manifest_path = root / RunStore.MANIFEST_NAME
+    if not root.is_dir() or not tasks_root.is_dir() or not manifest_path.is_file():
+        raise RunStoreError(f"source run root is incomplete: {root}")
+
+    task_states = 0
+    completed_states = 0
+    task_markers_created = 0
+    task_markers_existing = 0
+    for state_path in sorted(tasks_root.glob("*.json")):
+        if state_path.name.startswith("._") or not state_path.is_file():
+            continue
+        task_states += 1
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RunStoreError(f"cannot read task state: {state_path}") from exc
+        if not isinstance(payload, Mapping):
+            raise RunStoreError(f"task state must be a JSON object: {state_path}")
+        if payload.get("status") != "completed":
+            continue
+        completed_states += 1
+        task_id = _token(str(payload.get("task_id", "")), "task_id")
+        if task_id != state_path.stem:
+            raise RunStoreError(
+                f"task state filename does not match task_id: {state_path}"
+            )
+        marker_path = tasks_root / task_id / RunStore.COMPLETE_NAME
+        if marker_path.exists():
+            if not marker_path.is_file():
+                raise RunStoreError(f"task completion marker is not a file: {marker_path}")
+            task_markers_existing += 1
+            continue
+        _atomic_write_text(
+            marker_path,
+            json.dumps(
+                {
+                    "schema_version": "dual_frequency_task_complete_v1",
+                    "task_state": f"../{task_id}.json",
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+        )
+        task_markers_created += 1
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RunStoreError(f"cannot read run manifest: {manifest_path}") from exc
+    if not isinstance(manifest, Mapping):
+        raise RunStoreError(f"run manifest must be a JSON object: {manifest_path}")
+
+    run_marker_path = root / RunStore.COMPLETE_NAME
+    run_marker_created = False
+    if manifest.get("final_status") == "completed":
+        run_id = _token(str(manifest.get("run_id", "")), "run_id")
+        if run_marker_path.exists():
+            if not run_marker_path.is_file():
+                raise RunStoreError(
+                    f"run completion marker is not a file: {run_marker_path}"
+                )
+        else:
+            _atomic_write_text(
+                run_marker_path,
+                json.dumps(
+                    {
+                        "schema_version": "dual_frequency_run_complete_v1",
+                        "run_id": run_id,
+                        "status": "completed",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+            )
+            run_marker_created = True
+    elif run_marker_path.exists():
+        raise RunStoreError(
+            "run completion marker exists but run manifest is not completed"
+        )
+
+    return {
+        "run_root": str(root),
+        "task_states": task_states,
+        "completed_states": completed_states,
+        "task_markers_created": task_markers_created,
+        "task_markers_existing": task_markers_existing,
+        "run_marker_created": run_marker_created,
+        "run_complete": run_marker_path.is_file(),
+    }

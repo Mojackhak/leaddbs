@@ -1,5 +1,11 @@
 # Direct-Voxel Output Contract
 
+> **Canonical layout notice.**
+> `my_helper/stnsnr/dual_frequency_output_contract.md` supersedes the directory
+> tree, root metadata/index files, cache paths, and completion/resume layout in
+> this document. The scientific meanings of direct-voxel artifacts remain
+> applicable until implementation is migrated.
+
 ## Status
 
 ```text

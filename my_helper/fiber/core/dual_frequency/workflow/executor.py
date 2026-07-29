@@ -339,7 +339,6 @@ class ExecutionContext:
 @dataclass(frozen=True)
 class _ResourceGrant:
     cpu: int
-    memory_bytes: int
     connectome_io: int
     solver: int
 
@@ -354,32 +353,9 @@ class _ResourceLedger:
         self.solver_used = 0
         self.io_limit = max(1, min(2, workers))
         self.solver_limit = 1
-        self.memory_used = 0
         self.peak_cpu_used = 0
-        self.peak_memory_used = 0
         self.peak_io_used = 0
         self.peak_solver_used = 0
-        self.total_memory, self.available_memory = self._memory_state()
-        self.reserve = max(16 * 1024**3, int(0.20 * self.total_memory))
-        self.managed = min(
-            64 * 1024**3,
-            max(0, self.available_memory - self.reserve),
-        )
-        self.minimum_managed = self.managed
-        self.maximum_managed = self.managed
-
-    @staticmethod
-    def _memory_state() -> tuple[int, int]:
-        try:
-            import psutil
-
-            memory = psutil.virtual_memory()
-            return int(memory.total), int(memory.available)
-        except ImportError:
-            page_size = int(os.sysconf("SC_PAGE_SIZE"))
-            total = int(os.sysconf("SC_PHYS_PAGES")) * page_size
-            available = int(os.sysconf("SC_AVPHYS_PAGES")) * page_size
-            return total, available
 
     @staticmethod
     def request(
@@ -388,28 +364,21 @@ class _ResourceLedger:
         allow_expensive_producers: bool = True,
     ) -> _ResourceGrant:
         if task.cache_first_expensive and not allow_expensive_producers:
-            return _ResourceGrant(1, 512 * 1024**2, 0, 0)
+            return _ResourceGrant(1, 0, 0)
         if task.stage.startswith("jitter_block_"):
             if task.model_family.endswith("fiber"):
-                return _ResourceGrant(1, 12 * 1024**3, 1, 0)
-            return _ResourceGrant(1, 12 * 1024**3, 0, 0)
+                return _ResourceGrant(1, 1, 0)
+            return _ResourceGrant(1, 0, 0)
         if task.stage == "prepare_exposure":
-            memory_bytes = (
-                32 * 1024**3
-                if task.model_family.endswith("fiber")
-                else 16 * 1024**3
-            )
-            return _ResourceGrant(1, memory_bytes, 1, 0)
+            return _ResourceGrant(1, 1, 0)
         if task.stage == "ppam_observed_workspace":
-            return _ResourceGrant(1, 48 * 1024**3, 1, 1)
-        if task.stage.startswith(
-            ("oss_axis_equivalence_", "oss_omega_max_")
-        ):
-            return _ResourceGrant(1, 48 * 1024**3, 1, 1)
+            return _ResourceGrant(1, 1, 1)
+        if task.stage.startswith("oss_omega_max_"):
+            return _ResourceGrant(1, 1, 1)
         if task.stage == "activation_sensitivity":
             if task.service_id == "aggregate_ppam_activation":
-                return _ResourceGrant(1, 2 * 1024**3, 0, 0)
-            return _ResourceGrant(1, 48 * 1024**3, 1, 1)
+                return _ResourceGrant(1, 0, 0)
+            return _ResourceGrant(1, 1, 1)
         if task.stage.startswith("formal_permutation_block_") or task.stage in {
             "formal_permutation_schedule",
             "formal_operator_workspace",
@@ -418,16 +387,13 @@ class _ResourceLedger:
             "formal_in_sample",
             "spatial_jitter",
         }:
-            return _ResourceGrant(1, 2 * 1024**3, 0, 0)
+            return _ResourceGrant(1, 0, 0)
         if (
             task.stage.startswith("ppam_permutation_block_")
             or task.stage == "ppam_permutation_schedule"
         ):
-            return _ResourceGrant(1, 2 * 1024**3, 0, 0)
-        return _ResourceGrant(1, 512 * 1024**2, 0, 0)
-
-    def can_acquire(self, grant: _ResourceGrant, running_count: int) -> bool:
-        return not self.blocking_reasons(grant)
+            return _ResourceGrant(1, 0, 0)
+        return _ResourceGrant(1, 0, 0)
 
     def blocking_reasons(self, grant: _ResourceGrant) -> tuple[str, ...]:
         """Return every parent-ledger predicate preventing admission."""
@@ -439,70 +405,26 @@ class _ResourceLedger:
             reasons.append("connectome_io")
         if self.solver_used + grant.solver > self.solver_limit:
             reasons.append("external_solver")
-        projected = self.available_memory - self.memory_used - grant.memory_bytes
-        cumulative_memory = self.memory_used + grant.memory_bytes
-        if not cumulative_memory < self.managed:
-            reasons.append("managed_memory")
-        if not projected > self.reserve:
-            reasons.append("memory_reserve")
-        return tuple(reasons)
-
-    def structural_blocking_reasons(
-        self,
-        grant: _ResourceGrant,
-    ) -> tuple[str, ...]:
-        """Return resource predicates that cannot recover without reconfiguration."""
-
-        reasons: list[str] = []
-        if grant.cpu > self.workers:
-            reasons.append("cpu")
-        if grant.connectome_io > self.io_limit:
-            reasons.append("connectome_io")
-        if grant.solver > self.solver_limit:
-            reasons.append("external_solver")
-        maximum_managed = min(
-            64 * 1024**3,
-            max(0, self.total_memory - self.reserve),
-        )
-        if not grant.memory_bytes < maximum_managed:
-            reasons.append("managed_memory")
         return tuple(reasons)
 
     def acquire(self, grant: _ResourceGrant) -> None:
         self.cpu_used += grant.cpu
-        self.memory_used += grant.memory_bytes
         self.io_used += grant.connectome_io
         self.solver_used += grant.solver
         self.peak_cpu_used = max(self.peak_cpu_used, self.cpu_used)
-        self.peak_memory_used = max(self.peak_memory_used, self.memory_used)
         self.peak_io_used = max(self.peak_io_used, self.io_used)
         self.peak_solver_used = max(self.peak_solver_used, self.solver_used)
 
     def release(self, grant: _ResourceGrant) -> None:
         self.cpu_used -= grant.cpu
-        self.memory_used -= grant.memory_bytes
         self.io_used -= grant.connectome_io
         self.solver_used -= grant.solver
-
-    def reconcile_available(self, live_available_memory: int) -> None:
-        """Refresh admission capacity without double-charging active grants."""
-
-        live_available = max(0, int(live_available_memory))
-        self.available_memory = live_available + self.memory_used
-        self.managed = min(
-            64 * 1024**3,
-            max(0, self.available_memory - self.reserve),
-        )
-        self.minimum_managed = min(self.minimum_managed, self.managed)
-        self.maximum_managed = max(self.maximum_managed, self.managed)
 
     def settings(self) -> dict[str, int]:
         """Return the effective non-scientific admission settings."""
 
         return {
             "workers": self.workers,
-            "managed_memory_bytes": self.managed,
-            "required_memory_reserve_bytes": self.reserve,
             "connectome_io_slots": self.io_limit,
             "external_solver_slots": self.solver_limit,
             "blas_threads_per_worker": 1,
@@ -512,11 +434,7 @@ class _ResourceLedger:
         """Return peak parent-ledger reservations for segment provenance."""
 
         return {
-            "minimum_managed_memory_bytes": self.minimum_managed,
-            "maximum_managed_memory_bytes": self.maximum_managed,
-            "final_managed_memory_bytes": self.managed,
             "peak_reserved_cpu_slots": self.peak_cpu_used,
-            "peak_reserved_memory_bytes": self.peak_memory_used,
             "peak_reserved_connectome_io_slots": self.peak_io_used,
             "peak_reserved_external_solver_slots": self.peak_solver_used,
         }
@@ -561,17 +479,16 @@ class _LiveResourceMonitor:
             return 0
 
     @staticmethod
-    def _available_memory_bytes(fallback: int) -> int:
+    def _available_memory_bytes() -> int:
         try:
             import psutil
 
             return int(psutil.virtual_memory().available)
         except ImportError:
-            return max(0, int(fallback))
+            return 0
 
     def sample_if_due(
         self,
-        ledger: _ResourceLedger,
         *,
         force: bool = False,
     ) -> None:
@@ -580,11 +497,9 @@ class _LiveResourceMonitor:
         now = time.monotonic()
         if not force and now < self._next_sample_at:
             return
-        fallback = ledger.available_memory - ledger.memory_used
-        available = self._available_memory_bytes(fallback)
+        available = self._available_memory_bytes()
         rss = self._process_tree_rss_bytes()
         swap = _swap_used_bytes()
-        ledger.reconcile_available(available)
         self.sample_count += 1
         self.peak_task_tree_rss_bytes = max(
             self.peak_task_tree_rss_bytes,
@@ -645,124 +560,30 @@ def _write_outcome(store: RunStore, outcome: TaskOutcome) -> None:
 def _restore_outcomes(
     plan: ExecutionPlan,
     context: ExecutionContext,
-) -> tuple[dict[str, TaskOutcome], frozenset[str]]:
+) -> dict[str, TaskOutcome]:
     if not context.resume:
-        return {}, frozenset()
+        return {}
     output: dict[str, TaskOutcome] = {}
-    invalid_completed: set[str] = set()
-    cache_only_replays: set[str] = set()
     for task in plan.tasks:
-        if any(dependency in invalid_completed for dependency in task.dependencies):
-            invalid_completed.add(task.task_id)
+        payload = context.run_store.read_task_completion(task.task_id)
+        if payload is None:
             continue
-        try:
-            payload = context.run_store.read_task_state(task.task_id)
-        except (OSError, TypeError, ValueError):
-            continue
-        if not isinstance(payload, Mapping):
-            continue
-        result_payload = payload.get("result")
         if payload.get("status") != "completed":
-            continue
-        if not isinstance(result_payload, Mapping):
-            invalid_completed.add(task.task_id)
-            continue
-        try:
-            result = ServiceResult.from_dict(result_payload)
-            record = result.decode_record()
-            if type(record).__name__ == "FormalOperatorScratchRecord":
-                from ..runtime.formal_operator_workspace import (
-                    validate_formal_operator_scratch_record,
-                )
-
-                validate_formal_operator_scratch_record(
-                    record,
-                    context.run_store.root,
-                )
-            if type(record).__name__ == "PPAMObservedWorkspaceRecord":
-                from ..runtime.ppam_observed_workspace import (
-                    validate_ppam_observed_workspace_record,
-                )
-
-                selections = tuple(
-                    dependency.result.decode_record()
-                    for dependency_id in task.dependencies
-                    for dependency in (output.get(dependency_id),)
-                    if dependency is not None
-                    and dependency.result is not None
-                    and dependency.result.output_record_type
-                    == "FinalSelectionRecord"
-                )
-                if (
-                    len(selections) != 1
-                    or getattr(selections[0], "final_model", None) is None
-                ):
-                    raise ExecutionError(
-                        "restored pPAM workspace lacks its final selection"
-                    )
-                validate_ppam_observed_workspace_record(
-                    record,
-                    selections[0].final_model,
-                    context.run_store.root,
-                )
-            if (
-                type(record).__name__ == "OSSAxisEquivalenceGroupRecord"
-                and getattr(record, "gate_status", None)
-                == "accepted_omega_max"
-                and context.scientific_cache is not None
-            ):
-                from ..runtime.oss_axis_equivalence import (
-                    accepted_group_uses_stable_scientific_cache,
-                )
-
-                cache_only_replays.add(task.task_id)
-                if not accepted_group_uses_stable_scientific_cache(
-                    record,
-                    context.scientific_cache,
-                ):
-                    invalid_completed.add(task.task_id)
-                    continue
-                cache_only_replays.discard(task.task_id)
-            if (
-                type(record).__name__ == "OSSSharedOmegaGroupRecord"
-                and getattr(record, "preparation_status", None)
-                == "omega_max_ready"
-                and context.scientific_cache is not None
-            ):
-                from ..runtime.oss_shared_omega import (
-                    shared_omega_group_uses_stable_scientific_cache,
-                )
-
-                cache_only_replays.add(task.task_id)
-                if not shared_omega_group_uses_stable_scientific_cache(
-                    record,
-                    context.scientific_cache,
-                ):
-                    invalid_completed.add(task.task_id)
-                    continue
-                cache_only_replays.discard(task.task_id)
-        except (OSError, RuntimeError, TypeError, ValueError):
-            invalid_completed.add(task.task_id)
-            continue
+            raise ExecutionError(
+                f"task completion marker does not reference completed state: {task.task_id}"
+            )
+        restored = TaskOutcome.from_dict(payload)
         output[task.task_id] = TaskOutcome(
             task_id=task.task_id,
             endpoint_id=task.endpoint_id,
             service_id=task.service_id,
             status="completed",
             reason="restored_completed_result",
-            result=result,
-            started_at=(
-                str(payload["started_at"])
-                if payload.get("started_at") is not None
-                else None
-            ),
-            finished_at=(
-                str(payload["finished_at"])
-                if payload.get("finished_at") is not None
-                else None
-            ),
+            result=restored.result,
+            started_at=restored.started_at,
+            finished_at=restored.finished_at,
         )
-    return output, frozenset(cache_only_replays)
+    return output
 
 
 def _dependency_layers(
@@ -1048,8 +869,6 @@ def _failed(task: TaskSpec, reason: str, store: RunStore) -> TaskOutcome:
 _ADMISSION_REASONS = (
     "worker_slots",
     "cpu",
-    "managed_memory",
-    "memory_reserve",
     "connectome_io",
     "external_solver",
 )
@@ -1170,8 +989,6 @@ class _ExecutionMetrics:
                         int(ready_task_count) + int(running_task_count),
                     ),
                     "reserved_cpu_slots": ledger.cpu_used,
-                    "managed_memory_bytes": ledger.managed,
-                    "reserved_memory_bytes": ledger.memory_used,
                     "reserved_connectome_io_slots": ledger.io_used,
                     "reserved_external_solver_slots": ledger.solver_used,
                     "admission_blocked_task_count_by_reason": active_reasons,
@@ -1326,7 +1143,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
         raise ExecutionError(str(exc)) from exc
 
     task_index = {task.task_id: task for task in plan.tasks}
-    outcomes, cache_only_replays = _restore_outcomes(plan, context)
+    outcomes = _restore_outcomes(plan, context)
     missing_checkpoint_roots = tuple(
         task.task_id
         for task in plan.tasks
@@ -1343,7 +1160,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
     metrics = _ExecutionMetrics(len(outcomes))
     process_mode = context.spawn_worker_spec is not None
     resource_monitor = _LiveResourceMonitor(process_mode)
-    resource_monitor.sample_if_due(ledger, force=True)
+    resource_monitor.sample_if_due(force=True)
     initial_swap = _swap_used_bytes()
     parent_performance_before = performance_snapshot()
     segment_id = context.run_store.begin_execution_segment(
@@ -1431,7 +1248,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
 
     try:
         while pending or running:
-            resource_monitor.sample_if_due(ledger)
+            resource_monitor.sample_if_due()
             now_monotonic = time.monotonic()
             expired = tuple(
                 invocation
@@ -1449,7 +1266,6 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 )
                 continue
             progressed = False
-            resource_blocked_ready = False
             ready = [
                 task
                 for task in plan.tasks
@@ -1466,10 +1282,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
             )
             for task in ready:
                 admission_time = time.monotonic()
-                task_allows_expensive = (
-                    context.allow_expensive_producers
-                    and task.task_id not in cache_only_replays
-                )
+                task_allows_expensive = context.allow_expensive_producers
                 if abort:
                     pending.pop(task.task_id)
                     metrics.close_task(task.task_id, admission_time)
@@ -1583,7 +1396,6 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 )
                 blocking_reasons = ledger.blocking_reasons(grant)
                 if blocking_reasons:
-                    resource_blocked_ready = True
                     metrics.observe_blocked(
                         task.task_id,
                         blocking_reasons,
@@ -1670,10 +1482,7 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                 )
                 broken = False
                 for future in completed:
-                    try:
-                        exception = future.exception()
-                    except Exception as exc:
-                        exception = exc
+                    exception = future.exception()
                     if isinstance(exception, BrokenProcessPool):
                         broken = True
                         break
@@ -1695,37 +1504,13 @@ def execute_plan(plan: ExecutionPlan, context: ExecutionContext) -> RunResult:
                         abort = True
                 continue
             if pending:
-                if process_mode and ready and resource_blocked_ready:
-                    impossible: list[str] = []
-                    for task in ready:
-                        task_allows_expensive = (
-                            context.allow_expensive_producers
-                            and task.task_id not in cache_only_replays
-                        )
-                        grant = ledger.request(
-                            task,
-                            allow_expensive_producers=task_allows_expensive,
-                        )
-                        reasons = ledger.structural_blocking_reasons(grant)
-                        if reasons:
-                            impossible.append(
-                                f"{task.task_id}:{','.join(reasons)}"
-                            )
-                    if impossible:
-                        raise ExecutionError(
-                            "executor found structurally inadmissible tasks: "
-                            + ";".join(impossible)
-                        )
-                    time.sleep(1.0)
-                    resource_monitor.sample_if_due(ledger, force=True)
-                    continue
                 raise ExecutionError(
                     "executor reached a dependency or resource-admission deadlock"
                 )
     finally:
         if pool is not None:
             pool.shutdown(wait=True, cancel_futures=True)
-        resource_monitor.sample_if_due(ledger, force=True)
+        resource_monitor.sample_if_due(force=True)
         terminal_now = time.monotonic()
         metrics.sample_scheduler_window(
             ready_task_count=0,

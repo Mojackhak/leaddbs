@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -22,8 +23,9 @@ from .published_artifacts import (
 )
 
 
-SCHEMA_VERSION = "dual_frequency_scene_example_input_v2"
+SCHEMA_VERSION = "dual_frequency_scene_example_input_v5"
 _PUBLICATION_ALIAS = "main"
+_VOXEL_DISPLAY_FILENAME = "benefit_map_smooth_fwhm1mm.nii.gz"
 _MODEL_FAMILIES = {
     "reference_voxel": "voxel",
     "addon_voxel": "voxel",
@@ -47,13 +49,6 @@ def _read_json(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _canonical_hash(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(
-        dict(payload), sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def _sha256_file(path: Path, block_size: int = 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -69,16 +64,26 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     )
 
 
-def _completed_manifest(path: Path, request_hash: str) -> dict[str, Any] | None:
-    if not path.is_file():
+def _completed_manifest(
+    manifest_path: Path, complete_path: Path
+) -> dict[str, Any] | None:
+    if not manifest_path.is_file() or not complete_path.is_file():
         return None
-    payload = _read_json(path)
-    if payload.get("schema_version") != SCHEMA_VERSION:
-        return None
-    if payload.get("status") != "complete" or payload.get("request_hash") != request_hash:
-        return None
-    input_path = Path(str(payload.get("input_path", "")))
-    return payload if input_path.is_file() else None
+    return _read_json(manifest_path)
+
+
+def _trash(path: Path) -> None:
+    try:
+        subprocess.run(
+            ("/usr/bin/trash", str(path)),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise SceneExampleInputError(
+            f"cannot move existing scene input to Trash: {path}"
+        ) from exc
 
 
 def _catalog(publication_root: Path) -> PublicationCatalog:
@@ -99,6 +104,11 @@ def _catalog(publication_root: Path) -> PublicationCatalog:
 def _final_relative_path(scale_id: str, model_family: str) -> str:
     family = "reference" if model_family.startswith("reference_") else "addon"
     return f"{scale_id}/{family}/final_model.json"
+
+
+def _voxel_display_relative_path(scale_id: str, model_family: str) -> str:
+    family = "reference" if model_family.startswith("reference_") else "addon"
+    return f"{scale_id}/{family}/report/display/{_VOXEL_DISPLAY_FILENAME}"
 
 
 def _published_final(
@@ -285,6 +295,9 @@ def _fiber_sources(
     catalog: PublicationCatalog, final_model: Mapping[str, Any]
 ) -> dict[str, PublishedArtifact | None]:
     return {
+        "candidate": _resolver_artifact(
+            catalog, final_model, "candidate_fiber_ids.npy"
+        ),
         "valid": _resolver_artifact(catalog, final_model, "valid_fiber_ids.npy"),
         "weights": _resolver_artifact(catalog, final_model, "full_weights.npy"),
         "sweet": _resolver_artifact(
@@ -304,15 +317,34 @@ def _prepare_fiber(
     scale_id: str,
     model_family: str,
 ) -> tuple[Path, dict[str, Any]]:
+    candidate_ref = artifacts["candidate"]
     valid_ref = artifacts["valid"]
     weights_ref = artifacts["weights"]
-    assert valid_ref is not None and weights_ref is not None
+    assert (
+        candidate_ref is not None
+        and valid_ref is not None
+        and weights_ref is not None
+    )
+    candidate_ids = _array(candidate_ref.path, dtype=np.dtype(np.int64))
     valid_ids = _array(valid_ref.path, dtype=np.dtype(np.int64))
     weights = np.asarray(_array(weights_ref.path), dtype=np.float64)
     if valid_ids.ndim != 1 or weights.ndim != 1 or valid_ids.shape != weights.shape:
         raise SceneExampleInputError("published fiber IDs and weights must be matching vectors")
     if valid_ids.size == 0 or np.any(np.diff(valid_ids) <= 0):
         raise SceneExampleInputError("published fiber IDs must be ordered and unique")
+    if candidate_ids.ndim != 1 or candidate_ids.size == 0:
+        raise SceneExampleInputError("published candidate fiber IDs must be nonempty")
+    if np.any(np.diff(candidate_ids) <= 0):
+        raise SceneExampleInputError(
+            "published candidate fiber IDs must be ordered and unique"
+        )
+    candidate_positions = np.searchsorted(valid_ids, candidate_ids)
+    if np.any(candidate_positions >= valid_ids.size) or not np.array_equal(
+        valid_ids[candidate_positions], candidate_ids
+    ):
+        raise SceneExampleInputError(
+            "published candidate fibers must be a subset of the valid final axis"
+        )
 
     def selected(reference: PublishedArtifact | None) -> np.ndarray:
         if reference is None:
@@ -321,35 +353,48 @@ def _prepare_fiber(
 
     sweet_ids = selected(artifacts["sweet"])
     sour_ids = selected(artifacts["sour"])
-    display_ids = np.unique(np.concatenate((sweet_ids, sour_ids))).astype(np.int64)
-    if display_ids.size == 0:
+    selected_ids = np.unique(np.concatenate((sweet_ids, sour_ids))).astype(np.int64)
+    if selected_ids.size == 0:
         raise SceneExampleInputError("published final model has no selected display fibers")
     if np.intersect1d(sweet_ids, sour_ids).size:
         raise SceneExampleInputError("published sweet and sour fiber IDs overlap")
-    positions = np.searchsorted(valid_ids, display_ids)
-    if np.any(positions >= valid_ids.size) or not np.array_equal(valid_ids[positions], display_ids):
-        raise SceneExampleInputError("published display fiber is outside the valid final axis")
-    scores = weights[positions]
+    selected_positions = np.searchsorted(candidate_ids, selected_ids)
+    if np.any(selected_positions >= candidate_ids.size) or not np.array_equal(
+        candidate_ids[selected_positions], selected_ids
+    ):
+        raise SceneExampleInputError(
+            "published selected fiber is outside the candidate axis"
+        )
+    scores = weights[candidate_positions]
     if not np.all(np.isfinite(scores)) or not np.any(scores != 0.0):
-        raise SceneExampleInputError("published display fiber weights are invalid")
-    if sweet_ids.size and np.any(scores[np.searchsorted(display_ids, sweet_ids)] <= 0.0):
+        raise SceneExampleInputError("published candidate fiber weights are invalid")
+    if sweet_ids.size and np.any(
+        scores[np.searchsorted(candidate_ids, sweet_ids)] <= 0.0
+    ):
         raise SceneExampleInputError("published sweet fibers must have positive weights")
-    if sour_ids.size and np.any(scores[np.searchsorted(display_ids, sour_ids)] >= 0.0):
+    if sour_ids.size and np.any(
+        scores[np.searchsorted(candidate_ids, sour_ids)] >= 0.0
+    ):
         raise SceneExampleInputError("published sour fibers must have negative weights")
+
+    fiber_roles = np.zeros(candidate_ids.size, dtype=np.int8)
+    fiber_roles[np.searchsorted(candidate_ids, sweet_ids)] = 1
+    fiber_roles[np.searchsorted(candidate_ids, sour_ids)] = -1
 
     connectome_id = str(final_model.get("formal_connectome_id", ""))
     if not connectome_id:
         raise SceneExampleInputError("published fiber final lacks formal_connectome_id")
     connectome = _connectome_path(sources, connectome_id)
-    fibers, point_counts = _selected_fiber_geometry(connectome, display_ids)
-    output = stage / f"{scale_id}_{model_family}_scored_fibers.mat"
+    fibers, point_counts = _selected_fiber_geometry(connectome, candidate_ids)
+    output = stage / f"{scale_id}_{model_family}_categorical_fibers.mat"
     savemat(
         output,
         {
             "fibers": fibers,
             "idx": point_counts.reshape(1, -1),
             "scores": scores.reshape(-1, 1),
-            "fiber_ids": display_ids.reshape(-1, 1),
+            "fiber_ids": candidate_ids.reshape(-1, 1),
+            "fiber_roles": fiber_roles.reshape(-1, 1),
             "sweet_fiber_ids": sweet_ids.reshape(-1, 1),
             "sour_fiber_ids": sour_ids.reshape(-1, 1),
         },
@@ -358,7 +403,11 @@ def _prepare_fiber(
     return output, {
         "connectome_id": connectome_id,
         "connectome_path": str(connectome),
-        "display_fiber_count": int(display_ids.size),
+        "candidate_fiber_count": int(candidate_ids.size),
+        "unselected_candidate_fiber_count": int(
+            candidate_ids.size - selected_ids.size
+        ),
+        "display_fiber_count": int(candidate_ids.size),
         "sweet_fiber_count": int(sweet_ids.size),
         "sour_fiber_count": int(sour_ids.size),
         "point_count": int(fibers.shape[0]),
@@ -372,21 +421,43 @@ def prepare_scene_example_input(
     *,
     scale_id: str,
     model_family: str,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """Prepare one request-addressed scene input from a canonical publication."""
+    """Prepare one scene input from a canonical publication."""
 
     publication = Path(publication_root).expanduser().resolve()
     output = Path(output_root).expanduser().resolve()
     if model_family not in _MODEL_FAMILIES:
         raise SceneExampleInputError(f"unsupported model_family: {model_family}")
+    if not scale_id or Path(scale_id).name != scale_id:
+        raise SceneExampleInputError("scale_id must be one path component")
+    target = output / f"{scale_id}-{model_family}"
+    manifest_path = target / "manifest.json"
+    complete_path = target / "complete.json"
+    if not force:
+        reusable = _completed_manifest(manifest_path, complete_path)
+        if reusable is not None:
+            return reusable
+
     catalog = _catalog(publication)
     final_artifact, final_model = _published_final(catalog, scale_id, model_family)
     sources, study_identity = _study_sources(catalog, publication)
+    try:
+        scale_display_name, study_scale_definition = (
+            catalog.resolve_scale_display_name(_PUBLICATION_ALIAS, scale_id)
+        )
+    except PublishedArtifactError as exc:
+        raise SceneExampleInputError(str(exc)) from exc
     domain = _MODEL_FAMILIES[model_family]
     if domain == "voxel":
-        benefit_map = _resolver_artifact(catalog, final_model, "benefit_map.nii.gz")
-        assert benefit_map is not None
-        source_artifacts = [final_artifact, benefit_map]
+        try:
+            voxel_display_map = catalog.resolve_relative(
+                _PUBLICATION_ALIAS,
+                _voxel_display_relative_path(scale_id, model_family),
+            )
+        except PublishedArtifactError as exc:
+            raise SceneExampleInputError(str(exc)) from exc
+        source_artifacts = [final_artifact, voxel_display_map]
         fiber_artifacts: dict[str, PublishedArtifact | None] = {}
     else:
         fiber_artifacts = _fiber_sources(catalog, final_model)
@@ -398,28 +469,22 @@ def prepare_scene_example_input(
         "publication_root": str(publication),
         "publication_manifest": catalog.publication_records()[0],
         "scale_id": scale_id,
+        "scale_display_name": scale_display_name,
+        "study_scale_definition": study_scale_definition,
         "model_family": model_family,
         "source_artifacts": [artifact.as_manifest_record() for artifact in source_artifacts],
         "study_base": study_identity,
     }
-    request_hash = _canonical_hash(request)
-    target = output / f"{scale_id}-{model_family}-{request_hash[:16]}"
-    manifest_path = target / "manifest.json"
-    reusable = _completed_manifest(manifest_path, request_hash)
-    if reusable is not None:
-        return reusable
-    if target.exists():
-        raise SceneExampleInputError(
-            f"refusing to replace an incomplete scene-input directory: {target}"
-        )
-
     output.mkdir(parents=True, exist_ok=True)
     stage = output / f".tmp-{target.name}-{uuid.uuid4().hex}"
     stage.mkdir()
     if domain == "voxel":
-        input_path = benefit_map.path
+        input_path = voxel_display_map.path
         details = {
-            "published_benefit_map": benefit_map.as_manifest_record(),
+            "published_display_map": voxel_display_map.as_manifest_record(),
+            "display_artifact_kind": "benefit_map_smooth_fwhm1mm",
+            "display_smoothing_fwhm_mm": 1.0,
+            "display_only": True,
             "finite_voxel_count": None,
         }
     else:
@@ -439,9 +504,10 @@ def prepare_scene_example_input(
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "status": "complete",
-        "request_hash": request_hash,
         "request": request,
         "scale_id": scale_id,
+        "scale_display_name": scale_display_name,
+        "study_scale_definition": study_scale_definition,
         "model_family": model_family,
         "domain": domain,
         "endpoint_id": f"{scale_id}:{model_family}",
@@ -454,6 +520,9 @@ def prepare_scene_example_input(
         "details": details,
     }
     _write_json(stage / "manifest.json", manifest)
+    _write_json(stage / "complete.json", {"manifest": "manifest.json"})
+    if target.exists():
+        _trash(target)
     os.replace(stage, target)
     return manifest
 
@@ -464,6 +533,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--scale-id", default="pdq39_score")
     parser.add_argument("--model-family", required=True, choices=sorted(_MODEL_FAMILIES))
+    parser.add_argument("--force", action="store_true")
     return parser
 
 
@@ -474,6 +544,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.output_root,
         scale_id=args.scale_id,
         model_family=args.model_family,
+        force=args.force,
     )
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0

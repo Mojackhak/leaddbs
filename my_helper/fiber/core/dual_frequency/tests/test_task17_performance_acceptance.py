@@ -112,8 +112,6 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                 for reason in (
                     "worker_slots",
                     "cpu",
-                    "managed_memory",
-                    "memory_reserve",
                     "connectome_io",
                     "external_solver",
                 )
@@ -132,8 +130,6 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                             "running_task_count": 0,
                             "runnable_cpu_slots": workers,
                             "reserved_cpu_slots": workers,
-                            "managed_memory_bytes": 48 * 1024**3,
-                            "reserved_memory_bytes": 0,
                             "reserved_connectome_io_slots": 0,
                             "reserved_external_solver_slots": 0,
                             "admission_blocked_task_count_by_reason": zero_reasons,
@@ -147,8 +143,6 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                             "running_task_count": 0,
                             "runnable_cpu_slots": workers,
                             "reserved_cpu_slots": workers,
-                            "managed_memory_bytes": 48 * 1024**3,
-                            "reserved_memory_bytes": 0,
                             "reserved_connectome_io_slots": 0,
                             "reserved_external_solver_slots": 0,
                             "admission_blocked_task_count_by_reason": zero_reasons,
@@ -165,11 +159,6 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                     "status": "finished",
                     "pool_mode": "spawn_process",
                     "workers": workers,
-                    "managed_memory_bytes": 48 * 1024**3,
-                    "minimum_managed_memory_bytes": 48 * 1024**3,
-                    "maximum_managed_memory_bytes": 48 * 1024**3,
-                    "final_managed_memory_bytes": 48 * 1024**3,
-                    "required_memory_reserve_bytes": 16 * 1024**3,
                     "connectome_io_slots": max(1, min(2, workers)),
                     "external_solver_slots": 1,
                     "blas_threads_per_worker": 1,
@@ -285,7 +274,6 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                 "schema_version": "dual_frequency_task17_performance_matrix_v1",
                 "configured_connectomes": ["ppmi", "mgh", "dtor"],
                 "chosen_default_workers": 3,
-                "max_rss_bytes": 64 * 1024**3,
                 "rows": self.rows,
             },
         )
@@ -326,7 +314,6 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
             segment,
             probe,
             workers,
-            64 * 1024**3,
         )
 
     def test_complete_matrix_passes_and_report_is_identical(self) -> None:
@@ -413,7 +400,6 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                 "schema_version": "dual_frequency_task17_performance_matrix_v1",
                 "configured_connectomes": ["ppmi", "mgh", "dtor"],
                 "chosen_default_workers": 6,
-                "max_rss_bytes": 64 * 1024**3,
                 "rows": self.rows,
             },
         )
@@ -615,7 +601,6 @@ class Task17PerformanceAcceptanceTest(unittest.TestCase):
                 },
                 (),
                 3,
-                64 * 1024**3,
             )
 
 

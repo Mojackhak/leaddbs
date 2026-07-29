@@ -34,9 +34,7 @@ function ea_apply_view_struct(v, hAx)
         error('EA_APPLY_VIEW_STRUCT:BadAxes', 'hAx must be a valid axes handle.');
     end
 
-    didUseEAVIEW = false;
-
-    % Prefer Lead-DBS ea_view if available.
+    % Preserve the Lead-DBS compatibility call when available.
     if exist('ea_view', 'file') == 2
         try
             hFig = ancestor(hAx, 'figure');
@@ -44,14 +42,13 @@ function ea_apply_view_struct(v, hAx)
                 set(hFig, 'CurrentAxes', hAx);
             end
             ea_view(v);
-            didUseEAVIEW = true;
         catch
-            didUseEAVIEW = false;
         end
     end
 
-    % Apply MATLAB-native camera properties (best effort) if ea_view failed.
-    if ~didUseEAVIEW
+    % Always reapply the complete camera directly to the requested axes. This
+    % makes the target handle authoritative even when ea_view selected another
+    % current axes or normalized a camera field.
     if isfield(v, 'az') && isfield(v, 'el')
         try
             view(hAx, [double(v.az), double(v.el)]);
@@ -93,7 +90,6 @@ function ea_apply_view_struct(v, hAx)
         catch
         end
     end
-    end
 
     % Force-refresh any RAS triads in the same figure (best effort).
     try
@@ -107,6 +103,9 @@ function ea_apply_view_struct(v, hAx)
     try
         drawnow limitrate;
     catch
-        try, drawnow; catch, end
+        try
+            drawnow;
+        catch
+        end
     end
 end

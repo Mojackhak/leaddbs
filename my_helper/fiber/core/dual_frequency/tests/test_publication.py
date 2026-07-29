@@ -531,6 +531,7 @@ def _extension_fixture(
         ),
         encoding="utf-8",
     )
+    (run_root / "complete.json").write_text("{}\n", encoding="utf-8")
     (run_root / "base_run_reference.json").write_text(
         json.dumps(
             {
@@ -830,6 +831,42 @@ def test_combined_replay_keeps_domain_specific_analysis_presence(
     assert not (result.direct_voxel_root / "oss_ppam_results.json").exists()
     assert (result.normative_fiber_root / "oss_ppam_results.json").is_file()
     assert not (result.normative_fiber_root / "spatial_jitter_results.json").exists()
+
+
+def test_extension_replay_requires_run_completion_marker(tmp_path: Path) -> None:
+    run_root, output_root = _extension_fixture(
+        tmp_path,
+        (("reference_fiber", "oss"),),
+    )
+    (run_root / "complete.json").unlink()
+
+    with pytest.raises(PublicationError, match="run completion marker"):
+        CanonicalPublisher().publish_extension(run_root)
+
+    extension_root = (
+        output_root
+        / "normative_fiber"
+        / "model-set"
+        / "extensions"
+        / "extension-run-v2"
+    )
+    assert not (extension_root / "extension_manifest.json").exists()
+
+
+def test_extension_id_must_be_one_safe_path_component(tmp_path: Path) -> None:
+    run_root, output_root = _extension_fixture(
+        tmp_path,
+        (("reference_fiber", "oss"),),
+    )
+
+    for extension_id in (".", "..", "../escape", "nested/escape", "nested\\escape"):
+        with pytest.raises(PublicationError, match="path-safe token"):
+            CanonicalPublisher().publish_extension(
+                run_root,
+                extension_id=extension_id,
+            )
+
+    assert not tuple(output_root.rglob("extension_manifest.json"))
 
 
 def test_oss_replay_omits_empty_voxel_domain_and_rejects_technical_failure(

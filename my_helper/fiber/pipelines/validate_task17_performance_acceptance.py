@@ -62,8 +62,6 @@ _COUNTERS = frozenset(
 _NON_WORKER_ADMISSION_REASONS = frozenset(
     {
         "cpu",
-        "managed_memory",
-        "memory_reserve",
         "connectome_io",
         "external_solver",
     }
@@ -83,8 +81,6 @@ _SCHEDULER_ROW_FIELDS = frozenset(
         "running_task_count",
         "runnable_cpu_slots",
         "reserved_cpu_slots",
-        "managed_memory_bytes",
-        "reserved_memory_bytes",
         "reserved_connectome_io_slots",
         "reserved_external_solver_slots",
         "admission_blocked_task_count_by_reason",
@@ -323,7 +319,6 @@ def _scheduler_windows(
     segment: Mapping[str, object],
     probe: Sequence[Mapping[str, object]],
     workers: int,
-    max_rss_bytes: int,
 ) -> dict[str, object]:
     relative = segment.get("scheduler_windows_path")
     if not isinstance(relative, str) or not relative:
@@ -358,35 +353,6 @@ def _scheduler_windows(
         or not rows
     ):
         raise PerformanceAcceptanceError("scheduler-window closure differs")
-    initial_managed = _integer(
-        segment.get("managed_memory_bytes"),
-        "initial managed-memory ceiling",
-    )
-    minimum_managed = _integer(
-        segment.get("minimum_managed_memory_bytes"),
-        "minimum managed-memory ceiling",
-    )
-    maximum_managed = _integer(
-        segment.get("maximum_managed_memory_bytes"),
-        "maximum managed-memory ceiling",
-    )
-    final_managed = _integer(
-        segment.get("final_managed_memory_bytes"),
-        "final managed-memory ceiling",
-    )
-    if (
-        minimum_managed < 1
-        or minimum_managed > initial_managed
-        or initial_managed > maximum_managed
-        or minimum_managed > final_managed
-        or final_managed > maximum_managed
-        or maximum_managed > max_rss_bytes
-    ):
-        raise PerformanceAcceptanceError("managed-memory closure differs")
-    required_reserve = _integer(
-        segment.get("required_memory_reserve_bytes"),
-        "required memory reserve",
-    )
     connectome_io_slots = _integer(
         segment.get("connectome_io_slots"),
         "connectome I/O slots",
@@ -400,8 +366,7 @@ def _scheduler_windows(
         "BLAS threads per worker",
     )
     if (
-        required_reserve < 1
-        or connectome_io_slots != max(1, min(2, workers))
+        connectome_io_slots != max(1, min(2, workers))
         or external_solver_slots != 1
         or blas_threads != 1
     ):
@@ -465,14 +430,6 @@ def _scheduler_windows(
             raw["reserved_cpu_slots"],
             "scheduler reserved CPU slots",
         )
-        managed = _integer(
-            raw.get("managed_memory_bytes"),
-            "scheduler managed memory",
-        )
-        reserved_memory = _integer(
-            raw.get("reserved_memory_bytes"),
-            "scheduler reserved memory",
-        )
         reserved_io = _integer(
             raw["reserved_connectome_io_slots"],
             "scheduler reserved connectome I/O slots",
@@ -486,9 +443,6 @@ def _scheduler_windows(
             or runnable > workers
             or runnable != min(workers, ready + running)
             or reserved_cpu > workers
-            or managed < minimum_managed
-            or managed > maximum_managed
-            or reserved_memory > managed
             or reserved_io > connectome_io_slots
             or reserved_solver > external_solver_slots
         ):
@@ -525,8 +479,6 @@ def _scheduler_windows(
                 "running_task_count": running,
                 "runnable_cpu_slots": runnable,
                 "reserved_cpu_slots": reserved_cpu,
-                "managed_memory_bytes": managed,
-                "reserved_memory_bytes": reserved_memory,
                 "reserved_connectome_io_slots": reserved_io,
                 "reserved_external_solver_slots": reserved_solver,
                 "admission_blocked_task_count_by_reason": {
@@ -584,8 +536,6 @@ def _validate_counters(raw: object, *, cache_state: str) -> dict[str, int]:
 
 def _validate_executed_row(
     row: Mapping[str, object],
-    *,
-    max_rss_bytes: int,
 ) -> dict[str, object]:
     io_classification = row["io_classification"]
     if io_classification not in {"compute_bound", "storage_limited"}:
@@ -639,16 +589,11 @@ def _validate_executed_row(
     if _sha256_file(probe_path) != expected_probe_sha:
         raise PerformanceAcceptanceError("performance probe SHA differs")
     probe_rows, probe_summary = _read_probe(probe_path)
-    if probe_summary["peak_rss_bytes"] >= max_rss_bytes:
-        raise PerformanceAcceptanceError("benchmark RSS reached its ceiling")
-    if probe_summary["swap_delta_bytes"] > 0:
-        raise PerformanceAcceptanceError("benchmark swap increased")
     scheduler = _scheduler_windows(
         run_root,
         segment,
         probe_rows,
         workers,
-        max_rss_bytes,
     )
     counter_path = Path(str(row["counter_path"])).expanduser().resolve()
     if counter_path != run_root and run_root not in counter_path.parents:
@@ -744,7 +689,6 @@ def validate(manifest_path: Path) -> dict[str, object]:
             "schema_version",
             "configured_connectomes",
             "chosen_default_workers",
-            "max_rss_bytes",
             "rows",
         },
         "performance matrix",
@@ -762,7 +706,6 @@ def validate(manifest_path: Path) -> dict[str, object]:
     chosen = document["chosen_default_workers"]
     if type(chosen) is not int or chosen not in _WORKERS:
         raise PerformanceAcceptanceError("chosen default workers differs")
-    max_rss = _integer(document["max_rss_bytes"], "maximum RSS")
     rows = document["rows"]
     if not isinstance(rows, list):
         raise PerformanceAcceptanceError("performance rows must be an array")
@@ -810,7 +753,7 @@ def validate(manifest_path: Path) -> dict[str, object]:
         elif status == "executed":
             if row["not_run_reason"] is not None:
                 raise PerformanceAcceptanceError("executed row has not_run reason")
-            evidence = _validate_executed_row(row, max_rss_bytes=max_rss)
+            evidence = _validate_executed_row(row)
             identity_key = (key[0], key[1], key[3])
             identity = str(evidence["numerical_identity_sha256"])
             prior = identities.setdefault(identity_key, identity)

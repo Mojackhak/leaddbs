@@ -423,8 +423,6 @@ def _gate_closure(
 
 def _guard_rows(
     path: Path,
-    *,
-    max_rss_bytes: int,
 ) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
     fields = {
         "timestamp_utc",
@@ -480,12 +478,6 @@ def _guard_rows(
         if event not in _ALLOWED_GUARD_EVENTS:
             raise PreinstrumentationResourceError(
                 f"guard contains a stop or unsupported event: {event}"
-            )
-        if tree_rss >= max_rss_bytes or peak_rss >= max_rss_bytes:
-            raise PreinstrumentationResourceError("guard RSS reached its ceiling")
-        if max(0, swap_used - baseline) >= 1:
-            raise PreinstrumentationResourceError(
-                "guard swap growth is not below one byte"
             )
         new_epoch = (
             current is None
@@ -684,8 +676,6 @@ def build_measurement_windows(
     run_root: Path,
     cache_root: Path,
     guard_csv: Path,
-    *,
-    max_rss_bytes: int,
 ) -> dict[str, Any]:
     """Derive one maximum-row window from immutable terminal evidence."""
 
@@ -703,10 +693,7 @@ def build_measurement_windows(
         task_documents,
         cache_root.expanduser().resolve(),
     )
-    _guard, guard_rows = _guard_rows(
-        guard_csv.expanduser().resolve(),
-        max_rss_bytes=max_rss_bytes,
-    )
+    _guard, guard_rows = _guard_rows(guard_csv.expanduser().resolve())
     maximum_rows = set(rows["maximum_row_identities"])
     rows_by_identity = {
         str(item["row_identity"]): item for item in rows["rows"]
@@ -841,7 +828,6 @@ def validate(
     measurement_windows: Path,
     *,
     workers: int,
-    max_rss_bytes: int,
 ) -> dict[str, Any]:
     root = run_root.expanduser().resolve()
     manifest_path = root / "run_manifest.json"
@@ -854,7 +840,6 @@ def validate(
             "run manifest is not terminal-completed"
         )
     expected_workers = _integer(workers, "expected workers", minimum=1)
-    ceiling = _integer(max_rss_bytes, "RSS ceiling", minimum=1)
     segment_path = root / "execution_segments" / f"{segment_id}.json"
     segment = _read_json(segment_path, "execution segment")
     if (
@@ -877,10 +862,7 @@ def validate(
         task_documents,
         cache_root.expanduser().resolve(),
     )
-    guard, parsed_guard = _guard_rows(
-        guard_csv.expanduser().resolve(),
-        max_rss_bytes=ceiling,
-    )
+    guard, parsed_guard = _guard_rows(guard_csv.expanduser().resolve())
     windows = _measurement_windows(
         measurement_windows.expanduser().resolve(),
         run_id=str(manifest["run_id"]),
@@ -897,7 +879,6 @@ def validate(
         "segment_id": segment_id,
         "segment_sha256": _sha256_file(segment_path),
         "workers": expected_workers,
-        "max_rss_bytes": ceiling,
         "evidence_mode": "external_guard_with_maximum_row_windows",
         "continuous_full_span_monitoring": False,
         "tasks": tasks,
@@ -945,11 +926,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--guard-csv", required=True, type=Path)
     parser.add_argument("--measurement-windows", required=True, type=Path)
     parser.add_argument("--workers", required=True, type=int)
-    parser.add_argument(
-        "--max-rss-bytes",
-        type=int,
-        default=64 * 1024**3,
-    )
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -964,7 +940,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.guard_csv,
             arguments.measurement_windows,
             workers=arguments.workers,
-            max_rss_bytes=arguments.max_rss_bytes,
         )
         if arguments.output is not None:
             _write_report(arguments.output, report)

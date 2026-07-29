@@ -16,7 +16,7 @@ from typing import Any, Mapping
 import yaml
 
 from ..cache import ArtifactStore, ContentAddressedCache
-from ..catalog import CatalogStatus, EndpointRecord, build_endpoint_catalog
+from ..catalog import CatalogError, CatalogStatus, EndpointRecord, build_endpoint_catalog
 from ..config import (
     ConfigurationError,
     ResolvedWorkflow,
@@ -24,7 +24,7 @@ from ..config import (
     load_workflow,
     validate_study_compatibility,
 )
-from ..contracts import StudyBaseRecord, load_study_base
+from ..contracts import StudyBaseError, StudyBaseRecord, load_study_base
 from ..reporting import (
     build_formal_in_sample_results,
     build_report_documents,
@@ -34,14 +34,16 @@ from ..workflow import (
     ConfigurationSource,
     ExecutionContext,
     ExecutionPlan,
+    PlanningError,
     RunIdentity,
     RunResult,
     RunStore,
-    RunStoreError,
     ServiceRegistry,
     SpawnWorkerSpec,
+    TaskOutcome,
     build_default_registry,
     compile_execution_plan,
+    execution_plan_from_payload,
     execute_plan,
     plan_hash,
 )
@@ -57,6 +59,18 @@ from .sensitivity import (
 
 class ApplicationError(RuntimeError):
     """Raised when an application-level request cannot be completed."""
+
+
+def _path_component(value: object, field: str) -> str:
+    token = str(value).strip()
+    if (
+        not token
+        or token in {".", ".."}
+        or "/" in token
+        or "\\" in token
+    ):
+        raise ApplicationError(f"{field} must be a nonempty path-safe token")
+    return token
 
 
 def _utc_stamp() -> str:
@@ -83,6 +97,63 @@ def _plain(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
     return value
+
+
+def _json_object(path: Path, label: str) -> Mapping[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ApplicationError(f"{label} is unreadable") from exc
+    if not isinstance(payload, Mapping):
+        raise ApplicationError(f"{label} must be a JSON object")
+    return payload
+
+
+def _persisted_sensitivity_plan(
+    path: Path,
+    *,
+    configuration_hash: str,
+) -> ExecutionPlan:
+    """Load the task graph owned by one existing sensitivity child."""
+
+    payload = _json_object(path, "existing sensitivity plan")
+    if (
+        payload.get("schema_version") != "dual_frequency_sensitivity_plan_v1"
+        or not isinstance(payload.get("analyses"), list)
+        or not isinstance(payload.get("plan"), Mapping)
+    ):
+        raise ApplicationError("existing sensitivity plan has invalid required fields")
+    try:
+        return execution_plan_from_payload(
+            payload["plan"],
+            configuration_hash=configuration_hash,
+        )
+    except PlanningError as exc:
+        raise ApplicationError(
+            "existing sensitivity plan is structurally incomplete"
+        ) from exc
+
+
+def _parent_seed_task_ids(base_root: Path) -> tuple[str, ...]:
+    """Read the parent task-ID whitelist required by sensitivity reporting."""
+
+    path = base_root / "sensitivity_bases" / "seed_task_states.json"
+    payload = _json_object(path, "parent sensitivity seed tasks")
+    states = payload.get("task_states")
+    if (
+        payload.get("schema_version") != "dual_frequency_sensitivity_seed_tasks_v1"
+        or not isinstance(states, list)
+    ):
+        raise ApplicationError("parent sensitivity seed tasks have invalid fields")
+    task_ids: list[str] = []
+    for state in states:
+        task_id = state.get("task_id") if isinstance(state, Mapping) else None
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ApplicationError("parent sensitivity seed task ID is invalid")
+        task_ids.append(task_id)
+    if len(set(task_ids)) != len(task_ids):
+        raise ApplicationError("parent sensitivity seed task IDs are duplicated")
+    return tuple(task_ids)
 
 
 @dataclass(frozen=True)
@@ -120,6 +191,7 @@ class SensitivityExtensionRequest:
     workers: int
     allow_expensive_producers: bool = False
     resume: bool = False
+    force: bool = False
     rebuild_request: WorkflowRequest | None = None
     rebuild_run_id: str | None = None
 
@@ -132,23 +204,31 @@ class SensitivityExtensionRequest:
                 "analyses must select jitter, oss, final_in_sample, or a combination"
             )
         object.__setattr__(self, "analyses", analyses)
-        run_id = str(self.run_id).strip()
-        if not run_id or "/" in run_id or "\\" in run_id:
-            raise ApplicationError("extension run_id must be a nonempty path-safe token")
+        run_id = _path_component(self.run_id, "extension run_id")
         object.__setattr__(self, "run_id", run_id)
         if type(self.workers) is not int or self.workers < 1:
             raise ApplicationError("extension workers must be a positive integer")
-        if type(self.allow_expensive_producers) is not bool or type(self.resume) is not bool:
+        if any(
+            type(value) is not bool
+            for value in (
+                self.allow_expensive_producers,
+                self.resume,
+                self.force,
+            )
+        ):
             raise ApplicationError("extension flags must be boolean")
+        if self.resume and self.force:
+            raise ApplicationError("extension resume and force cannot both be enabled")
         if self.rebuild_request is not None and not isinstance(
             self.rebuild_request,
             WorkflowRequest,
         ):
             raise ApplicationError("rebuild_request must be a WorkflowRequest or None")
         if self.rebuild_run_id is not None:
-            rebuild_run_id = str(self.rebuild_run_id).strip()
-            if not rebuild_run_id or "/" in rebuild_run_id or "\\" in rebuild_run_id:
-                raise ApplicationError("rebuild_run_id must be a path-safe token")
+            rebuild_run_id = _path_component(
+                self.rebuild_run_id,
+                "rebuild_run_id",
+            )
             object.__setattr__(self, "rebuild_run_id", rebuild_run_id)
 
 
@@ -202,13 +282,11 @@ class WorkflowService:
         registry: ServiceRegistry | None = None,
         *,
         provider: object | None = None,
-        code_root: Path | None = None,
     ) -> None:
         if registry is not None and not isinstance(registry, ServiceRegistry):
             raise TypeError("registry must be a ServiceRegistry or None")
         self.registry = registry
         self.provider = provider
-        self.code_root = (code_root or Path(__file__).resolve().parents[1]).resolve()
 
     def validate(self, request: WorkflowRequest) -> ValidationSummary:
         return self.validation_summary(self._load(request))
@@ -221,38 +299,42 @@ class WorkflowService:
         )
 
     def run(self, request: WorkflowRequest, *, run_id: str | None = None) -> RunResult:
-        bundle = self.plan(request)
-        validated = bundle.validated
+        validated = self._load(request)
         configuration = validated.configuration
         execution = configuration.workflow.execution
-        requested_run_id = run_id or f"{_utc_stamp()}_{configuration.configuration_hash[:10]}"
-        if not requested_run_id.strip() or "/" in requested_run_id or "\\" in requested_run_id:
-            raise ApplicationError("run_id must be a nonempty path-safe token")
+        requested_run_id = _path_component(
+            run_id or f"{_utc_stamp()}_{configuration.configuration_hash[:10]}",
+            "run_id",
+        )
         if execution.resume and run_id is None:
             raise ApplicationError("resume requires an explicit run_id")
 
         run_parent = configuration.workflow.storage.run_root / validated.study.study_id
         run_parent.mkdir(parents=True, exist_ok=True)
         target = run_parent / requested_run_id
-        parent_run_id: str | None = None
-        effective_run_id = requested_run_id
-        if target.exists() and execution.force:
-            parent_run_id = requested_run_id
-            effective_run_id = self._force_run_id(run_parent, requested_run_id)
-            target = run_parent / effective_run_id
+        if execution.resume and (target / RunStore.COMPLETE_NAME).is_file():
+            return self._completed_run_result(requested_run_id)
+
+        bundle = PlanBundle(
+            validated=validated,
+            plan=compile_execution_plan(configuration, validated.catalog),
+        )
 
         identity = RunIdentity(
             study_id=validated.study.study_id,
-            run_id=effective_run_id,
+            run_id=requested_run_id,
             study_base_sha256=validated.study.source_sha256,
-            code_identity=self._code_identity(),
+            code_identity="not_recorded",
             configuration_hash=configuration.configuration_hash,
             scientific_configuration_hash=configuration.scientific_configuration_hash,
             plan_hash=plan_hash(bundle.plan),
-            parent_run_id=parent_run_id,
         )
         snapshot = self._resolved_snapshot(validated)
-        sources = self._configuration_sources(validated)
+        sources = (
+            ()
+            if execution.resume
+            else self._configuration_sources(validated)
+        )
         output_root = configuration.direct_voxel.output.root
         cache_root = configuration.workflow.storage.cache_root
         output_root.mkdir(parents=True, exist_ok=True)
@@ -264,10 +346,10 @@ class WorkflowService:
             configuration_sources=sources,
             allowed_artifact_roots=(output_root, cache_root),
             resume=execution.resume,
+            force=execution.force,
         )
-        self._publish_input_bundle(store.root, validated)
-        result: RunResult | None = None
-        failure: Exception | None = None
+        if not execution.resume:
+            self._publish_input_bundle(store.root, validated)
         final_status = "failed"
         try:
             artifact_store = ArtifactStore((store.root, output_root, cache_root))
@@ -371,27 +453,9 @@ class WorkflowService:
                 documents["artifact_index.json"],
             )
             final_status = "completed" if result.exit_code == 0 else "failed"
-        except Exception as exc:  # Finalization must also close failed aggregation runs.
-            failure = exc
-
-        try:
+            return result
+        finally:
             store.finalize(final_status)
-        except Exception as exc:
-            if failure is None:
-                failure = exc
-            else:
-                failure = ApplicationError(
-                    "run orchestration failed before finalization "
-                    f"({failure}); finalization also failed ({exc})"
-                )
-
-        if failure is not None:
-            if isinstance(failure, ApplicationError):
-                raise failure
-            raise ApplicationError(f"run orchestration failed: {failure}") from failure
-        if result is None:  # Defensive: the success path always assigns a RunResult.
-            raise ApplicationError("run orchestration completed without a RunResult")
-        return result
 
     def sensitivity(self, request: SensitivityExtensionRequest) -> RunResult:
         """Run selected final-linked analyses without mutating or rerunning the parent."""
@@ -401,7 +465,7 @@ class WorkflowService:
         try:
             base_root = self._exact_run_root(request.base_run)
             workflow_request = self._extension_workflow_request(base_root, request)
-            bundle = self.plan(workflow_request)
+            validated = self._load(workflow_request)
         except ApplicationError:
             if request.rebuild_request is None:
                 raise
@@ -409,84 +473,108 @@ class WorkflowService:
             return self.sensitivity(
                 replace(request, base_run=rebuilt, rebuild_request=None)
             )
-        validated = bundle.validated
         configuration = validated.configuration
         output_root = configuration.direct_voxel.output.root
         cache_root = configuration.workflow.storage.cache_root
-        try:
-            checkpoint = load_sensitivity_checkpoint(
-                base_root,
-                cache_root=cache_root,
-                output_root=output_root,
-            )
-            if checkpoint.parent_manifest.get("study_id") != validated.study.study_id:
-                raise SensitivityCheckpointError("base run study identity changed")
-            if (
-                checkpoint.parent_manifest.get("scientific_configuration_hash")
-                != configuration.scientific_configuration_hash
-            ):
-                raise SensitivityCheckpointError(
-                    "base run scientific configuration changed"
-                )
-            extension_plan = compile_sensitivity_extension_plan(
-                bundle.plan,
-                endpoint_ids=checkpoint.endpoint_ids,
-                analyses=request.analyses,
-                seed_task_ids=checkpoint.seed_task_ids,
-                jitter_bases=(
-                    checkpoint.bases
-                    if self.provider is None
-                    or callable(
-                        getattr(
-                            self.provider,
-                            "build_jitter_physical_block",
-                            None,
-                        )
-                    )
-                    else None
-                ),
-                sensitivity_bases=(
-                    checkpoint.bases
-                    if self.provider is None
-                    or callable(
-                        getattr(
-                            self.provider,
-                            "oss_producer_toolchain",
-                            None,
-                        )
-                    )
-                    else None
-                ),
-            )
-            checkpoint_root_ids = tuple(
-                task.task_id for task in extension_plan.tasks if task.checkpoint_only
-            )
-            seed_outcomes = checkpoint.seed_outcomes_for(checkpoint_root_ids)
-        except SensitivityCheckpointError as exc:
-            if request.rebuild_request is not None:
-                rebuilt = self._rebuild_sensitivity_parent(request)
-                return self.sensitivity(
-                    replace(request, base_run=rebuilt, rebuild_request=None)
-                )
-            raise ApplicationError(str(exc)) from exc
-
         target = (
             configuration.workflow.storage.run_root
             / validated.study.study_id
             / request.run_id
         )
+        parent_manifest = _json_object(
+            base_root / RunStore.MANIFEST_NAME,
+            "base run manifest",
+        )
+        if parent_manifest.get("study_id") != validated.study.study_id:
+            raise ApplicationError("base run study identity changed")
+        if request.resume and (target / RunStore.COMPLETE_NAME).is_file():
+            return self._completed_run_result(request.run_id)
+        seed_outcomes: tuple[TaskOutcome, ...] = ()
+        checkpoint_endpoint_ids: tuple[str, ...] = ()
+        if request.resume:
+            if not target.is_dir():
+                raise ApplicationError(
+                    f"cannot resume missing sensitivity run root: {target}"
+                )
+            extension_plan = _persisted_sensitivity_plan(
+                target / "sensitivity_plan.json",
+                configuration_hash=configuration.configuration_hash,
+            )
+            seed_task_ids = ()
+        else:
+            try:
+                base_plan = compile_execution_plan(
+                    configuration,
+                    validated.catalog,
+                )
+                checkpoint = load_sensitivity_checkpoint(
+                    base_root,
+                    cache_root=cache_root,
+                    output_root=output_root,
+                    require_omega_max="oss" in request.analyses,
+                )
+                extension_plan = compile_sensitivity_extension_plan(
+                    base_plan,
+                    endpoint_ids=checkpoint.endpoint_ids,
+                    analyses=request.analyses,
+                    seed_task_ids=checkpoint.seed_task_ids,
+                    jitter_bases=(
+                        checkpoint.bases
+                        if self.provider is None
+                        or callable(
+                            getattr(
+                                self.provider,
+                                "build_jitter_physical_block",
+                                None,
+                            )
+                        )
+                        else None
+                    ),
+                    sensitivity_bases=(
+                        checkpoint.bases
+                        if self.provider is None
+                        or callable(
+                            getattr(
+                                self.provider,
+                                "oss_producer_toolchain",
+                                None,
+                            )
+                        )
+                        else None
+                    ),
+                )
+                seed_task_ids = checkpoint.seed_task_ids
+                checkpoint_endpoint_ids = checkpoint.endpoint_ids
+                checkpoint_root_ids = tuple(
+                    task.task_id
+                    for task in extension_plan.tasks
+                    if task.checkpoint_only
+                )
+                seed_outcomes = checkpoint.seed_outcomes_for(checkpoint_root_ids)
+            except SensitivityCheckpointError as exc:
+                if request.rebuild_request is not None:
+                    rebuilt = self._rebuild_sensitivity_parent(request)
+                    return self.sensitivity(
+                        replace(request, base_run=rebuilt, rebuild_request=None)
+                    )
+                raise ApplicationError(str(exc)) from exc
+
         identity = RunIdentity(
             study_id=validated.study.study_id,
             run_id=request.run_id,
             study_base_sha256=validated.study.source_sha256,
-            code_identity=self._code_identity(),
+            code_identity="not_recorded",
             configuration_hash=configuration.configuration_hash,
             scientific_configuration_hash=configuration.scientific_configuration_hash,
             plan_hash=plan_hash(extension_plan),
-            parent_run_id=str(checkpoint.parent_manifest["run_id"]),
+            parent_run_id=str(parent_manifest["run_id"]),
         )
         snapshot = self._resolved_snapshot(validated)
-        sources = self._configuration_sources(validated)
+        sources = (
+            ()
+            if request.resume
+            else self._configuration_sources(validated)
+        )
         output_root.mkdir(parents=True, exist_ok=True)
         cache_root.mkdir(parents=True, exist_ok=True)
         store = RunStore.open(
@@ -496,41 +584,44 @@ class WorkflowService:
             configuration_sources=sources,
             allowed_artifact_roots=(output_root, cache_root, base_root),
             resume=request.resume,
+            force=request.force,
         )
-        annotations: dict[str, object] = {
-            "run_type": "sensitivity_extension",
-            "selected_sensitivity_analyses": list(request.analyses),
-        }
-        current_manifest = json.loads(
-            (store.root / RunStore.MANIFEST_NAME).read_text(encoding="utf-8")
-        )
-        if "resource_settings" not in current_manifest:
-            annotations["resource_settings"] = {"workers": request.workers}
-        store.annotate_manifest(annotations)
-        base_reference = {
-            "schema_version": "dual_frequency_base_run_reference_v1",
-            "base_run_id": checkpoint.parent_manifest["run_id"],
-            "base_run_path": str(base_root),
-            "base_run_manifest_sha256": parent_manifest_sha256(base_root),
-            "scientific_configuration_hash": configuration.scientific_configuration_hash,
-            "checkpoint_endpoint_ids": list(checkpoint.endpoint_ids),
-        }
-        self._write_immutable_json(store.root / "base_run_reference.json", base_reference)
-        persisted_extension_plan = _plain(extension_plan)
-        persisted_extension_plan.pop("configuration_hash", None)
-        self._write_immutable_sensitivity_plan(
-            store.root / "sensitivity_plan.json",
-            {
-                "schema_version": "dual_frequency_sensitivity_plan_v1",
-                "analyses": list(request.analyses),
-                "plan": persisted_extension_plan,
-            },
-        )
-        for outcome in seed_outcomes:
-            store.write_task_state(outcome.task_id, outcome.as_dict())
+        if request.resume:
+            seed_task_ids = _parent_seed_task_ids(base_root)
+        if not request.resume:
+            store.annotate_manifest(
+                {
+                    "run_type": "sensitivity_extension",
+                    "selected_sensitivity_analyses": list(request.analyses),
+                    "resource_settings": {"workers": request.workers},
+                }
+            )
+            self._write_immutable_json(
+                store.root / "base_run_reference.json",
+                {
+                    "schema_version": "dual_frequency_base_run_reference_v1",
+                    "base_run_id": parent_manifest["run_id"],
+                    "base_run_path": str(base_root),
+                    "base_run_manifest_sha256": parent_manifest_sha256(base_root),
+                    "scientific_configuration_hash": (
+                        configuration.scientific_configuration_hash
+                    ),
+                    "checkpoint_endpoint_ids": list(checkpoint_endpoint_ids),
+                },
+            )
+            persisted_extension_plan = _plain(extension_plan)
+            persisted_extension_plan.pop("configuration_hash", None)
+            self._write_immutable_sensitivity_plan(
+                store.root / "sensitivity_plan.json",
+                {
+                    "schema_version": "dual_frequency_sensitivity_plan_v1",
+                    "analyses": list(request.analyses),
+                    "plan": persisted_extension_plan,
+                },
+            )
+            for outcome in seed_outcomes:
+                store.write_task_state(outcome.task_id, outcome.as_dict())
 
-        result: RunResult | None = None
-        failure: Exception | None = None
         final_status = "failed"
         try:
             artifact_store = ArtifactStore((store.root, base_root, output_root, cache_root))
@@ -592,7 +683,7 @@ class WorkflowService:
                 selected_catalog,
                 result,
                 typed_records,
-                external_causal_task_ids=checkpoint.seed_task_ids,
+                external_causal_task_ids=seed_task_ids,
             )
             self._publish_reporting_documents(
                 store.root,
@@ -613,32 +704,22 @@ class WorkflowService:
             self._publish_extension_results(
                 validated,
                 request,
-                checkpoint.parent_manifest,
+                parent_manifest,
                 extension_plan,
                 result,
                 documents["artifact_index.json"],
             )
             final_status = "completed" if result.exit_code == 0 else "failed"
-        except Exception as exc:
-            failure = exc
-
-        try:
+            return result
+        finally:
             store.finalize(final_status)
-        except Exception as exc:
-            failure = exc if failure is None else ApplicationError(
-                f"sensitivity extension failed ({failure}); finalization also failed ({exc})"
-            )
-        if failure is not None:
-            if isinstance(failure, ApplicationError):
-                raise failure
-            raise ApplicationError(f"sensitivity extension failed: {failure}") from failure
-        if result is None:
-            raise ApplicationError("sensitivity extension completed without a result")
-        return result
 
     def status(self, run_root: Path) -> dict[str, Any]:
         root = self._exact_run_root(run_root)
-        manifest = json.loads((root / RunStore.MANIFEST_NAME).read_text(encoding="utf-8"))
+        manifest = _json_object(
+            root / RunStore.MANIFEST_NAME,
+            "run manifest",
+        )
         tasks = tuple(
             json.loads(path.read_text(encoding="utf-8"))
             for path in sorted((root / "tasks").glob("task_*.json"))
@@ -711,6 +792,14 @@ class WorkflowService:
                 )
             records[outcome.task_id] = outcome.result.decode_record()
         return records
+
+    @staticmethod
+    def _completed_run_result(run_id: str) -> RunResult:
+        return RunResult(
+            run_id=run_id,
+            outcomes=(),
+            exit_code=0,
+        )
 
     @staticmethod
     def _publish_reporting_documents(
@@ -788,9 +877,9 @@ class WorkflowService:
                 )
             validate_study_compatibility(study, configuration)
             catalog = build_endpoint_catalog(configuration, study)
-        except (ConfigurationError, ValueError, OSError) as exc:
-            if isinstance(exc, ApplicationError):
-                raise
+        except ApplicationError:
+            raise
+        except (CatalogError, ConfigurationError, StudyBaseError) as exc:
             raise ApplicationError(str(exc)) from exc
         return ValidatedWorkflow(request, study, configuration, catalog)
 
@@ -808,15 +897,6 @@ class WorkflowService:
                 for endpoint in validated.catalog
             ),
         )
-
-    def _code_identity(self) -> str:
-        hasher = hashlib.sha256()
-        for path in sorted(self.code_root.rglob("*.py")):
-            hasher.update(path.relative_to(self.code_root).as_posix().encode("utf-8"))
-            hasher.update(b"\0")
-            hasher.update(path.read_bytes())
-            hasher.update(b"\0")
-        return f"sha256:{hasher.hexdigest()}"
 
     @staticmethod
     def _configuration_sources(validated: ValidatedWorkflow) -> tuple[ConfigurationSource, ...]:
@@ -866,6 +946,9 @@ class WorkflowService:
         }
         root = Path(run_root).resolve() / "inputs"
         root.mkdir(parents=True, exist_ok=True)
+        manifest_path = root / "input_bundle.json"
+        if manifest_path.is_file():
+            return
         names = [path.name for path in sources.values()]
         if len(set(names)) != len(names):
             raise ApplicationError("portable input bundle filenames must be unique")
@@ -873,12 +956,7 @@ class WorkflowService:
         for role, source in sources.items():
             target = root / source.name
             content = source.read_bytes()
-            if target.exists():
-                if not target.is_file() or target.read_bytes() != content:
-                    raise ApplicationError(
-                        f"portable input bundle conflicts with existing file: {target}"
-                    )
-            else:
+            if not target.exists():
                 descriptor, name = tempfile.mkstemp(prefix=f".{target.name}.", dir=root)
                 temporary = Path(name)
                 try:
@@ -897,13 +975,8 @@ class WorkflowService:
             "schema_version": "dual_frequency_input_bundle_v1",
             "files": entries,
         }
-        path = root / "input_bundle.json"
         text = json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n"
-        if path.exists():
-            if path.read_text(encoding="utf-8") != text:
-                raise ApplicationError("portable input bundle manifest changed during resume")
-        else:
-            path.write_text(text, encoding="utf-8")
+        manifest_path.write_text(text, encoding="utf-8")
 
     @staticmethod
     def _extension_workflow_request(
@@ -934,8 +1007,6 @@ class WorkflowService:
             path = (base_run / str(item["relative_path"])).resolve()
             if base_run not in path.parents or not path.is_file():
                 raise ApplicationError(f"base run input bundle path is unsafe for {role}")
-            if _sha256_file(path) != item["sha256"]:
-                raise ApplicationError(f"base run input bundle failed SHA-256 for {role}")
             return path
 
         try:
@@ -995,8 +1066,6 @@ class WorkflowService:
             / validated.study.study_id
         )
         run_id = request.rebuild_run_id or f"{request.run_id}-parent"
-        if (run_parent / run_id).exists():
-            run_id = self._force_run_id(run_parent, run_id)
         result = self.run(parent_request, run_id=run_id)
         if result.exit_code != 0:
             raise ApplicationError("rebuilt parent did not complete successfully")
@@ -1004,11 +1073,9 @@ class WorkflowService:
 
     @staticmethod
     def _write_immutable_json(path: Path, payload: Mapping[str, Any]) -> None:
-        text = json.dumps(dict(payload), indent=2, sort_keys=True, allow_nan=False) + "\n"
         if path.exists():
-            if not path.is_file() or path.read_text(encoding="utf-8") != text:
-                raise ApplicationError(f"immutable extension document changed: {path}")
             return
+        text = json.dumps(dict(payload), indent=2, sort_keys=True, allow_nan=False) + "\n"
         path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         temporary = Path(name)
@@ -1027,51 +1094,9 @@ class WorkflowService:
         path: Path,
         payload: Mapping[str, Any],
     ) -> None:
-        text = json.dumps(dict(payload), indent=2, sort_keys=True, allow_nan=False) + "\n"
-        if not path.exists():
-            cls._write_immutable_json(path, payload)
+        if path.exists():
             return
-        if not path.is_file():
-            raise ApplicationError(f"immutable extension document changed: {path}")
-        existing_text = path.read_text(encoding="utf-8")
-        if existing_text == text:
-            return
-        try:
-            existing = json.loads(existing_text)
-        except json.JSONDecodeError as exc:
-            raise ApplicationError(
-                f"immutable extension document changed: {path}"
-            ) from exc
-        if cls._normalize_v1_sensitivity_scheduler_defaults(existing) != (
-            cls._normalize_v1_sensitivity_scheduler_defaults(dict(payload))
-        ):
-            raise ApplicationError(f"immutable extension document changed: {path}")
-
-    @staticmethod
-    def _normalize_v1_sensitivity_scheduler_defaults(
-        document: object,
-    ) -> object:
-        normalized = json.loads(json.dumps(document, allow_nan=False))
-        if (
-            not isinstance(normalized, dict)
-            or normalized.get("schema_version")
-            != "dual_frequency_sensitivity_plan_v1"
-        ):
-            return normalized
-        plan = normalized.get("plan")
-        tasks = plan.get("tasks") if isinstance(plan, dict) else None
-        if not isinstance(tasks, list):
-            return normalized
-        defaults = {
-            "timeout_seconds": None,
-            "transient_safe": False,
-            "max_transient_retries": 0,
-        }
-        for task in tasks:
-            if isinstance(task, dict):
-                for field, default in defaults.items():
-                    task.setdefault(field, default)
-        return normalized
+        cls._write_immutable_json(path, payload)
 
     @staticmethod
     def _replace_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -1265,16 +1290,6 @@ class WorkflowService:
             )
 
     @staticmethod
-    def _force_run_id(parent: Path, requested_run_id: str) -> str:
-        base = f"{requested_run_id}-force-{_utc_stamp()}"
-        candidate = base
-        suffix = 1
-        while (parent / candidate).exists():
-            suffix += 1
-            candidate = f"{base}-{suffix}"
-        return candidate
-
-    @staticmethod
     def _exact_run_root(run_root: Path) -> Path:
         supplied = Path(run_root).expanduser()
         if supplied.is_symlink():
@@ -1286,7 +1301,7 @@ class WorkflowService:
         manifest_path = root / RunStore.MANIFEST_NAME
         if not root.is_dir() or not manifest_path.is_file():
             raise ApplicationError(f"path is not an exact dual-frequency run root: {root}")
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = _json_object(manifest_path, "run manifest")
         if manifest.get("run_id") != root.name:
             raise ApplicationError("run_root basename does not match manifest run_id")
         return root

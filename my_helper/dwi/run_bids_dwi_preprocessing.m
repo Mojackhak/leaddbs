@@ -330,6 +330,8 @@ opts.AnchorModality = config.anatomy.coregistration_anchor;
 opts.CoregistrationMethod = config.lead_dbs.coregistration_method;
 opts.DistortionCorrection = config.dwi.distortion_correction;
 opts.PhaseEncodingVector = config.dwi.phase_encoding_vector;
+opts.B0ReferenceStrategy = config.dwi.b0_reference.strategy;
+opts.B0Threshold = config.dwi.b0_reference.threshold;
 if strcmp(config.dwi.total_readout_time.strategy, 'fixed')
     opts.TotalReadoutTime = config.dwi.total_readout_time.seconds;
 else
@@ -368,6 +370,8 @@ result.coregistrationMethod = config.lead_dbs.coregistration_method;
 result.runCoregistration = config.lead_dbs.run_coregistration;
 result.distortionCorrection = config.dwi.distortion_correction;
 result.phaseEncodingVector = config.dwi.phase_encoding_vector;
+result.b0ReferenceStrategy = config.dwi.b0_reference.strategy;
+result.b0Threshold = config.dwi.b0_reference.threshold;
 result.defaultTotalReadoutTime = config.dwi.total_readout_time.seconds;
 result.parallel = config.execution.parallel;
 result.parallelWorkers = config.execution.parallel_workers;

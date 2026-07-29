@@ -40,7 +40,7 @@ end
 
 function transformName = validate_transform_name(value)
 transformName = validatestring(char(string(value)), ...
-    {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
+    {'identity', 'flipY', 'flipZ', 'rotX180', 'rotZ180'}, ...
     'mh_fiber_reorient_nifti_content', 'Transform');
 end
 
@@ -54,6 +54,8 @@ switch transformName
         data = flip(data, 3);
     case 'rotX180'
         data = flip(flip(data, 2), 3);
+    case 'rotZ180'
+        data = flip(flip(data, 1), 2);
     otherwise
         error('mh_fiber_reorient_nifti_content:UnsupportedTransform', ...
             'Unsupported transform: %s', transformName);

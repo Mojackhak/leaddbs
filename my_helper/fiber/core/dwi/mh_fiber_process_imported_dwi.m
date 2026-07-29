@@ -45,6 +45,8 @@ try
         dcResult = mh_fiber_dwi_distortion_correction(paths, t1Anat, ...
             'Force', opts.Force, ...
             'PhaseEncodingVector', opts.PhaseEncodingVector, ...
+            'B0ReferenceStrategy', opts.B0ReferenceStrategy, ...
+            'B0Threshold', opts.B0Threshold, ...
             'TotalReadoutTime', opts.TotalReadoutTime, ...
             'DefaultTotalReadoutTime', opts.DefaultTotalReadoutTime, ...
             'Synb0ContainerEngine', opts.Synb0ContainerEngine, ...
@@ -69,6 +71,10 @@ try
         row.fake_b0_coreg_target = paths.fakeB0Coreg;
         stage_fake_b0_coreg_target(dcResult.b0, paths.fakeB0Coreg, opts.Force);
         row.fake_b0_metadata = write_fake_b0_metadata(paths, dcResult);
+        row.b0_reference_strategy = dcResult.b0ReferenceStrategy;
+        row.b0_reference_source_index = dcResult.b0ReferenceSourceIndex;
+        row.b0_reference_hash = dcResult.b0ReferenceHash;
+        row.eddy_volume_mapping = dcResult.eddyVolumeMapping;
         write_overlay_png(dcResult.distortedB0, dcResult.b0, ...
             fullfile(paths.qcDir, [subjectId, '_distorted_b0_vs_corrected_b0.png']), ...
             [subjectId, ' distorted b0 vs corrected b0']);
@@ -88,7 +94,8 @@ try
         read_dwi_geometry(paths.dwi);
     row.low_resolution_warning = row.voxel_z >= 4;
 
-    mh_fiber_extract_mean_b0(paths.dwi, paths.b0, bvals, opts.Force);
+    mh_fiber_extract_b0_reference(paths.dwi, paths.b0, bvals, ...
+        opts.B0ReferenceStrategy, opts.B0Threshold, opts.Force);
     validate_b0_geometry(paths.dwi, paths.b0);
 
     if opts.GenerateOptionalDwiQc
@@ -157,6 +164,8 @@ opts = fill_option(opts, 'AnchorModality', 'T2w');
 opts = fill_option(opts, 'CoregistrationMethod', 'ANTs');
 opts = fill_option(opts, 'DistortionCorrection', 'none');
 opts = fill_option(opts, 'PhaseEncodingVector', [0 1 0]);
+opts = fill_option(opts, 'B0ReferenceStrategy', 'mean');
+opts = fill_option(opts, 'B0Threshold', 10);
 opts = fill_option(opts, 'TotalReadoutTime', NaN);
 opts = fill_option(opts, 'DefaultTotalReadoutTime', 0.05);
 opts = fill_option(opts, 'Synb0ContainerEngine', 'auto');
@@ -172,6 +181,16 @@ opts.AnchorModality = normalize_anchor_modality(opts.AnchorModality);
 opts.CoregistrationMethod = normalize_coregistration_method(opts.CoregistrationMethod);
 opts.DistortionCorrection = normalize_distortion_correction(opts.DistortionCorrection);
 opts.PhaseEncodingVector = double(opts.PhaseEncodingVector(:)');
+opts.B0ReferenceStrategy = lower(strtrim(char(string(opts.B0ReferenceStrategy))));
+if ~ismember(opts.B0ReferenceStrategy, {'mean', 'last'})
+    error('mh_fiber_process_imported_dwi:InvalidB0ReferenceStrategy', ...
+        'B0ReferenceStrategy must be mean or last.');
+end
+opts.B0Threshold = double(opts.B0Threshold);
+if ~isscalar(opts.B0Threshold) || ~isfinite(opts.B0Threshold) || opts.B0Threshold <= 0
+    error('mh_fiber_process_imported_dwi:InvalidB0Threshold', ...
+        'B0Threshold must be a positive scalar.');
+end
 opts.TotalReadoutTime = double(opts.TotalReadoutTime);
 opts.DefaultTotalReadoutTime = double(opts.DefaultTotalReadoutTime);
 opts.Synb0ContainerEngine = char(string(opts.Synb0ContainerEngine));
@@ -232,7 +251,8 @@ end
 function metadataPath = write_fake_b0_metadata(paths, dcResult)
 metadata = struct();
 metadata.SourceImage = dcResult.b0;
-metadata.GeneratedFrom = 'Synb0/topup/eddy corrected mean b0';
+metadata.GeneratedFrom = sprintf('Synb0/topup/eddy corrected %s b0 reference', ...
+    dcResult.b0ReferenceStrategy);
 metadata.IntendedUse = 'coregistration_and_normalization';
 metadata.CorrectedDwi = dcResult.dwi;
 metadata.RotatedBvec = dcResult.rotatedBvec;
@@ -240,6 +260,11 @@ metadata.TopupField = dcResult.topupFieldcoef;
 metadata.TotalReadoutTime = dcResult.totalReadoutTime;
 metadata.TotalReadoutTimeSource = dcResult.totalReadoutTimeSource;
 metadata.PhaseEncodingVector = sprintf('%g %g %g', dcResult.phaseEncodingVector);
+metadata.B0ReferenceStrategy = dcResult.b0ReferenceStrategy;
+metadata.B0ReferenceThreshold = dcResult.b0Threshold;
+metadata.B0ReferenceSourceIndex = dcResult.b0ReferenceSourceIndex;
+metadata.B0ReferenceSha256 = dcResult.b0ReferenceHash;
+metadata.EddyVolumeMapping = dcResult.eddyVolumeMapping;
 metadata.ExpectedCoregisteredImage = paths.fakeB0Coreg;
 
 metadataPath = sidecar_json_path(dcResult.b0);
@@ -503,6 +528,10 @@ row.topup_field = '';
 row.total_readout_time = NaN;
 row.total_readout_time_source = '';
 row.phase_encoding_vector = '';
+row.b0_reference_strategy = '';
+row.b0_reference_source_index = NaN;
+row.b0_reference_hash = '';
+row.eddy_volume_mapping = '';
 row.fake_b0_preproc = '';
 row.fake_b0_coreg_target = '';
 row.fake_b0_metadata = '';

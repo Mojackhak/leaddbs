@@ -1191,15 +1191,12 @@ The corrected contract has two identities:
    all explicit `OSSScientificSettings` values. Worker count, execution chunk
    size, scheduler, memory limits, resource monitors, publication code, run ID,
    repository SHA, and complete implementation fingerprint are excluded.
-2. The complete current producer implementation remains a
-   `definition-sha256-*` execution attestation. An authorized cache miss
-   computes it immediately before and after external row production and rejects
-   any in-flight change. A successful newly produced row records that exact
-   attestation in `row_metadata.json`; a promoted row instead records all
-   verified historical fingerprints in `compatibility_source.json`. These
-   fields are audit provenance only and never control lookup, resume,
-   direct-copy portability, or use of a previously completed scientific
-   payload.
+2. Decision 51 later supersedes the complete current-producer attestation
+   described in this Decision 39 checkpoint. The live producer performs no
+   repository hash or before-and-after source comparison. Promoted historical
+   fingerprints remain readable in `compatibility_source.json` only as
+   immutable provenance and never control lookup, resume, direct-copy
+   portability, or use of a previously completed scientific payload.
 
 Changing a scientific definition requires an explicit new semantic version.
 Changing only execution policy retains the existing version. This is the
@@ -1239,8 +1236,9 @@ The code gate requires tests proving that:
 - corrupt, axis-mismatched, parameter-mismatched, ambiguous, and conflicting
   legacy candidates fail closed;
 - a legacy pass decision promotes only after both paired rows validate; and
-- producer implementation drift during an authorized miss fails before cache
-  publication.
+- Decision 51 replaces the former implementation-drift failure fixture with a
+  regression proving that an on-disk repository change does not fail row
+  production.
 
 The active independent gate must finish under the implementation identity it
 already resolved. No production source file may be changed while its external
@@ -1410,3 +1408,1155 @@ checkout independently passed the same 768 dual-frequency tests and 54
 visualization tests with warnings treated as errors. No expensive producer or
 production output was used by these tests. Production acceptance remains open
 until the replacement lineage closes.
+
+## Decision 44: Minimal-Sufficient Admission and Path-Based Resume
+
+This decision supersedes content-identity resume gates. Scientific input
+validity is established before admission by parsing the declared JSON and YAML
+documents and validating their required schema fields. Resume is an output
+existence operation. It does not attempt to prove that an existing output was
+created by the current repository, machine, scheduler, or implementation.
+
+The admission and resume mechanisms are classified as follows.
+
+| Class | Mechanism | Decision |
+| --- | --- | --- |
+| A | JSON and YAML parsing, required-field schema validation, path-safe run identifiers, and output-root containment | Retain at the untrusted input boundary. |
+| B | Atomic file replacement, a task-local `complete.json` written after its task state, a run-root `complete.json` written after successful finalization, and the minimum result decoding needed to supply downstream dependencies | Retain as explicit workflow interfaces. |
+| C | Rechecking input JSON and YAML content hashes during resume, decoding the same completed result through service-specific validators, and revalidating completed OSS cache closures during task restoration | Remove as duplicate validation. |
+| D | Recursively hashing the repository for run identity, treating any restored-result exception as permission to rerun, and comparing an immutable sensitivity plan during resume | Remove because no current requirement or known failure requires these mechanisms. |
+| E | Invalidating completed descendants because one ancestor is missing or fails an additional restoration check | Narrow to the task whose own completion marker is absent. |
+
+The remaining broad exception boundaries are Class B only: the record codec
+adds typed execution context to an arbitrary registered record failure, the
+task runner converts an arbitrary worker failure into that task's terminal
+failed outcome, and atomic report publication rolls back files already
+replaced in the same transaction. None authorizes retry, fallback, cache
+invalidation, or completed-task rerun.
+
+The resulting contract is intentionally small:
+
+1. Admission parses the study JSON and three YAML profiles once, rejects parser
+   errors, validates their required schemas, and completes the existing
+   cross-profile checks before creating a run root or starting workers. Initial
+   run creation may separately copy these small files and record provenance
+   digests. Resume does neither and does not recompute configuration-source
+   hashes that the existing-run path ignores.
+2. Every task retains its ordinary state document. A successful task then
+   atomically writes `tasks/<task_id>/complete.json` as the final task-local
+   operation. The completion marker is not a checksum.
+3. Resume checks the deterministic task state path and the task-local
+   `complete.json` path. When both files exist, the task is restored and
+   skipped. When either file is absent, only that task is eligible to run.
+4. A completion marker whose state document cannot be parsed is an explicit
+   interface error. It is not silently converted into a rerun.
+5. Successful run finalization writes the run-root `complete.json` last. A
+   failed or interrupted run has no run-root completion marker.
+6. `--force` is explicit overwrite authority. It replaces the requested run
+   root at the same path and does not create a derived run identifier. The
+   public `run` and `sensitivity` commands expose the same option, and both
+   reject combining it with `--resume`. Sensitivity delegates replacement to
+   the existing `RunStore.open` implementation; it does not add a second
+   deletion path or a configuration field.
+7. Resume does not compare code identity, repository state, input hashes,
+   configuration hashes, plan hashes, parent-manifest hashes, file metadata, or
+   payload hashes. These values may remain in historical records or scientific
+   cache identities, but they do not decide whether a completed task is
+   restored. The `RunIdentity` value supplies creation-time fields and current
+   invocation provenance only; it is not a resume identity contract.
+8. No generic retry, fallback, automatic compatibility migration, or
+   catch-and-rerun branch is added. Existing bounded retries remain only where
+   a documented external-process failure and an explicit task contract already
+   require them.
+9. The active OSS lineage predates task-local completion markers. The explicit
+   operator-invoked
+   `my_helper/fiber/pipelines/migrate_dual_frequency_completion_markers.py`
+   command may create a missing marker only when the
+   corresponding legacy `tasks/<task_id>.json` exists, names the same task, and
+   declares `status: completed`. It may create the run-root marker only when
+   `run_manifest.json` declares `final_status: completed`. The migration is
+   idempotent, performs no hash or payload validation, is never called by
+   ordinary resume, and should be run again after the legacy process exits
+   before the first new-code resume.
+
+This change deliberately accepts that an incorrectly copied or manually
+modified file with the expected path can be treated as complete. Operators use
+`--force` when an existing path must be replaced. Deep integrity validation is
+a separate, explicitly invoked release operation and is not part of ordinary
+admission or resume.
+After adding the missing public sensitivity flag, the CLI, application
+service, executor, and synthetic extension suites pass 65 tests and 13
+subtests with warnings treated as errors. The regression proves CLI
+propagation, mutual exclusion with resume, and reuse of the existing RunStore
+replacement path.
+
+## Decision 45: Remove RAM Admission and RAM-Triggered Termination
+
+The operator explicitly removes both RAM control layers from Task 17. This
+decision supersedes the 48-GiB task memory charge, the system-memory reserve
+predicate, the 64-GiB task-tree RSS stop condition, and the zero-swap-growth
+stop condition.
+
+The remaining resource contract is:
+
+1. `workers` remains the process-concurrency ceiling.
+2. Connectome I/O and external-solver token limits remain because they control
+   shared service concurrency rather than RAM.
+3. RAM and swap may be sampled for observation and reporting, but neither value
+   may block task admission or terminate a running task.
+4. The local guard retains only runner-lifecycle and VAL mount-generation
+   protection. A missing or replaced VAL mount still stops the writer because
+   continuing after external-storage loss can redirect output to the local
+   mount point. Failure to read optional swap telemetry records `-1` as
+   unavailable and does not stop the runner or disable mount checking.
+5. Existing completion markers, scientific cache entries, and resume behavior
+   remain unchanged.
+
+This removal accepts operating-system memory management, compression, swap,
+and possible process-level allocation failure as runtime outcomes. No
+replacement RAM threshold, retry, fallback, or hidden admission rule is added.
+The former empty-running-set resource-resampling loop is also removed. It
+existed only so an available-memory predicate could become admissible while no
+task was running. After RAM admission is removed, worker, connectome-I/O, and
+solver reservations cannot change without a task completion, so an empty
+running set with pending work is a dependency or ledger error and fails
+immediately. The observational monitor no longer receives the admission ledger
+or a synthetic available-memory fallback.
+The focused guard and strict-resource suites pass 39 tests. They prove that
+high RSS, positive swap growth, and unavailable swap telemetry do not terminate
+the runner, while VAL loss, replacement, or untrusted mount continuity still
+does. The final complete dual-frequency suite passes 803 tests and 326
+subtests in 131.06 seconds with warnings treated as errors, no failure, and no
+skip. The executor file alone passes 42 tests and 8 subtests after the stale
+resampling path is removed.
+
+## Decision 46: Remove Sensitivity Checkpoint Hash Gates
+
+A direct call-chain audit after Decision 44 found that `sensitivity --resume`
+still loaded and hash-verified the parent sensitivity checkpoint before opening
+the existing child run. The hidden checks covered each sensitivity-base JSON
+file, the seed-task JSON bundle, final artifact payloads, shared-cache payloads,
+and the parent scientific-configuration hash. They could reject an existing
+child before its task-state paths and task-local completion markers were read.
+
+The mechanisms are classified as follows.
+
+| Class | Mechanism | Decision |
+| --- | --- | --- |
+| A | Parse the parent manifest, checkpoint index, sensitivity-base JSON files, seed-task JSON bundle, and the four declared JSON/YAML inputs; require their schemas and necessary fields | Retain at the input boundary. |
+| B | Require path containment, the parent terminal status, unique endpoint and task identifiers, required artifact paths, and the minimum typed result decoding needed by an incomplete child task | Retain as interface invariants. |
+| C | Recompute hashes for sensitivity-base JSON and seed-task JSON after those files were already parsed and structurally validated | Remove as duplicate validation. |
+| D | Recompute final-artifact and shared-cache payload hashes before opening an existing child, and compare the parent scientific-configuration hash during ordinary resume | Remove because neither check decides whether a child task has its own completion marker. |
+| E | Reject or invalidate the entire child because an already completed parent or cache payload fails a new pre-resume integrity pass | Narrow to the incomplete task that actually attempts to consume a missing or unreadable dependency. |
+
+`load_sensitivity_checkpoint` therefore becomes a structural loader. Historical
+SHA fields remain readable for compatibility and provenance, but the loader
+does not recompute or compare them. A persisted Omega-max descriptor supplies
+the structural fields needed to compile the child plan without reopening and
+hashing the shared cache. Ordinary task restoration remains governed only by
+the deterministic state path and `tasks/<task_id>/complete.json`.
+
+The structural loader validates portable URI syntax and root containment but
+does not require the referenced artifact to exist, compare repeated artifact
+metadata, or read an array header. Those checks belong to the incomplete task
+that actually materializes the artifact. A missing or unreadable parent payload
+therefore cannot invalidate completed child tasks before marker restoration.
+
+Application setup writes the child annotation, base reference, sensitivity
+plan, and imported checkpoint-root task states only while creating a new child.
+It does not repair or rewrite any of them during resume. An existing child's
+task files are read by the executor; any separate compatibility conversion
+requires an explicit operator action.
+
+The same rule applies to a main run's portable input bundle. Initial creation
+writes `inputs/input_bundle.json` and its four copied inputs. Partial resume
+does not recreate a deleted bundle or copy inputs again; it only restores or
+runs tasks. A missing bundle remains visible and prevents a later sensitivity
+child from treating that parent as portable until the operator explicitly
+rebuilds a parent lineage. The focused main-resume, application-service, and
+checkpoint suites pass 21 tests and 3 subtests. The complete dual-frequency
+suite was superseded by the final complete replay reported below.
+
+Main and sensitivity resume both bypass creation-only configuration-source
+hashing. Focused regressions replace that hash collector with a failing stub.
+The completed main resume returns without calling it, reaggregating reports,
+rewriting accepted decisions, or finalizing the run again. The selective
+sensitivity resume likewise runs only the markerless child task without
+recomputing configuration-source or parent-checkpoint hashes. The
+application-service file passes 8 tests and 3 subtests after this change.
+
+This change does not weaken explicit publication validation. A separately
+invoked release validator may still perform full payload hashing because that
+operation verifies a publication contract rather than deciding ordinary
+workflow resume.
+
+The implementation removes the checkpoint JSON, seed JSON, final-artifact, and
+shared-cache payload hash reads from the structural loader; removes the parent
+scientific-configuration hash comparison; and writes imported child metadata
+and checkpoint roots only during initial child creation. The exact-child
+regression changes the parent manifest scientific hash, every indexed
+sensitivity-base hash, the seed-bundle hash and JSON bytes, and persisted final
+artifact SHA fields. Resume still executes only the one task whose marker was
+removed, while every completed checkpoint-root state and marker preserves both
+bytes and modification time. The final mapper accepts portable URI syntax and
+root containment without checking artifact existence or reading array headers.
+A completed-child regression deletes a referenced parent artifact and proves
+that resume restores every completed task without any service call. The final
+checkpoint-focused set passes 14 tests, and the complete dual-frequency suite
+passes 803 tests and 326 subtests in 131.06 seconds with warnings treated as
+errors, no failure, and no skip.
+
+## Decision 47: Narrow Executor Future Inspection
+
+The minimal-sufficient-correctness review classifies the remaining broad
+exception boundaries as follows:
+
+| Class | Boundary | Decision |
+| --- | --- | --- |
+| B | Typed-record codec adapters | Retain because external codec implementations may raise different exception types and this layer adds the rejected record context. |
+| B | Backend task execution | Retain because this is the task isolation boundary that converts an arbitrary backend failure into one terminal failed task. |
+| B | Atomic reporting transaction | Retain because every failure after partial replacement must enter the same rollback path. |
+| D | The preliminary call to `Future.exception()` before `_finish_future` | Remove the catch-all because completed task exceptions are returned by the Future, and `_finish_future` already owns task failure localization. |
+
+The executor now calls `Future.exception()` directly only to detect the one
+recoverable `BrokenProcessPool` condition. An unexpected Future API failure,
+including cancellation outside the declared scheduler path, propagates instead
+of being silently reclassified as a worker exception. No retry, fallback, or
+new exception wrapper is added. The executor file passes 42 tests and 8
+subtests with warnings treated as errors after this narrowing. A complete
+package replay remains required before the next process starts under the
+updated executor.
+
+## Decision 48: Scope Omega-Max Checkpoint Requirements to OSS
+
+The first production identical-resume attempt for the completed jitter v8
+child stopped before opening its RunStore because the structural parent loader
+unconditionally required an `Omega_max` descriptor from every fiber
+sensitivity base. That descriptor was added after the completed parent was
+created and is needed only to compile OSS or combined OSS tasks. Pure jitter
+does not consume it.
+
+The requirement is narrowed to the analysis that uses it:
+
+1. a request containing `oss` requires a complete structural `Omega_max`
+   descriptor for every applicable fiber base;
+2. a request containing only `jitter` or `final_in_sample` does not require or
+   validate that descriptor;
+3. a combined `jitter,oss` request retains the OSS requirement;
+4. the performance-matrix loader explicitly requests the descriptor because
+   its pPAM slices depend on the accepted OSS closure; and
+5. no missing descriptor is synthesized, repaired, or written during resume.
+
+This is a local dependency rule, not a compatibility fallback. The loader
+continues to parse the common parent JSON and required base fields, while an
+OSS-only field can fail only an OSS consumer. Focused regression must remove
+the descriptor from a fiber base, prove that jitter compilation and resume
+still succeed, and prove that OSS compilation rejects the same base.
+
+The completed jitter v8 run also predates Decision 44 completion markers. Its
+800 task documents are completed, but task-local and run-root `complete.json`
+files are absent. The checked-in
+`my_helper/fiber/pipelines/migrate_dual_frequency_completion_markers.py`
+command will create only those markers after the focused code regression
+passes. Ordinary resume must never invoke this migration automatically.
+Production identical-resume acceptance then compares the path, size, and
+modification time of every non-runtime run file before and after the exact
+resume and requires no change.
+
+The implementation adds one explicit `require_omega_max` loader argument. The
+application sets it only when the requested analysis set contains `oss`, and
+the performance matrix sets it because its pPAM slices consume OSS. The
+checkpoint and performance-matrix suites pass 51 tests, and the complete
+synthetic end-to-end file passes eight tests with warnings treated as errors.
+
+The explicit migration then created 800 task markers and one run-root marker
+for jitter v8, and 1512 task markers plus one run-root marker for the completed
+main lineage. Exact resume returned success for both. Jitter preserved all 2651
+non-runtime files, and main preserved all 18983 non-runtime files, with no
+path, size, or modification-time change. Neither resume started a worker or
+rewrote a task, marker, report, manifest, or scientific payload.
+
+## Decision 49: Resume an Existing Sensitivity Child from Its Persisted Plan
+
+An incomplete sensitivity child already contains the exact task graph that
+created its task-state files in `sensitivity_plan.json`. Recompiling that graph
+from the parent checkpoint before opening the child is unnecessary and can
+prevent a valid resume when a later code version introduces a parent-only
+descriptor that was not present when the child was created.
+
+The minimal resume contract is:
+
+1. Initial child creation continues to validate the parent input bundle, load
+   the parent sensitivity checkpoint, compile the selected analyses, and write
+   the resulting child-local plan before executing tasks.
+2. When `--resume` addresses an existing child path, the child-local
+   `sensitivity_plan.json` is the task-plan authority. The application parses
+   its required JSON fields into the existing typed task and plan records.
+   The same decoder is reused by the performance harness instead of maintaining
+   a second task-plan parser. Required fields and their types are enforced;
+   unrelated additional JSON fields are ignored and cannot invalidate an
+   existing run.
+3. Existing task paths and task-local `complete.json` files determine which
+   tasks are skipped. The run-root `complete.json` determines whether the
+   entire child returns immediately.
+4. Resume does not reload parent sensitivity bases merely to reconstruct the
+   already persisted graph, does not compare a plan hash, does not scan or hash
+   scientific cache payloads, and does not synthesize or repair a missing
+   parent descriptor.
+5. The exact parent run manifest and the fixed
+   `sensitivity_bases/seed_task_states.json` task-ID list remain available for
+   reporting and causal parent binding. Only an incomplete child that must
+   republish reporting reads that task-ID list; a child with run-root
+   `complete.json` returns before the read. Resume reads no parent sensitivity
+   base, artifact payload, cache entry, or SHA for this purpose. Current YAML
+   and JSON inputs still pass ordinary application admission before the child
+   is opened.
+6. A missing, unreadable, or structurally incomplete child-local plan fails at
+   that child. There is no fallback to parent recompilation because such a
+   fallback would silently change the graph associated with the existing task
+   files.
+
+This rule is local to an already existing sensitivity child. It does not allow
+a new OSS child to be created without the required Omega-max parent
+descriptor, and it does not change any scientific task identity or cached
+result.
+
+The implementation now branches after ordinary YAML and JSON admission but
+before parent checkpoint loading. A new child retains the original parent
+compilation path. An existing child resume decodes its persisted plan through
+the shared workflow decoder, reads only the fixed parent seed-task ID list for
+reporting, and lets the existing RunStore completion markers drive restoration.
+Run-root manifest parsing is shared by exact-root admission and sensitivity
+report binding; malformed JSON or a non-object manifest fails at that input
+boundary with no retry.
+The previous duplicate performance-harness task-plan decoder has been replaced
+by the same shared decoder. A regression makes the parent checkpoint loader
+raise if called during partial-child resume, mutates the historical parent
+metadata, removes one child marker, and proves that exactly that one
+sensitivity task runs. The relevant planner, application, checkpoint,
+synthetic end-to-end, performance-matrix, and plan-audit suites pass 94 tests
+and 90 subtests with warnings treated as errors. After consolidating run
+manifest parsing and adding malformed-object coverage, the same set passes 95
+tests and 90 subtests.
+
+## Decision 50: Derive a Missing Historical Omega Descriptor Only for New Children
+
+The immutable v8 parent predates the portable `omega_max` field in fiber
+sensitivity bases. Its declared shared-exposure identities and the stable
+Omega-max cache remain sufficient to create the descriptor, and the active
+independent OSS child already proves that the physical cache exists. A new
+combined child would otherwise fail before it can reuse that cache.
+
+The bounded creation rule is:
+
+1. It applies only while creating a new child whose requested analyses include
+   `oss`. Existing-child resume follows Decision 49 and never enters this path.
+2. If a fiber base already contains a complete descriptor, it is used
+   unchanged.
+3. If the descriptor is absent, the loader resolves the base's already
+   declared shared-cache manifest identities and derives the descriptor in
+   memory from the one matching `normative_fiber_omega_max` entry. It reads
+   only `manifest.json` and does not open or hash the cached array payload.
+   Entries whose declared kind cannot contain the fiber Omega artifact are
+   ignored before any manifest read. A missing or unreadable unrelated
+   manifest is also ignored while scanning; only a readable manifest whose
+   cache key exactly matches both `normative_fiber_omega_max` and the base's
+   shared physical identity is an Omega candidate. Creation still fails when
+   that scan yields zero or more than one exact candidate.
+4. The parent checkpoint and cache are never rewritten. The derived descriptor
+   is persisted only as part of the new child's ordinary
+   `sensitivity_plan.json`.
+5. A missing, ambiguous, or invalid exact Omega cache entry fails that new child
+   locally. Failure of any unrelated entry remains local to that entry. No
+   fallback, solver authorization, retry, or parent repair is added.
+6. The combined launch continues to omit `--allow-expensive-producers`.
+   Therefore execution can reuse the accepted cache but cannot silently
+   regenerate a missing physical row.
+
+This is task-input derivation for a known historical parent, not a resume
+compatibility gate.
+
+The focused loader regression publishes one synthetic Omega cache, removes the
+descriptor from its parent base, and proves that new-child loading derives the
+same axis and payload identity without writing the base. The end-to-end
+regression removes the field from every synthetic fiber base, completes
+independent OSS, then completes a combined child with expensive production
+disabled while preserving every modified parent-base byte. The application,
+checkpoint, synthetic end-to-end, performance-matrix, and plan-audit replay
+passes 75 tests and 3 subtests with warnings treated as errors.
+The narrowed manifest scan adds one missing prepared-artifact identity and one
+missing fiber-exposure identity ahead of the valid Omega entry. Checkpoint,
+application CLI, synthetic end-to-end, and OSS tests pass 37 tests and 2
+subtests with warnings treated as errors, while the parent base remains
+byte-unchanged.
+
+## Decision 51: Remove the OSS Producer Source-Identity Gate
+
+The replacement Omega-only OSS run exposed one remaining code-identity gate.
+Task `task_2ae8cbacf8f39dbd921f` failed with
+`producer implementation changed during row production` after the repository
+was edited while the external producer was active. The row had no scientific
+input failure. This is not a cache or resume compatibility problem: the stable
+OSS row key already excludes repository state and implementation fingerprints.
+
+The mechanisms are classified as follows:
+
+| Class | Mechanism | Decision |
+|---|---|---|
+| A | Validate declared stimulation, reconstruction, transform, connectome, and fiber-axis inputs at the producer boundary | Retain |
+| B | Require the returned ordered fiber axis, probability lattice, shape, and finite values to satisfy the row contract | Retain |
+| C | Hash the complete local producer tree both before and after every row in addition to explicit scientific-input checks | Remove |
+| D | Fail a completed external calculation because repository files on disk changed while the already-loaded producer process was running | Remove |
+| E | Invalidate the whole row for a source-identity observation unrelated to its scientific inputs or returned payload | Replace with no failure path |
+
+The current contract is minimal:
+
+1. Repository files and the complete implementation tree are not hashed by the
+   live OSS producer.
+2. Source identity is not a cache key, resume gate, preflight gate, publication
+   gate, or post-execution acceptance gate.
+3. A successful real producer row leaves
+   `producer_implementation_attestation` absent. The optional field remains
+   readable only because completed historical and benchmark rows already carry
+   it; it does not control reuse.
+4. Explicit scientific inputs and the returned scientific payload retain their
+   existing local validations.
+5. No retry, fallback, compatibility scan, or replacement invalidation rule is
+   introduced.
+
+The failed task has no task-local `complete.json`, so ordinary `--resume`
+re-executes only that missing task and its dependency-skipped descendants.
+Completed reference and add-on rows retain their existing paths and completion
+markers.
+
+The focused OSS toolchain, backend, cache, checkpoint, and synthetic suite
+passes 107 tests and 23 subtests with warnings treated as errors. The complete
+dual-frequency suite passes 806 tests and 326 subtests with warnings treated as
+errors. The repository-change regression mutates a source file during fake row
+production and confirms that the row completes with no implementation
+attestation.
+
+## Decision 52: Validate the Formal Postprocess Request Semantically
+
+The formal postprocess request test duplicated its complete parsed-field
+contract with a raw SHA-256 assertion over
+`config/four_model_v1/formal_postprocess.json`. The digest added no scientific
+or interface coverage: the same test already asserts every consumed top-level
+field, publication binding, ordered component, resource path, and forbidden
+run-store path. It also rejected whitespace, key-order, line-ending, and
+equivalent-serialization changes that do not alter the parsed request.
+
+The minimal contract is:
+
+1. Parse the JSON once at the file-input boundary.
+2. Assert the required schema version, output root, publication descriptors,
+   scale selector, ordered component list, and resource descriptors.
+3. Require configured publication and output paths to remain absolute and
+   outside `.runs`, `tasks`, `work`, and `runtime_work`.
+4. Do not hash the complete request file and do not use byte identity as a
+   cache, resume, rendering, or acceptance gate.
+
+This removes a duplicated byte-level guard. It does not weaken the public-only
+publication boundary or endpoint-level output-local resume contract.
+
+## Decision 53: Keep Production YAML Admission Semantic
+
+The production configuration loader already parses YAML before constructing
+its run and scientific configuration identities. Its tests reopen the checked-in
+workflow and both model profiles, assert the consumed grids and policies, and
+prove that typed-equivalent values such as `150` and `150.0` produce the same
+identities. Resume does not compare either identity.
+
+Two plan documents nevertheless described the raw SHA-256 values of all three
+YAML files as a mandatory production-source guard. That documentation was
+stricter than the implementation and conflicted with the semantic configuration
+contract.
+
+The accepted boundary is:
+
+1. YAML syntax, duplicate keys, required fields, field types, and cross-profile
+   invariants are validated once during admission.
+2. Run and scientific configuration identities derive from normalized parsed
+   values consumed by their respective stages.
+3. Comments, whitespace, line endings, key ordering, and equivalent scalar
+   serialization do not change either identity.
+4. Raw source-file SHA-256 values may be recorded as historical provenance but
+   are not admission, cache, resume, publication, or rerun gates.
+
+No loader change is required because the implementation and focused
+configuration tests already enforce this semantic boundary.
+
+## Decision 54: Make Performance-Benchmark Input Identity Semantic
+
+The pending 72-row performance harness retained two byte-level gates after
+Decision 53:
+
+- it hashed the complete operator request JSON and used that digest in every
+  row identity; and
+- it required the four parent input files to retain the SHA-256 values recorded
+  by the historical input bundle before recompiling the workflow.
+
+Both checks duplicated stronger semantic evidence. `prepare` and every child
+already compile the ordinary workflow and compare its normalized configuration
+and task-plan identities.
+
+The mechanisms are classified as follows:
+
+| Class | Mechanism | Decision |
+|---|---|---|
+| A | Parse the request JSON and the four declared parent inputs | Retain |
+| B | Require the declared paths to match the accepted parent's input-bundle paths and require normalized run configuration, scientific configuration, and task plan identities to match | Retain |
+| C | Compare each input file's raw SHA before performing the normalized comparisons | Remove |
+| D | Change all 72 row identities for request whitespace, key-order, line-ending, or equivalent-serialization changes | Remove |
+| E | Reject the complete benchmark because one semantically unchanged source file has different bytes | Replace with the local normalized identity comparison |
+
+The request identity is now the canonical hash of the parsed request object.
+Path fields use their resolved absolute paths, and path-safe token fields use
+their normalized values before that identity is calculated. Equivalent path
+spellings therefore do not create a different benchmark.
+The resolved input descriptors retain paths only. Raw source-file SHA values
+remain historical fields in the accepted parent's immutable input bundle but
+are neither required nor read by the performance harness and do not enter the
+benchmark plan, row keys, or child admission. Cache payload, row evidence,
+publication artifact, and executable authorization digests are unaffected
+because those files are not configuration serializations.
+
+The complete performance-harness module and the structural plan-audit module
+pass 45 focused tests with warnings treated as errors. The regressions prove
+that request formatting and source-file byte changes do not change benchmark
+admission while parsed request values, bound paths, normalized configuration
+identity, scientific configuration identity, and task-plan identity remain
+enforced.
+
+## Decision 55: Archive a Forced Run Root Instead of Deleting It
+
+The `--force` implementation previously called `shutil.rmtree` on the existing
+run root. A run root is not protected by Git, so permanent recursive deletion
+conflicts with the repository's explicit destructive-operation boundary.
+
+The mechanisms are classified as follows:
+
+| Class | Mechanism | Decision |
+|---|---|---|
+| A | Reject simultaneous `--resume` and `--force` | Retain |
+| B | Preserve the displaced run root in the operating-system Trash before creating the replacement | Add |
+| C | A second sensitivity-specific deletion path | Do not add |
+| D | Retry, fallback deletion, or automatic recovery when Trash archival fails | Do not add |
+| E | Permanent recursive deletion of the complete existing run root | Replace with one Trash operation |
+
+`--force` keeps the same requested path and run ID. Before the new staging root
+is created, the old root is moved with the operating system's `/usr/bin/trash`
+command. Failure is reported as `RunStoreError`; the old root remains in place
+and no replacement starts. Temporary staging directories created by the same
+failed `RunStore.open` call remain eligible for local cleanup because they are
+not prior user results.
+
+The complete executor module, both CLI force-boundary tests, and the structural
+plan audit pass 50 tests and eight subtests with warnings treated as errors.
+The focused cases prove that successful force preserves the displaced root,
+failure preserves it in place, and resume/force mutual exclusion is unchanged.
+A 2026-07-27 replay of the four direct force and CLI boundary cases passed
+again with warnings treated as errors.
+
+## Decision 56: Remove the Empty Resume Cache-Replay State
+
+Decision 44 removed resume-time cache validation and invalid-completion
+reclassification. The executor nevertheless retained the former
+`cache_only_replays` return value and an expensive-producer authorization
+condition keyed by that value. The restored value is now always empty.
+
+This is class C duplicate state rather than a current interface invariant. The
+restore helper returns only restored outcomes, and task admission reads
+`allow_expensive_producers` directly from the execution context. No cache
+validation, retry, fallback, or new branch replaces the removed state.
+
+The complete executor module and structural plan audit pass 48 tests and eight
+subtests with warnings treated as errors. No `cache_only_replays` reference
+remains in production or pipeline code.
+
+After Decisions 52 through 56, the complete dual-frequency suite passes 809
+tests and 326 subtests in 133.47 seconds with warnings treated as errors.
+
+## Decision 57: Final Minimal-Sufficient Diff Audit
+
+The complete current uncommitted diff was reviewed after Decisions 44 through
+56. Every added validation, digest, retry, fallback, invalidation condition,
+and exception branch was classified against the repository policy.
+
+| Class | Current mechanism | Decision |
+|---|---|---|
+| A | Parse declared JSON/YAML, validate public CLI combinations, constrain supplied file URIs to their declared roots, and validate an authorized external OSS request at the producer boundary | Retain |
+| B | Require task state plus task-local `complete.json`, write the run marker last, preserve exact ordered scientific axes, enforce returned payload structure, and protect the active VAL mount generation | Retain |
+| C | Resume identity comparisons, duplicate task-plan parsing, repeated checkpoint payload validation, source-tree attestation, raw request/source SHA guards, and empty cache-replay state | Removed by Decisions 44, 46, 51, 52, 54, and 56 |
+| D | RAM admission, RSS/swap termination, automatic marker migration, parent repair, repository-change failure, retry/fallback deletion, and semantically irrelevant configuration invalidation | Removed or explicitly absent |
+| E | A missing task marker, invalid cache entry, historical-parent Omega descriptor gap, or postprocess component failure affecting a broader run | Scoped to that task, cache entry, new-child compilation, or output component and its real downstream dependents |
+
+No added production branch catches `Exception` or `BaseException`. Existing
+pool recovery remains restricted to explicit transient-safe tasks and confirmed
+timeout or broken-process-pool failure modes; no current production task
+receives a generic retry merely because recovery infrastructure exists. The
+scientific one-way no-delta fallback remains because it is an explicit model
+contract, not an execution fallback.
+
+The remaining digest use is local:
+
+1. immutable cache payloads, artifacts, axis files, and publication indexes
+   retain SHA-256 for their existing integrity and provenance contracts;
+2. the installed OSS environment lock is checked only before an explicitly
+   authorized real cache miss invokes the external scientific solver; cache
+   hits and resume do not execute that check; and
+3. performance, fault, and resource evidence digests are read only by their
+   explicit acceptance commands and do not affect normal computation.
+
+No whole-file configuration digest, repository digest, environment snapshot,
+or complete-run digest controls ordinary resume or global recomputation.
+Configuration invalidation is semantic at initial compilation; task resume is
+path-and-marker based; scientific cache invalidation is entry-local; and
+postprocess reuse is component-local.
+
+Current focused evidence includes 68 configuration/CLI/executor tests plus 20
+subtests, 22 checkpoint/end-to-end tests, 108 OSS/pPAM tests plus 34 subtests,
+146 performance/fault tests plus two subtests, 97 cache/parity tests plus 27
+subtests, 133 model/formal tests plus 47 subtests, 66
+service/publication/reporting tests plus 118 subtests, 142 remaining structural
+tests plus 78 subtests, and all 55 visualization tests. All passed with warnings
+treated as errors. These grouped invocations supplement, rather than replace,
+the complete 809-test plus 326-subtest replay recorded above.
+
+## Decision 58: Require the Run Completion Marker at Publication Boundaries
+
+Successful run finalization writes `run_manifest.json` before writing the
+run-root `complete.json`. A process interruption between those two writes can
+therefore leave a manifest whose `final_status` is `completed` without the
+terminal commit marker required by the run interface. Canonical replay and its
+independent validator previously checked only the manifest field.
+
+This is a class B interface gap. The minimal publication contract is:
+
+1. Canonical main and extension replay require the source run's root-level
+   `complete.json` path to exist before reading terminal scientific results.
+2. Independent extension-v2 validation requires the same source marker.
+3. Both boundaries continue to require `run_manifest.json` with
+   `final_status` set to `completed`.
+4. Neither boundary parses or hashes the completion marker. Task-level resume
+   remains based on each task state path and its task-local marker.
+5. No retry, fallback, migration, cache, configuration field, or broader
+   invalidation rule is added.
+
+The check is source-run local. A missing marker blocks only publication or
+validation of that source run and does not invalidate completed task results,
+shared caches, the parent run, or another extension.
+
+The complete canonical-publication module and independent extension validator
+pass 24 focused tests with warnings treated as errors. The two new regressions
+prove that a completed manifest without the run completion marker cannot be
+published or independently validated and that no extension manifest is
+committed by the rejected replay.
+
+## Decision 59: Remove the Deleted Code-Identity Call from Benchmark Rows
+
+Decision 44 removed recursive repository hashing and the private
+`WorkflowService._code_identity` helper. A final diff review found two
+performance-matrix row-creation paths that still called that deleted helper.
+Those calls would fail before a warm-seed or measured row could open its local
+RunStore.
+
+This is a class C stale duplicate, not a new benchmark identity requirement.
+Both paths now use the same fixed `not_recorded` creation-provenance value as
+ordinary main and sensitivity runs. The value does not enter row identity,
+scientific cache identity, resume, publication, or invalidation. No replacement
+hash, repository scan, compatibility branch, retry, fallback, or configuration
+field is added.
+
+The complete performance-matrix test module and structural plan audit pass
+46 tests with warnings treated as errors after the removal. The structural
+guard rejects reintroduction of either the deleted helper or a benchmark call
+to it.
+
+## Decision 60: Make the Open Step 5 Contract Omega-Only
+
+The open Step 5 text still described the superseded paired final-axis and
+`Omega_max` equivalence gate as a current implementation requirement. Decision
+43, the current compiler, and the active replacement lineage instead require
+one cache-first `Omega_max` row per physical condition and exact endpoint
+subsetting by ordered canonical fiber ID.
+
+The implementation plan now states that current contract directly. New plans
+contain no final-axis OSS producer, equivalence-decision task, or fallback
+branch. Historical paired decisions remain immutable numerical evidence only.
+The adjacent checkpoint text now requires the structural `Omega_max`
+descriptor rather than an OSS gate state. This is a documentation correction;
+it changes no task, cache, scientific input, running process, or publication.
+
+The plan-audit and bounded goal-acceptance suites pass 14 tests with warnings
+treated as errors after the correction.
+
+## Decision 62: Remove Superseded RAM Admission from the Open Geometry Step
+
+The open Step 4 still required 32-GiB normative-fiber and 16-GiB direct-voxel
+RAM admission charges even though Decision 45 removed every task RAM charge,
+available-memory reserve, managed-memory ceiling, RSS stop, and swap-growth
+stop. That requirement contradicted both the current executor and the final
+resource checklist.
+
+Step 4 now states the implemented contract: preparation admission uses worker
+and connectome-I/O tokens, while RAM, RSS, and swap are observational
+execution-segment evidence only. The point-range path is described as the
+ordinary path for a source outside the declared shared-resident geometry
+budget, rather than as a speculative future fallback. The chronological third
+slice remains as historical evidence but explicitly records that Decision 45
+superseded its RAM charges.
+
+This is a documentation-only correction. It changes no task, resource grant,
+cache key, geometry payload, running process, scientific input, or
+publication.
+
+The plan-audit and bounded goal-acceptance suites pass 14 tests with warnings
+treated as errors after the correction.
+
+## Decision 63: Make the Performance Harness Omega-Only
+
+The formal benchmark request binds only the replacement independent
+Omega-only OSS lineage. Retaining support for historical
+`OSSAxisEquivalenceGroupRecord` values inside the not-yet-run performance
+harness is therefore an unneeded compatibility branch. It also keeps obsolete
+final-axis rows and equivalence decisions in the accepted cache closure even
+though current pPAM consumes an ordered endpoint subset of one shared
+`Omega_max` row.
+
+The benchmark contract now accepts exactly two terminal
+`OSSSharedOmegaGroupRecord` values produced by
+`prepare_oss_omega_max_rows`, one for each fiber family. Its accepted cache
+closure contains only the ordered Omega rows referenced by those records.
+Measured pPAM slices select Omega-only preparation, and injected fixtures derive
+their deterministic activation states directly from the accepted Omega
+probabilities. No final-axis OSS row, equivalence decision, legacy gate service,
+or compatibility decoder remains in the performance-harness path.
+
+The same correction removes obsolete managed-memory and reserved-memory fields
+from the scheduler-window prose. Benchmark resource evidence binds worker,
+CPU, connectome-I/O, and solver-token state; RAM, RSS, and swap remain
+observations rather than predicates.
+
+This change is local to the pending performance harness and its focused tests.
+It does not alter the active OSS lineage, the shared scientific rows, endpoint
+pPAM numerics, ordinary resume, or publication.
+
+The performance-matrix, structural plan-audit, and bounded goal-acceptance
+suites pass 55 tests with warnings treated as errors. A structural guard
+rejects reintroduction of the historical paired-record type, gate service, or
+cache kind into the performance harness.
+
+## Decision 64: Use Marker-Only Resume in Every Current Plan
+
+The current extension contract in the four-model plan and the current
+`formal_in_sample` Step 9A text still described completed-task payload
+validation as part of ordinary resume. That contradicted Decisions 44, 46, and
+61 and could reintroduce broad or stage-specific resume gates.
+
+Both plans now state one rule: a deterministic task-state path together with
+the task-local `complete.json` restores that task. A missing pair makes only
+that task eligible to run. Payload parsing occurs only when a downstream
+consumer actually reads the restored result; a local parse failure remains
+visible and does not trigger automatic recomputation, fallback, or broader
+invalidation.
+
+This is a documentation-only correction. It changes no task marker, running
+process, cache entry, scientific result, or publication.
+
+The structural plan-audit and bounded goal-acceptance suites pass 16 tests with
+warnings treated as errors after the correction.
+
+## Decision 65: Remove the Historical Equivalence Gate from Production Services
+
+Current plans produce `OSSSharedOmegaGroupRecord` values through
+`prepare_oss_omega_max_rows`. The production service registry and activation
+adapter still exposed the superseded `establish_oss_axis_equivalence` path and
+accepted `OSSAxisEquivalenceGroupRecord` as an alternative physical-row
+authority. No current plan, accepted lineage, benchmark request, combined
+extension, or publication requires that branch.
+
+The production registry now exposes only Omega-only group preparation.
+Activation accepts a shared Omega group when one is present and otherwise
+retains the ordinary main-plan path; it no longer decodes a paired final/Omega
+gate record. The executor assigns solver and connectome-I/O tokens only to the
+current `oss_omega_max_` group stage. Focused structural tests reject
+reintroduction of the historical service or record into these production
+paths.
+
+The standalone historical equivalence module and record codec remain
+read-only numerical-evidence tooling. They are not registered, planned,
+restored, or consumed by current production execution. Retaining that isolated
+decoder is required only to inspect immutable historical certification
+artifacts and does not add a current fallback or cache path.
+
+This change does not alter the active Omega-only OSS process, its task plan,
+cache rows, endpoint pPAM numerics, or publication.
+
+The service-adapter, executor, sensitivity-checkpoint, and structural plan
+suites pass 82 tests plus 10 subtests with warnings treated as errors. The
+performance-matrix, structural plan, and bounded goal suites pass 58 tests.
+
+## Decision 66: Require Completion Markers at Benchmark Import Boundaries
+
+The performance harness accepted a parent run from its completed manifest and
+classified imported task states from completed JSON alone. That was weaker
+than the repository-wide completion contract and could import a run or task
+interrupted before its final marker was written.
+
+Benchmark preparation now requires the accepted parent and independent OSS
+roots to contain root-level `complete.json`. An imported task is classified as
+completed only when both its deterministic task-state path and task-local
+`complete.json` exist. Markers are checked only for path existence; they are
+not parsed, hashed, or used to validate payloads. A missing marker blocks only
+the pending benchmark preparation and does not invalidate, delete, repair, or
+rerun the source run.
+
+This is a class B interface invariant at the benchmark import boundary. It
+adds no ordinary-resume gate, retry, fallback, migration, cache entry, or
+broader invalidation.
+
+The performance-matrix, structural plan-audit, and bounded goal-acceptance
+suites pass 58 tests with warnings treated as errors, including direct missing
+run-marker and missing task-marker regressions.
+
+## Decision 67: Do Not Reparse Tasks after the Run Completion Marker
+
+The main and sensitivity resume paths correctly returned early when the
+run-root `complete.json` existed, but the return helper still reopened every
+task state and decoded every `TaskOutcome`. Those reads could reject or delay a
+run after the terminal marker had already established the interface state.
+They also duplicated the explicit `status`, reporting, and validation commands.
+
+A completed-run resume now returns a successful `RunResult` with no reconstructed
+task outcomes and performs no task-state read. The run ID comes from the opened
+RunStore, and the run marker remains the sole terminal-resume decision. This
+does not erase persisted tasks or reports; it only keeps ordinary resume from
+revalidating them.
+
+This removes a class C duplicate validation. It adds no fallback, cache,
+migration, retry, or invalidation rule.
+
+The focused application and synthetic completed-resume set passes seven tests
+plus three subtests with warnings treated as errors. The main-run regression
+forces any task-state read to fail, proving the terminal early return is
+marker-only.
+
+## Decision 61: State Marker-Only Extension Resume and the No-Commit Closeout
+
+The open Step 6 text still described resume as restoring “valid” completed
+tasks. That wording could imply checkpoint payload revalidation even though
+the implemented contract is intentionally narrower. The plan now states the
+actual rule: a deterministic task-state path together with that task's local
+`complete.json` restores the task; a missing pair affects only that task.
+Dependency-derived skips are then re-evaluated from the restored task states.
+No SHA, payload inspection, configuration identity comparison, retry, fallback,
+or broader invalidation is introduced.
+
+The acceptance mapping also described Step 11 as a final commit even though the
+Step 11 contract and the user's explicit instruction require this worktree to
+remain uncommitted. The mapping now names the final audit without committing.
+This is a documentation-only correction and does not change the active OSS
+process, task state, cache, scientific input, or publication.
+
+The plan-audit and bounded goal-acceptance suites pass 14 tests with warnings
+treated as errors after the correction.
+
+## Decision 68: Final Minimal-Sufficient-Correctness Diff Review
+
+The current uncommitted diff was reviewed again after Decisions 61 through 67.
+The review classified every added validation, hash, fallback, retry, cache
+condition, and exception branch against the repository's A through E policy.
+It found no remaining class C duplicate, class D speculative defense, or class
+E global failure mechanism in the changed production paths.
+
+The retained class A boundaries are limited to parsing YAML and JSON at their
+input boundaries, checking required consumed fields, resolving publication
+inputs, and checking the external OSS environment only before an authorized
+real solver cache miss. The retained class B invariants are deterministic task
+state paths paired with task-local `complete.json`, the run-root
+`complete.json` required by publication import, explicit `--force` replacement
+through Trash, and VAL mount-generation continuity while an external writer is
+active.
+
+The review confirms the following removals already present in the diff:
+
+1. repository, code, source-file, configuration-file, and audit SHA values do
+   not gate ordinary resume;
+2. terminal resume does not reopen or decode completed task states;
+3. RAM admission, RSS termination, and swap-growth termination are absent;
+4. the historical paired OSS equivalence service is absent from production
+   planning, execution, and the pending performance harness; and
+5. no automatic retry, fallback, compatibility migration, or global cache
+   invalidation was added.
+
+Remaining scientific artifact and cache SHA values retain their established
+entry-local integrity and provenance roles. They are not ordinary-resume
+predicates and cannot trigger a whole-run rerun. Missing task state or a
+missing task marker affects only that task. A cache miss affects only that
+scientific cache entry and its direct consumers. Explicit publication,
+performance, fault, and output validators remain separate commands and do not
+run as global startup preflight.
+
+This final diff review requires no additional code change. The worktree remains
+uncommitted as requested.
+
+## Decision 69: Make Formal Postprocess Resume Path-and-Marker Only
+
+The broader three-plan audit found one remaining ordinary-resume exception
+outside the workflow diff reviewed by Decision 68. Formal paired-fit, voxel,
+and fiber postprocess components compared source-and-style request hashes
+before reuse, while the formal root compared request and resolved-request
+hashes. Those checks could rerender completed figures after a metadata or
+configuration change even though the latest explicit resume contract requires
+path-based reuse.
+
+The formal postprocess contract is now:
+
+1. normal admission parses the request JSON and checks the required fields
+   consumed by the selected execution path;
+2. each component writes a deterministic result file and then a
+   component-local `complete.json`;
+3. ordinary component resume skips when both paths exist and does not parse or
+   hash the marker;
+4. the formal root writes `complete.json` last and returns its stored manifest
+   immediately on ordinary terminal resume;
+5. a missing result or marker affects only that component;
+6. `--force` moves the existing formal output root to the operating-system
+   Trash before a fresh render; and
+7. explicit `--validate-only` and `--validate-output` retain publication,
+   scientific, structural, and format checks without becoming ordinary-resume
+   predicates.
+
+This removes the remaining class C request-identity duplication and converts
+the class E component invalidation rule to the smallest persisted component
+boundary. Scientific source validation remains class A at the canonical
+publication input boundary. Terminal endpoint closure and the last-written
+root marker remain class B output contracts. No retry, fallback, migration
+layer, compatibility shim, new configuration option, or global cache
+invalidation is introduced.
+
+The paired-fit, voxel-section, fiber-section, and formal-orchestrator focused
+set passes 49 tests. The complete visualization suite passes all 55 tests with
+warnings treated as errors. The tests prove component marker publication,
+path-and-marker reuse, root-marker terminal resume without rewriting the
+manifest, explicit force replacement through Trash, missing-root-marker
+validation failure, and complete paired, voxel, and fiber output closure.
+
+## Decision 70: Make Interactive 3-D Scene Inputs Path-and-Marker Only
+
+The PDQ-39 scene-input helper still selected its output directory from a hash
+of publication, source, and geometry records. It had no completion marker and
+no explicit force operation. A source metadata change therefore selected a new
+directory even when the prior scene input was already complete. This was the
+same class E broad invalidation pattern removed from formal postprocess by
+Decision 69.
+
+The scene-input contract now uses the fixed directory
+`<scale-id>-<model-family>`. A normal call returns `manifest.json` when that
+path and the sibling `complete.json` exist. It does not parse the marker or
+reopen the publication. A missing pair makes only that one scene input eligible
+to build. Any incomplete prior target is moved to Trash after the requested
+publication and required source fields pass validation. Explicit force follows
+the same validation-first ordering, moves the prior target to Trash, and then
+builds a fresh target. The MATLAB wrapper exposes the same explicit `Force`
+flag.
+
+Scientific source and geometry hashes remain class A publication-boundary
+evidence during a real build. They are retained in the manifest for
+provenance, but no hash selects the target path, controls resume, or
+invalidates another model family. No retry, fallback, compatibility branch,
+additional cache, or configuration field is added.
+
+The focused scene-input and MATLAB-wrapper set passes eight tests. The complete
+visualization suite passes all 58 tests with warnings treated as errors. The
+tests prove fixed output naming, marker publication, path-and-marker reuse
+without reopening the publication, local incomplete-target replacement,
+explicit force replacement, and validation before Trash mutation.
+
+## Decision 71: Keep Completion Markers Append-Only Within a Run Root
+
+The marker implementation still contained two deletion branches. Writing a
+noncompleted state after a task marker existed removed that task marker, and
+finalizing a run as failed after its run marker existed removed the run marker.
+Neither transition belongs to the workflow lifecycle: an existing marker makes
+the task or run terminal, ordinary resume restores it, and explicit force moves
+the complete run root to Trash before creating a new root. The old run-store
+test reached the deletion branch only by calling completed finalization and
+then failed finalization on the same root.
+
+Those two deletion branches are removed. Successful task and run publication
+still writes its marker last. A failed or partial task or run never creates a
+marker and never deletes an earlier marker. Explicit marker migration remains
+add-only. Explicit force remains the sole replacement operation and acts on the
+whole run root through Trash. The focused test now uses separate successful and
+failed roots, matching the real lifecycle. No new validation, recovery branch,
+retry, fallback, compatibility layer, cache, or configuration field is added.
+
+The three focused marker, migration, and hash-free resume cases pass. The
+complete executor suite passes 43 tests and eight subtests with warnings
+treated as errors. The smallest cross-entry RunStore replay across CLI,
+application service, synthetic end-to-end, publication, and executor passes 83
+tests and 13 subtests with warnings treated as errors.
+
+## Decision 72: Check Terminal Completion Before DAG Compilation
+
+Decision 67 stopped terminal resume from reopening task states, but the main
+and sensitivity entrypoints still compiled the ordinary parent DAG before they
+checked the run-root `complete.json`. That compilation cannot change a terminal
+resume decision and is not part of the required JSON or YAML admission
+boundary.
+
+The minimal startup order is therefore:
+
+1. parse the declared study JSON and YAML profiles once and validate their
+   required consumed fields;
+2. derive the deterministic requested run root;
+3. if ordinary resume finds the run-root `complete.json`, return success
+   immediately without compiling a DAG, loading a persisted sensitivity plan,
+   or reading the parent seed-task whitelist;
+4. if a main run is incomplete, compile the current main plan and restore only
+   task states paired with task-local markers; and
+5. if a sensitivity child is incomplete, load that child's persisted plan
+   directly and do not compile the parent plan merely to resume it.
+
+Sensitivity still resolves the explicitly supplied base-run directory and
+parses its run manifest once as an untrusted JSON input boundary. That required
+admission check is not duplicate resume validation.
+
+This removes duplicate terminal-resume work without changing task IDs,
+scientific configuration, cache identity, force semantics, or the
+path-and-marker invalidation boundary. It adds no hash, retry, fallback,
+compatibility branch, cache, or configuration field. The change is confined to
+future application entrypoint calls; it does not alter the already loaded
+executor, worker, provider, OSS cache, or scientific operation of the active
+independent OSS process.
+
+The implementation now parses and validates the declared inputs, derives the
+requested root, and returns from a terminal marker before compiling either
+ordinary DAG. An incomplete sensitivity child loads its persisted plan without
+compiling the parent DAG. The two direct terminal-resume regressions pass, and
+the existing one-task incomplete sensitivity replay now explicitly rejects
+parent DAG compilation. The complete application-service, synthetic
+end-to-end, and public CLI modules pass 23 tests and five subtests with warnings
+treated as errors.
+
+Moving the terminal check to the deterministic run-root boundary also leaves
+`RunStore.is_complete()` without a production caller. Keeping a second method
+that only restates `root / complete.json` would duplicate the accepted marker
+contract. The unused method is therefore removed, and the finalize regression
+checks the marker path directly. This is a class C duplicate removal and does
+not change completion semantics. The focused finalization and plan-audit
+replay passes nine tests with warnings treated as errors.
+
+## Decision 73: Use Completion Markers in the Legacy Visualization Entry Point
+
+The still-public `my_helper.fiber.core.viz.postprocess` entry point retained an
+older resume rule that recomputed a semantic request hash, parsed the endpoint
+manifest, and scanned every declared output before reusing an endpoint. That
+rule is inconsistent with the accepted minimal path-and-marker contract and is
+not required by its interface.
+
+The entry point now parses and validates the requested JSON fields once. A
+normal invocation returns an existing root when `manifest.json` and
+`complete.json` are present. Within an incomplete root, an endpoint is reused
+when its fixed `manifest.json` and endpoint-local `complete.json` are present.
+Neither marker is parsed or hashed. A missing pair reruns only that endpoint.
+The request hash and output scan are removed from resume. Source artifact
+records remain publication evidence only when an endpoint is actually built.
+
+Explicit force validates the requested publication catalog before moving the
+existing output root to the operating-system Trash and rebuilding the same
+path. A failed or partial run never writes the root marker. This change adds no
+configuration field, compatibility fallback, retry, cache, or broad
+invalidation.
+
+The complete public visualization-entry test module passes 29 tests with
+warnings treated as errors. It covers root and endpoint markers, partial-root
+endpoint reuse, formatting-independent terminal reuse without reopening a
+publication, force replacement, and preservation of the old root when force
+input validation fails. The complete visualization directory passes 61 tests
+with warnings treated as errors.
+The endpoint loop reuses the IDs parsed at the input boundary rather than
+reading and normalizing them a second time.
+Because each endpoint ID is used directly as one output-directory name, the
+same boundary requires it to be one safe path component. This is an untrusted
+path-construction check; it does not inspect the filesystem or add an
+invalidation rule. The focused boundary fixture covers dot, parent, and nested
+path values, and the complete 61-test visualization directory passes.
+
+## Decision 74: Validate Formal Request Shape Before Terminal Resume
+
+The formal postprocess entry point already returns from a root
+`manifest.json` plus `complete.json` before reopening publications or rendering
+resources. Its terminal path nevertheless returned before checking that
+`output_root`, `publications`, `styles`, and `resources` retained their required
+JSON field types.
+
+These inexpensive request-shape checks move to the JSON admission boundary
+before the terminal marker decision. They do not resolve a publication, inspect
+an artifact, open anatomy or connectome data, validate rendering tooling, or
+compare any hash. A valid terminal request still returns without those
+operations. This is the smallest change that satisfies required-field
+admission while preserving marker-only resume.
+
+The focused terminal-resume fixture passes and the complete visualization
+directory remains at 61 passing tests with warnings treated as errors. The
+fixture covers invalid output path, publication object, style object, and
+resource object fields while proving that a valid terminal request does not
+invoke the publication loader.
+
+The final current-worktree validation now includes the complete
+dual-frequency test directory: 816 tests and 326 subtests pass. Warnings are
+treated as errors through pytest's `-W error` option. An earlier invocation
+incorrectly exported `PYTHONWARNINGS=error` into the fault-harness child
+processes, causing `conda` itself to stop on a Python 3.12 deprecation warning
+before any fixture command ran; rerunning with the pytest-local warning policy
+closed all eight environment-induced failures.
+
+## Decision 75: Validate Run IDs Before Constructing Run Paths
+
+Decision 72 moved the main terminal-marker check before `RunIdentity`
+construction. The application entry point already rejected slash-separated run
+IDs, but it still accepted `.` and `..`. Those values are path components with
+navigation meaning, so they could select the study directory or its parent
+before the later identity object was created. The sensitivity request had the
+same incomplete path-component rule for its child and optional rebuilt-parent
+IDs.
+
+Run IDs are untrusted input used directly as directory names. The application
+boundary will therefore parse each run ID once and require one nonempty path
+component that is neither `.` nor `..` and contains no forward or backward
+separator. Main, sensitivity-child, and rebuilt-parent IDs share that single
+helper before any run path is constructed.
+
+This is class A input validation and class B output-root containment. It does
+not inspect an existing run, hash an input, add a retry or fallback, or change
+resume and invalidation behavior. A rejected ID creates or reuses no path. A
+valid ID retains the existing path-plus-`complete.json` contract.
+
+The focused public-application module passes six tests and seven subtests. The
+complete dual-frequency directory passes 817 tests and 331 subtests with
+warnings treated as errors. The final diff retains one shared run-ID parser,
+adds no cache or invalidation state, and leaves scientific and ordinary resume
+behavior unchanged.
+
+## Decision 76: Validate Extension IDs Before Constructing Publication Paths
+
+The run-ID audit exposed the same incomplete rule in canonical extension
+publication. Both final-in-sample and terminal jitter or OSS replay rejected
+forward and backward separators, but still accepted `.` and `..` before
+joining the extension ID beneath `<model-set>/extensions`.
+
+An extension ID is another untrusted directory-name input. Canonical
+publication will parse it once through one local helper and require one
+nonempty component that is neither `.` nor `..` and contains no separator.
+Both extension publication paths reuse that helper before creating a writer.
+
+This is class A input validation and class B publication-root containment. It
+adds no hash, retry, fallback, compatibility path, cache, or invalidation
+state. Invalid input cannot create or reuse a publication path; valid
+publication and idempotent replay behavior are unchanged.
+
+The complete publication module passes 18 tests. The complete dual-frequency
+directory passes 818 tests and 331 subtests with warnings treated as errors.

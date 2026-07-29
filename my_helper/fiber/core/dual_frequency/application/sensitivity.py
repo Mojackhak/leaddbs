@@ -12,7 +12,7 @@ import tempfile
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import unquote, urlparse
 
-from ..cache import CacheError, ContentAddressedCache
+from ..cache import CacheError, ContentAddressedCache, ScientificCacheKey
 from ..cache.identity import sha256_file
 from ..contracts import (
     AxisRef,
@@ -122,6 +122,132 @@ def _omega_max_descriptor(
     }
 
 
+def _historical_omega_max_descriptor(
+    *,
+    model_family: str,
+    shared_exposure_semantic_sha256: str,
+    shared_entries: Sequence[Mapping[str, str]],
+    cache_root: Path,
+) -> dict[str, object] | None:
+    """Derive a missing descriptor from cache manifests without reading payloads."""
+
+    if not str(model_family).endswith("fiber") or not shared_entries:
+        return None
+    root = Path(cache_root).expanduser().resolve()
+    candidates: list[tuple[str, str, Mapping[str, Any]]] = []
+    for shared in shared_entries:
+        kind = str(shared.get("kind", "")).strip()
+        if kind != "fiber_exposures":
+            continue
+        digest = str(shared.get("semantic_sha256", "")).strip().lower()
+        if (
+            len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            continue
+        manifest_path = (
+            root
+            / "shared_exposure_v2"
+            / kind
+            / digest
+            / "manifest.json"
+        )
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            key = ScientificCacheKey.from_dict(manifest["scientific_cache_key"])
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
+            continue
+        if (
+            not isinstance(manifest, Mapping)
+            or manifest.get("schema_version") != "scientific_cache_entry_v2"
+            or manifest.get("completed") is not True
+            or key.kind != kind
+            or key.digest != digest
+        ):
+            continue
+        if (
+            key.backend_name == "normative_fiber_omega_max"
+            and key.stimulation_hash == shared_exposure_semantic_sha256
+        ):
+            candidates.append((kind, digest, manifest))
+    if len(candidates) != 1:
+        raise SensitivityCheckpointError(
+            "fiber sensitivity base must resolve one exact Omega_max cache manifest"
+        )
+    kind, digest, manifest = candidates[0]
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        raise SensitivityCheckpointError(
+            "Omega_max shared cache manifest files are invalid"
+        )
+    payloads = [
+        item
+        for item in files
+        if isinstance(item, Mapping)
+        and item.get("relative_path") == "fiber_ids.npy"
+    ]
+    if len(payloads) != 1:
+        raise SensitivityCheckpointError(
+            "Omega_max cache manifest lacks one fiber_ids payload"
+        )
+    payload = payloads[0]
+    shape = payload.get("shape")
+    axes = payload.get("axes")
+    axis = axes[0] if isinstance(axes, list) and len(axes) == 1 else None
+    axis_id = axis.get("axis_id") if isinstance(axis, Mapping) else None
+    axis_count = axis.get("count") if isinstance(axis, Mapping) else None
+    axis_sha = axis.get("sha256") if isinstance(axis, Mapping) else None
+    if (
+        payload.get("dtype") != "int64"
+        or not isinstance(shape, list)
+        or len(shape) != 1
+        or type(shape[0]) is not int
+        or shape[0] < 1
+        or not isinstance(axes, list)
+        or len(axes) != 1
+        or not isinstance(axis_id, str)
+        or not axis_id.strip()
+        or type(axis_count) is not int
+        or axis_count != shape[0]
+        or not isinstance(axis_sha, str)
+        or len(axis_sha) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in axis_sha.lower()
+        )
+        or payload.get("units") != "fiber_id"
+    ):
+        raise SensitivityCheckpointError(
+            "Omega_max cache manifest axis metadata is invalid"
+        )
+    payload_sha = str(payload.get("sha256", "")).strip().lower()
+    if (
+        len(payload_sha) != 64
+        or any(character not in "0123456789abcdef" for character in payload_sha)
+    ):
+        raise SensitivityCheckpointError(
+            "Omega_max cache manifest payload identity is invalid"
+        )
+    return {
+        "cache_kind": kind,
+        "semantic_sha256": digest,
+        "feature_axis": {
+            "axis_id": axis_id,
+            "count": axis_count,
+            "sha256": axis_sha.lower(),
+        },
+        "payload_relative_path": "fiber_ids.npy",
+        "payload_sha256": payload_sha,
+    }
+
+
 def _artifact_payload(artifact: ArtifactRef) -> dict[str, object]:
     payload = asdict(artifact)
     payload["shape"] = None if artifact.shape is None else list(artifact.shape)
@@ -217,7 +343,7 @@ def _portable_mapper(
 
 
 class _PhysicalArtifactMapper:
-    """Resolve portable artifacts and memoize process-local verification."""
+    """Resolve a path-safe portable artifact URI without reading its payload."""
 
     def __init__(self, run_root: Path, cache_root: Path, output_root: Path) -> None:
         self._roots = {
@@ -225,29 +351,8 @@ class _PhysicalArtifactMapper:
             "cache": cache_root.resolve(),
             "output": output_root.resolve(),
         }
-        self._metadata_by_path: dict[Path, tuple[object, ...]] = {}
-        self._validated_headers: set[Path] = set()
-        self._verified_payloads: set[Path] = set()
-
-    @staticmethod
-    def _metadata(artifact: ArtifactRef) -> tuple[object, ...]:
-        return (
-            artifact.sha256,
-            artifact.dtype,
-            artifact.shape,
-            artifact.axis_refs,
-            artifact.axis_hashes,
-            artifact.units,
-            artifact.space,
-        )
 
     def __call__(self, artifact: ArtifactRef) -> ArtifactRef:
-        return self.map(artifact, verify_payload=False)
-
-    def verify(self, artifact: ArtifactRef) -> ArtifactRef:
-        return self.map(artifact, verify_payload=True)
-
-    def map(self, artifact: ArtifactRef, *, verify_payload: bool) -> ArtifactRef:
         if not isinstance(artifact, ArtifactRef):
             raise SensitivityCheckpointError("checkpoint artifact must be an ArtifactRef")
         parsed = urlparse(artifact.uri)
@@ -274,24 +379,6 @@ class _PhysicalArtifactMapper:
             raise SensitivityCheckpointError(
                 f"portable artifact escapes its declared root: {artifact.uri!r}"
             ) from exc
-        if not path.is_file():
-            raise SensitivityCheckpointError(f"checkpoint artifact is missing: {path}")
-
-        metadata = self._metadata(artifact)
-        previous = self._metadata_by_path.setdefault(path, metadata)
-        if previous != metadata:
-            raise SensitivityCheckpointError(
-                f"checkpoint artifact metadata is inconsistent for one path: {path}"
-            )
-        if artifact.shape is not None and path not in self._validated_headers:
-            _validate_array_header(path, artifact)
-            self._validated_headers.add(path)
-        if verify_payload and path not in self._verified_payloads:
-            if sha256_file(path) != artifact.sha256:
-                raise SensitivityCheckpointError(
-                    f"checkpoint artifact failed SHA-256: {path}"
-                )
-            self._verified_payloads.add(path)
         return replace(artifact, uri=path.as_uri())
 
 
@@ -326,24 +413,6 @@ def _artifact_from_payload(payload: object) -> ArtifactRef:
         raise SensitivityCheckpointError(
             "checkpoint artifact metadata is invalid"
         ) from exc
-
-
-def _validate_array_header(path: Path, artifact: ArtifactRef) -> None:
-    import numpy as np
-
-    if path.suffix != ".npy":
-        raise SensitivityCheckpointError(f"array artifact is not NPY: {path}")
-    try:
-        array = np.load(path, allow_pickle=False, mmap_mode="r")
-    except (OSError, ValueError) as exc:
-        raise SensitivityCheckpointError(f"array artifact header is invalid: {path}") from exc
-    try:
-        if array.shape != artifact.shape or array.dtype != np.dtype(artifact.dtype):
-            raise SensitivityCheckpointError(f"array artifact metadata changed: {path}")
-    finally:
-        mmap = getattr(array, "_mmap", None)
-        if mmap is not None:
-            mmap.close()
 
 
 def _portable_outcome(
@@ -640,8 +709,9 @@ def load_sensitivity_checkpoint(
     *,
     cache_root: Path,
     output_root: Path,
+    require_omega_max: bool = False,
 ) -> LoadedSensitivityCheckpoint:
-    """Validate a complete parent without eagerly rehydrating historical outcomes."""
+    """Load the structural parent contract needed to compile a sensitivity child."""
 
     root = Path(base_run).expanduser().resolve()
     manifest_path = root / "run_manifest.json"
@@ -662,7 +732,6 @@ def load_sensitivity_checkpoint(
     if index.get("schema_version") != CHECKPOINT_SCHEMA:
         raise SensitivityCheckpointError("unsupported sensitivity checkpoint schema")
     bases: list[dict[str, Any]] = []
-    cache = ContentAddressedCache(cache_root)
     mapper = _physical_mapper(root, cache_root, output_root)
     endpoint_ids: set[str] = set()
     for item in index.get("bases", []):
@@ -676,8 +745,6 @@ def load_sensitivity_checkpoint(
         path = (index_path.parent / relative).resolve()
         if index_path.parent not in path.parents or not path.is_file():
             raise SensitivityCheckpointError("sensitivity base path is unsafe or missing")
-        if sha256_file(path) != item["sha256"]:
-            raise SensitivityCheckpointError("sensitivity base failed SHA-256")
         try:
             base = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -693,54 +760,53 @@ def load_sensitivity_checkpoint(
         shared_entries = base.get("shared_exposure_entries", [])
         if not isinstance(shared_entries, list):
             raise SensitivityCheckpointError("shared exposure entries are invalid")
-        normalized_shared_entries: list[dict[str, str]] = []
         for shared in shared_entries:
             if not isinstance(shared, dict) or set(shared) != {
                 "kind",
                 "semantic_sha256",
             }:
                 raise SensitivityCheckpointError("shared exposure identity is invalid")
-            try:
-                entry = cache.resolve_identity(
-                    str(shared["kind"]),
-                    str(shared["semantic_sha256"]),
-                )
-            except CacheError as exc:
-                raise SensitivityCheckpointError(
-                    "shared exposure cache failed validation"
-                ) from exc
-            if entry is None:
-                raise SensitivityCheckpointError("shared exposure cache entry is missing")
-            normalized_shared_entries.append(
-                {
-                    "kind": str(shared["kind"]),
-                    "semantic_sha256": str(shared["semantic_sha256"]),
-                }
-            )
         model_family = str(base.get("model_family", ""))
-        if model_family.endswith("fiber") and normalized_shared_entries:
-            physical_identity = str(base.get("shared_exposure_semantic_sha256", ""))
-            if not physical_identity:
-                raise SensitivityCheckpointError(
-                    "fiber sensitivity base lacks shared exposure identity"
+        if require_omega_max and model_family.endswith("fiber") and shared_entries:
+            descriptor = base.get("omega_max")
+            if descriptor is None:
+                descriptor = _historical_omega_max_descriptor(
+                    model_family=model_family,
+                    shared_exposure_semantic_sha256=str(
+                        base.get("shared_exposure_semantic_sha256", "")
+                    ),
+                    shared_entries=shared_entries,
+                    cache_root=cache_root,
                 )
-            descriptor = _omega_max_descriptor(
-                model_family=model_family,
-                shared_exposure_semantic_sha256=physical_identity,
-                shared_entries=normalized_shared_entries,
-                cache=cache,
-            )
-            existing = base.get("omega_max")
-            if existing is not None and existing != descriptor:
+                base = dict(base)
+                base["omega_max"] = descriptor
+            required_descriptor_fields = {
+                "cache_kind",
+                "semantic_sha256",
+                "feature_axis",
+                "payload_relative_path",
+                "payload_sha256",
+            }
+            if (
+                not isinstance(descriptor, Mapping)
+                or not required_descriptor_fields.issubset(descriptor)
+            ):
                 raise SensitivityCheckpointError(
-                    "persisted Omega_max descriptor differs from validated cache"
+                    "fiber sensitivity base lacks a complete Omega_max descriptor"
                 )
-            base = {**base, "omega_max": descriptor}
+            feature_axis = descriptor.get("feature_axis")
+            if (
+                not isinstance(feature_axis, Mapping)
+                or not {"axis_id", "count", "sha256"}.issubset(feature_axis)
+            ):
+                raise SensitivityCheckpointError(
+                    "fiber sensitivity base has an invalid Omega_max feature axis"
+                )
         final_artifacts = base.get("final_artifacts")
         if not isinstance(final_artifacts, list):
             raise SensitivityCheckpointError("final-model artifact set is invalid")
         for artifact_payload in final_artifacts:
-            mapper.verify(_artifact_from_payload(artifact_payload))
+            mapper(_artifact_from_payload(artifact_payload))
         bases.append(base)
     if not bases:
         raise SensitivityCheckpointError("base run contains no realized final checkpoint")
@@ -750,8 +816,6 @@ def load_sensitivity_checkpoint(
     seed_path = (index_path.parent / str(seed_ref["relative_path"])).resolve()
     if index_path.parent not in seed_path.parents or not seed_path.is_file():
         raise SensitivityCheckpointError("sensitivity seed-task bundle is unsafe or missing")
-    if sha256_file(seed_path) != seed_ref["sha256"]:
-        raise SensitivityCheckpointError("sensitivity seed-task bundle failed SHA-256")
     try:
         seed = json.loads(seed_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:

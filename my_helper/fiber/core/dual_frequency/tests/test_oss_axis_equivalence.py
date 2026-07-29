@@ -561,7 +561,7 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
                     (manifest_path.parent / "compatibility_source.json").is_file()
                 )
 
-    def test_executor_resume_promotes_historical_gate_cache_only(self) -> None:
+    def test_executor_resume_skips_completed_historical_gate_by_path(self) -> None:
         legacy_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'5' * 64}"
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -700,13 +700,13 @@ class OSSAxisEquivalenceTest(unittest.TestCase):
             )
 
         self.assertEqual(resumed.exit_code, 0)
-        self.assertEqual(authorizations, [False])
+        self.assertEqual(authorizations, [])
         self.assertEqual(legacy_toolchain.calls, 4)
-        self.assertNotEqual(
+        self.assertEqual(
             stable_record.row_decision_ids,
             legacy.row_decision_ids,
         )
-        self.assertTrue(stable_cache_valid)
+        self.assertFalse(stable_cache_valid)
 
     def test_missing_legacy_row_stops_before_toolchain(self) -> None:
         legacy_version = f"{HISTORICAL_OSS_BACKEND_PREFIX}{'2' * 64}"

@@ -20,36 +20,25 @@ from my_helper.fiber.core.seed_target_connectivity.traversal import (
 )
 
 
-PROJECTION_ALGORITHM = "segment_aware_selected_fiber_voxel_projection"
-PROJECTION_VERSION = "1"
+PROJECTION_ALGORITHM = "segment_aware_selected_fiber_direct_projection"
+PROJECTION_VERSION = "2"
 
 
 @dataclass(frozen=True)
-class FiberSpatialProjection:
-    """Sparse direct and target-conditioned display derivatives."""
+class SelectedDirectProjection:
+    """Sparse complete-path projection for the selected fiber library."""
 
     fiber_ids: np.ndarray
     scores: np.ndarray
     is_sweet: np.ndarray
     voxel_indptr: np.ndarray
     voxel_indices: np.ndarray
-    target_ids: tuple[str, ...]
-    target_membership: np.ndarray
-    target_membership_fraction: np.ndarray
-    target_scores: np.ndarray
     seed_hits: np.ndarray
     direct_voxel_indices: np.ndarray
     direct_score_mean: np.ndarray
     direct_support_count: np.ndarray
     direct_sweet_count: np.ndarray
     direct_sour_count: np.ndarray
-    seed_voxel_indices: np.ndarray
-    target_conditioned_score: np.ndarray
-    target_assigned_mass: np.ndarray
-    target_unassigned_mass: np.ndarray
-    target_assignment_fraction: np.ndarray
-    target_composition_mass: np.ndarray
-    mass_conservation_max_abs_error: float
 
 
 def _sha256_file(path: Path, block_size: int = 1024 * 1024) -> str:
@@ -292,16 +281,15 @@ def _validate_selected_fibers(
         raise ValueError("every selected sour fiber must have a negative score")
 
 
-def compute_fiber_spatial_projection(
+def compute_selected_direct_projection(
     *,
     fiber_ids: Sequence[int] | np.ndarray,
     scores: Sequence[float] | np.ndarray,
     is_sweet: Sequence[bool] | np.ndarray,
     streamlines: Sequence[np.ndarray],
     seed: ResolvedMask,
-    targets: Sequence[ResolvedMask],
-) -> FiberSpatialProjection:
-    """Compute direct and target-conditioned selected-fiber projections."""
+) -> SelectedDirectProjection:
+    """Compute the selected library's direct complete-path projection."""
 
     selected_ids = np.asarray(fiber_ids, dtype=np.int64)
     selected_scores = np.asarray(scores, dtype=np.float64)
@@ -309,35 +297,15 @@ def compute_fiber_spatial_projection(
     _validate_selected_fibers(
         selected_ids, selected_scores, selected_is_sweet, streamlines
     )
-    validate_exact_mask_geometry(seed, targets)
-    if not targets:
-        raise ValueError("at least one target mask is required")
-
     chunk = _fiber_chunk(selected_ids, streamlines)
-    lookup = build_sparse_lookup((seed, *targets))
-    all_membership = optimized_membership(chunk, lookup)
-    seed_hits = np.asarray(all_membership[:, 0], dtype=np.bool_)
+    lookup = build_sparse_lookup((seed,))
+    seed_hits = np.asarray(optimized_membership(chunk, lookup)[:, 0], dtype=np.bool_)
     if not np.all(seed_hits):
         missing = selected_ids[~seed_hits]
         raise ValueError(
             "selected fibers do not all intersect the configured role seed: "
             + ", ".join(str(int(value)) for value in missing[:10])
         )
-    membership = np.asarray(all_membership[:, 1:], dtype=np.bool_)
-    hit_count = np.sum(membership, axis=1, dtype=np.int64)
-    fractions = np.zeros(membership.shape, dtype=np.float64)
-    targeted = hit_count > 0
-    fractions[targeted] = membership[targeted] / hit_count[targeted, None]
-
-    target_denominator = np.sum(membership, axis=0, dtype=np.float64)
-    target_numerator = membership.astype(np.float64).T @ selected_scores
-    target_scores = np.full(len(targets), np.nan, dtype=np.float64)
-    available_targets = target_denominator > 0.0
-    target_scores[available_targets] = (
-        target_numerator[available_targets]
-        / target_denominator[available_targets]
-    )
-
     voxel_lists = tuple(
         streamline_flat_voxels(
             streamline,
@@ -381,77 +349,26 @@ def compute_fiber_spatial_projection(
     direct_sour = direct_support - direct_sweet
     direct_mean = direct_sum / direct_support
 
-    seed_lists = tuple(
-        np.intersect1d(
-            values,
-            seed.flat_voxel_indices,
-            assume_unique=True,
-        )
-        for values in voxel_lists
-    )
-    seed_values = [values for values in seed_lists if values.size]
-    if not seed_values:
-        raise ValueError("selected streamlines have no seed-voxel incidence")
-    seed_voxels = np.unique(np.concatenate(seed_values))
-    composition = np.zeros((seed_voxels.size, len(targets)), dtype=np.float64)
-    assigned_mass = np.zeros(seed_voxels.size, dtype=np.float64)
-    unassigned_mass = np.zeros(seed_voxels.size, dtype=np.float64)
-    for fiber_index, values in enumerate(seed_lists):
-        if values.size == 0:
-            continue
-        positions = np.searchsorted(seed_voxels, values)
-        if targeted[fiber_index]:
-            composition[positions] += fractions[fiber_index]
-            assigned_mass[positions] += 1.0
-        else:
-            unassigned_mass[positions] += 1.0
-
-    composition_total = np.sum(composition, axis=1)
-    conservation_error = float(
-        np.max(np.abs(composition_total - assigned_mass), initial=0.0)
-    )
-    target_conditioned = np.full(seed_voxels.size, np.nan, dtype=np.float64)
-    has_assigned = assigned_mass > 0.0
-    finite_target_scores = np.where(np.isfinite(target_scores), target_scores, 0.0)
-    target_conditioned[has_assigned] = (
-        composition[has_assigned] @ finite_target_scores
-    ) / assigned_mass[has_assigned]
-    total_mass = assigned_mass + unassigned_mass
-    assignment_fraction = np.full(seed_voxels.size, np.nan, dtype=np.float64)
-    has_total = total_mass > 0.0
-    assignment_fraction[has_total] = assigned_mass[has_total] / total_mass[has_total]
-
-    return FiberSpatialProjection(
+    return SelectedDirectProjection(
         fiber_ids=selected_ids,
         scores=selected_scores,
         is_sweet=selected_is_sweet,
         voxel_indptr=voxel_indptr,
         voxel_indices=voxel_indices,
-        target_ids=tuple(target.roi_id for target in targets),
-        target_membership=membership,
-        target_membership_fraction=fractions,
-        target_scores=target_scores,
         seed_hits=seed_hits,
         direct_voxel_indices=direct_voxels,
         direct_score_mean=direct_mean,
         direct_support_count=direct_support,
         direct_sweet_count=direct_sweet,
         direct_sour_count=direct_sour,
-        seed_voxel_indices=seed_voxels,
-        target_conditioned_score=target_conditioned,
-        target_assigned_mass=assigned_mass,
-        target_unassigned_mass=unassigned_mass,
-        target_assignment_fraction=assignment_fraction,
-        target_composition_mass=composition,
-        mass_conservation_max_abs_error=conservation_error,
     )
 
 
 __all__ = [
-    "FiberSpatialProjection",
+    "SelectedDirectProjection",
     "PROJECTION_ALGORITHM",
     "PROJECTION_VERSION",
-    "compute_fiber_spatial_projection",
+    "compute_selected_direct_projection",
     "load_binary_projection_mask",
     "streamline_flat_voxels",
     "validate_exact_mask_geometry",

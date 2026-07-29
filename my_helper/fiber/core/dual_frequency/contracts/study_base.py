@@ -611,7 +611,7 @@ def load_study_base(path: Path) -> StudyBaseRecord:
     try:
         content = source_path.read_bytes()
         payload = json.loads(content)
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise StudyBaseError(f"failed to read {source_path}: {exc}") from exc
     validate_study_base(payload)
     return _study_record(payload, source_path, hashlib.sha256(content).hexdigest())

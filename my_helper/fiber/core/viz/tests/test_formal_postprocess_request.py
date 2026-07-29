@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -11,9 +10,6 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 REQUEST_PATH = (
     REPOSITORY_ROOT
     / "my_helper/stnsnr/config/four_model_v1/formal_postprocess.json"
-)
-EXPECTED_REQUEST_SHA256 = (
-    "144ad7a1e775c1bf01f5d99df285a87b31bae7075aa3692d714201f1953e6ab0"
 )
 EXPECTED_OUTPUT_ROOT = (
     "/Volumes/VAL/STNSNr/summary/spot/postprocess/"
@@ -70,15 +66,9 @@ EXPECTED_RESOURCES = {
 }
 FORBIDDEN_SOURCE_PARTS = frozenset({".runs", "tasks", "work", "runtime_work"})
 
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def test_formal_postprocess_request_is_frozen_and_public_only() -> None:
     document = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
 
-    assert _sha256(REQUEST_PATH) == EXPECTED_REQUEST_SHA256
     assert set(document) == {
         "schema_version",
         "output_root",

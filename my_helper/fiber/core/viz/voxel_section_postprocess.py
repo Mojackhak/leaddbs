@@ -23,7 +23,7 @@ from .published_artifacts import PublicationCatalog, PublishedArtifact
 from .voxel_sections import plot_signed_voxel_sections
 
 
-SCHEMA_VERSION = "dual_frequency_voxel_section_postprocess_v2"
+SCHEMA_VERSION = "dual_frequency_voxel_section_postprocess_v3"
 
 
 @dataclass(frozen=True)
@@ -69,13 +69,6 @@ def _sha256_file(path: Path, block_size: int = 1024 * 1024) -> str:
         while block := handle.read(block_size):
             digest.update(block)
     return digest.hexdigest()
-
-
-def _payload_hash(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(
-        dict(payload), sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _resource_record(path: str | Path, kind: str) -> dict[str, Any]:
@@ -180,19 +173,18 @@ def _validate_final_model(
         raise ValueError(f"direct-voxel report is not marked display-only: {role}")
 
 
-def _result_reusable(result_path: Path, request_hash: str, root: Path) -> bool:
-    if not result_path.is_file():
-        return False
-    try:
-        payload = _read_json(result_path)
-    except (OSError, ValueError, json.JSONDecodeError):
-        return False
-    if payload.get("status") != "complete" or payload.get("request_hash") != request_hash:
-        return False
-    outputs = payload.get("outputs")
-    return isinstance(outputs, list) and all(
-        (root / str(relative)).is_file() for relative in outputs
+def _completion_marker(result_path: Path) -> Path:
+    return (
+        result_path.parent
+        / "completion"
+        / "voxel_2d"
+        / result_path.stem
+        / "complete.json"
     )
+
+
+def _result_reusable(result_path: Path) -> bool:
+    return result_path.is_file() and _completion_marker(result_path).is_file()
 
 
 def _write_index(root: Path, rows: Sequence[Mapping[str, Any]]) -> None:
@@ -282,7 +274,42 @@ def render_voxel_section_components(
 
     results: list[dict[str, Any]] = []
     for scale_id in normalized_scales:
+        scale_display_name, study_scale_definition = (
+            catalog.resolve_scale_display_name(
+                "direct_voxel_main",
+                scale_id,
+            )
+        )
+        scale_style = dict(style)
+        expected_colorbar_template = (
+            "Benefit-oriented partial Spearman ρ with {scale_display_name}"
+        )
+        if scale_style.get("colorbar_label_template") != expected_colorbar_template:
+            raise ValueError("voxel colorbar template does not match the contract")
+        colorbar_semantic_label = expected_colorbar_template.format(
+            scale_display_name=scale_display_name
+        )
+        scale_style["colorbar_label"] = (
+            "Benefit-oriented partial Spearman ρ\n"
+            f"with {scale_display_name}"
+        )
         for role_spec in _ROLE_SPECS:
+            leaf = root / "scales" / scale_id / role_spec.role / "voxel"
+            result_paths = {
+                filename: (
+                    leaf
+                    / f"{filename.removesuffix('.nii.gz')}_sections.json"
+                )
+                for filename in _DISPLAY_MAPS
+            }
+            if not force and all(
+                _result_reusable(path) for path in result_paths.values()
+            ):
+                for path in result_paths.values():
+                    restored = _read_json(path)
+                    restored["resume_status"] = "reused"
+                    results.append(restored)
+                continue
             references = _references(scale_id, role_spec.role)
             try:
                 sources = _resolve_sources(catalog, references)
@@ -298,12 +325,19 @@ def render_voxel_section_components(
             except Exception as error:  # noqa: BLE001 - role-local failure is recorded
                 for filename in _DISPLAY_MAPS:
                     stem = filename.removesuffix(".nii.gz") + "_sections"
-                    leaf = root / "scales" / scale_id / role_spec.role / "voxel"
-                    result_path = leaf / f"{stem}.json"
+                    result_path = result_paths[filename]
+                    if not force and _result_reusable(result_path):
+                        restored = _read_json(result_path)
+                        restored["resume_status"] = "reused"
+                        results.append(restored)
+                        continue
                     item = {
                         "schema_version": SCHEMA_VERSION,
                         "status": "failed",
                         "scale_id": scale_id,
+                        "scale_display_name": scale_display_name,
+                        "study_scale_definition": study_scale_definition,
+                        "colorbar_semantic_label": colorbar_semantic_label,
                         "model_role": role_spec.role,
                         "display_artifact_kind": filename.removesuffix(".nii.gz"),
                         "result_path": result_path.relative_to(root).as_posix(),
@@ -321,41 +355,30 @@ def render_voxel_section_components(
             }
             for filename in _DISPLAY_MAPS:
                 stem = filename.removesuffix(".nii.gz") + "_sections"
-                leaf = root / "scales" / scale_id / role_spec.role / "voxel"
-                result_path = leaf / f"{stem}.json"
+                result_path = result_paths[filename]
                 heat_artifact = sources[filename]
                 source_records = {
                     **shared_source_records,
                     "heatmap": heat_artifact.as_manifest_record(),
                 }
-                request_hash = _payload_hash(
-                    {
-                        "schema_version": SCHEMA_VERSION,
-                        "scale_id": scale_id,
-                        "model_role": role_spec.role,
-                        "display_artifact_kind": filename.removesuffix(".nii.gz"),
-                        "source_artifacts": source_records,
-                        "background": resources["background"],
-                        "mask": resources[role_spec.mask_key],
-                        "style": dict(style),
-                    }
-                )
                 item: dict[str, Any] = {
                     "schema_version": SCHEMA_VERSION,
                     "status": "running",
-                    "request_hash": request_hash,
                     "scale_id": scale_id,
+                    "scale_display_name": scale_display_name,
+                    "study_scale_definition": study_scale_definition,
+                    "colorbar_semantic_label": colorbar_semantic_label,
                     "model_role": role_spec.role,
                     "model_unit": "voxel",
                     "display_artifact_kind": filename.removesuffix(".nii.gz"),
                     "result_path": result_path.relative_to(root).as_posix(),
                 }
+                if not force and _result_reusable(result_path):
+                    restored = _read_json(result_path)
+                    restored["resume_status"] = "reused"
+                    results.append(restored)
+                    continue
                 try:
-                    if not force and _result_reusable(result_path, request_hash, root):
-                        restored = _read_json(result_path)
-                        restored["resume_status"] = "reused"
-                        results.append(restored)
-                        continue
                     output_paths = [
                         leaf / f"{stem}.{str(extension).lower().lstrip('.')}"
                         for extension in style["formats"]
@@ -367,7 +390,7 @@ def render_voxel_section_components(
                         heat_artifact.path,
                         background_image=resources["background"]["path"],
                         mask_image=resources[role_spec.mask_key]["path"],
-                        style_config=style,
+                        style_config=scale_style,
                         output_paths=output_paths,
                     )
                     render_metadata = getattr(
@@ -391,7 +414,7 @@ def render_voxel_section_components(
                                 "background": dict(resources["background"]),
                                 "mask": dict(resources[role_spec.mask_key]),
                             },
-                            "style": dict(style),
+                            "style": scale_style,
                             "render_metadata": render_metadata,
                             "outputs": relative_outputs,
                         }
@@ -405,6 +428,11 @@ def render_voxel_section_components(
                         }
                     )
                 _write_json_atomic(result_path, item)
+                if item["status"] == "complete":
+                    _write_json_atomic(
+                        _completion_marker(result_path),
+                        {"status": "complete"},
+                    )
                 results.append(item)
     return results
 
@@ -436,7 +464,23 @@ def run_single_scale_voxel_section_postprocess(
         },
         config_base=root,
     )
+    scale_display_name, study_scale_definition = catalog.resolve_scale_display_name(
+        "direct_voxel_main",
+        normalized_scale,
+    )
     style = get_voxel_section_cfg(style_overrides)
+    expected_colorbar_template = (
+        "Benefit-oriented partial Spearman ρ with {scale_display_name}"
+    )
+    if style["colorbar_label_template"] != expected_colorbar_template:
+        raise ValueError("voxel colorbar template does not match the contract")
+    colorbar_semantic_label = str(style["colorbar_label_template"]).format(
+        scale_display_name=scale_display_name
+    )
+    style["colorbar_label"] = (
+        "Benefit-oriented partial Spearman ρ\n"
+        f"with {scale_display_name}"
+    )
     resources = {
         "background": _resource_record(background_path, "anatomy_background"),
         "reference_mask": _resource_record(reference_mask_path, "reference_mask"),
@@ -447,6 +491,9 @@ def run_single_scale_voxel_section_postprocess(
         "schema_version": SCHEMA_VERSION,
         "status": "running",
         "scale_id": normalized_scale,
+        "scale_display_name": scale_display_name,
+        "study_scale_definition": study_scale_definition,
+        "colorbar_semantic_label": colorbar_semantic_label,
         "style": style,
         "resources": resources,
         "publications": catalog.publication_records(),

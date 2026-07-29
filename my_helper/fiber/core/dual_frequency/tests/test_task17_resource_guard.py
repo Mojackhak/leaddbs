@@ -102,10 +102,9 @@ class Task17ResourceGuardTest(unittest.TestCase):
         self,
         root: Path,
         snapshots: list[tuple[ProcessRow, ...]],
-        swaps: list[int],
+        swaps: list[int | ResourceGuardError],
         mounts: list[bool | MountIdentity | None],
         *,
-        max_rss_bytes: int = 1000,
         monotonic_values: list[float] | None = None,
     ) -> tuple[int, list[dict[str, str]], list[tuple[int, ...]]]:
         terminations: list[tuple[int, ...]] = []
@@ -126,7 +125,10 @@ class Task17ResourceGuardTest(unittest.TestCase):
             return snapshots.pop(0)
 
         def swap_reader() -> int:
-            return swaps.pop(0)
+            value = swaps.pop(0)
+            if isinstance(value, ResourceGuardError):
+                raise value
+            return value
 
         stable_mount = MountIdentity(
             source_path="/dev/disk4s2",
@@ -158,7 +160,6 @@ class Task17ResourceGuardTest(unittest.TestCase):
             runner_pid=100,
             output=output,
             mount_path=root / "VAL",
-            max_rss_bytes=max_rss_bytes,
             interval_seconds=1.0,
             process_reader=process_reader,
             swap_reader=swap_reader,
@@ -251,11 +252,9 @@ class Task17ResourceGuardTest(unittest.TestCase):
             )
             strict = validate_instrumented_guard(
                 root / "guard.csv",
-                max_rss_bytes=1000,
             )
             historical, _parsed = validate_preinstrumentation_guard(
                 root / "guard.csv",
-                max_rss_bytes=1000,
             )
         self.assertEqual(status, 0)
         self.assertEqual(strict["status"], "validated")
@@ -366,29 +365,63 @@ class Task17ResourceGuardTest(unittest.TestCase):
                 )
         self.assertEqual(terminations, [(100,)])
 
-    def test_rss_boundary_records_stop_and_terminates(self) -> None:
+    def test_high_rss_is_observed_without_termination(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             status, rows, terminations = self._run(
                 Path(temporary),
-                [(ProcessRow(100, 1, 1000, 1.0),)],
-                [10, 10],
-                [True],
+                [
+                    (ProcessRow(100, 1, 1000, 1.0),),
+                    (ProcessRow(900, 1, 100, 1.0),),
+                ],
+                [10, 10, 10],
+                [True, True],
             )
-        self.assertEqual(status, 2)
-        self.assertEqual(rows[-1]["event"], "rss_limit_sigterm")
-        self.assertEqual(terminations, [(100,)])
+        self.assertEqual(status, 0)
+        self.assertEqual([row["event"] for row in rows], ["sample", "runner_exit"])
+        self.assertEqual(rows[-1]["peak_tree_rss_bytes"], "1000")
+        self.assertEqual(terminations, [])
 
-    def test_swap_growth_records_stop_and_terminates(self) -> None:
+    def test_swap_growth_is_observed_without_termination(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             status, rows, terminations = self._run(
                 Path(temporary),
-                [(ProcessRow(100, 1, 100, 1.0),)],
-                [10, 11],
-                [True],
+                [
+                    (ProcessRow(100, 1, 100, 1.0),),
+                    (ProcessRow(900, 1, 100, 1.0),),
+                ],
+                [10, 11, 11],
+                [True, True],
             )
-        self.assertEqual(status, 2)
-        self.assertEqual(rows[-1]["event"], "swap_growth_sigterm")
-        self.assertEqual(terminations, [(100,)])
+        self.assertEqual(status, 0)
+        self.assertEqual([row["event"] for row in rows], ["sample", "runner_exit"])
+        self.assertEqual(rows[0]["swap_used_bytes"], "11")
+        self.assertEqual(rows[0]["swap_baseline_bytes"], "10")
+        self.assertEqual(terminations, [])
+
+    def test_swap_read_failure_is_unavailable_without_termination(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            status, rows, terminations = self._run(
+                root,
+                [
+                    (ProcessRow(100, 1, 100, 1.0),),
+                    (ProcessRow(900, 1, 100, 1.0),),
+                ],
+                [
+                    ResourceGuardError("swap unavailable"),
+                    ResourceGuardError("swap unavailable"),
+                    ResourceGuardError("swap unavailable"),
+                ],
+                [True, True],
+            )
+            strict = validate_instrumented_guard(root / "guard.csv")
+
+        self.assertEqual(status, 0)
+        self.assertEqual([row["event"] for row in rows], ["sample", "runner_exit"])
+        self.assertTrue(all(row["swap_used_bytes"] == "-1" for row in rows))
+        self.assertTrue(all(row["swap_baseline_bytes"] == "-1" for row in rows))
+        self.assertEqual(terminations, [])
+        self.assertEqual(strict["status"], "validated")
 
     def test_existing_header_must_match_before_append(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

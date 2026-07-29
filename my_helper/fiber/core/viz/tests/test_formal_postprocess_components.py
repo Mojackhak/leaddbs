@@ -341,8 +341,18 @@ def test_paired_fit_components_preserve_two_scales_without_root_metadata(
         result_path = output_root / item["result_path"]
         assert result_path.name == "in_sample_loocv_fit.json"
         assert result_path.is_file()
+        assert (
+            result_path.parent / "completion/paired_fit/complete.json"
+        ).is_file()
         assert (result_path.parent / "in_sample_loocv_fit.png").is_file()
 
+    monkeypatch.setattr(
+        paired_fit_postprocess,
+        "_resolve_sources",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("completed paired component reopened its sources")
+        ),
+    )
     second = render_paired_fit_components(
         scale_ids=("scale_a", "scale_b"),
         output_root=output_root,
@@ -624,6 +634,29 @@ def test_formal_validate_only_enforces_complete_paired_source_contract(
     assert not (tmp_path / f"preflight_{case}").exists()
 
 
+def test_formal_validate_only_accepts_independent_loocv_secondary_metrics(
+    tmp_path: Path,
+) -> None:
+    _paired_fit_catalog(tmp_path)
+    root = tmp_path / "direct_voxel_in_sample"
+    relative = "scale_a/reference/sensitivity/final_in_sample/summary.json"
+    path = root / relative
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    summary["loocv_pearson_r"] = float(summary["loocv_pearson_r"]) - 0.001
+    summary["pearson_optimism_gap"] = (
+        float(summary["in_sample_pearson_r"]) - float(summary["loocv_pearson_r"])
+    )
+    path.write_text(json.dumps(summary), encoding="utf-8")
+    _refresh_publication_index_entry(root, relative)
+
+    result = validate_formal_postprocess(
+        _formal_fit_config(tmp_path, "preflight_independent_loocv")
+    )
+
+    assert result["status"] == "valid"
+    assert result["endpoint_count"] == 8
+
+
 def test_formal_endpoint_resolution_preserves_nondefault_selected_cells(
     tmp_path: Path,
 ) -> None:
@@ -731,6 +764,7 @@ def test_formal_postprocess_commits_root_only_after_all_endpoints_complete(
     assert first["endpoint_count"] == 8
     assert first["completed_count"] == 8
     assert first["failed_count"] == 0
+    assert (output_root / "complete.json").is_file()
     assert (output_root / "request.json").is_file()
     assert (output_root / "resolved_request.json").is_file()
     assert (output_root / "endpoint_index.csv").is_file()
@@ -769,6 +803,13 @@ def test_formal_postprocess_commits_root_only_after_all_endpoints_complete(
     assert terminal["endpoint_count"] == 8
     assert terminal["declared_output_count"] == 8
     assert terminal["component_manifest_count"] == 8
+
+    complete_path = output_root / "complete.json"
+    held_complete = output_root / "complete.held.json"
+    complete_path.rename(held_complete)
+    with pytest.raises(ValueError, match="root file is missing"):
+        validate_formal_postprocess_output(output_root)
+    held_complete.rename(complete_path)
 
     original_index = (output_root / "endpoint_index.csv").read_text(
         encoding="utf-8"
@@ -842,14 +883,18 @@ def test_formal_postprocess_never_marks_missing_component_rows_complete(
     assert all(item["status"] == "failed" for item in result["endpoint_results"])
 
 
-def test_formal_postprocess_rejects_changed_request_in_existing_root(
+def test_formal_postprocess_reuses_completed_root_until_force(
     tmp_path: Path, monkeypatch
 ) -> None:
     _paired_fit_catalog(tmp_path)
     config_path = _formal_fit_config(tmp_path, "immutable_output")
 
+    render_count = 0
+
     def fake_plot(*args, output_paths, **kwargs):
+        nonlocal render_count
         del args, kwargs
+        render_count += 1
         figure = plt.figure()
         for path in output_paths:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -859,13 +904,74 @@ def test_formal_postprocess_rejects_changed_request_in_existing_root(
     monkeypatch.setattr(
         paired_fit_postprocess, "plot_in_sample_loocv_fit", fake_plot
     )
-    run_formal_postprocess(config_path)
+    first = run_formal_postprocess(config_path)
+    assert first["status"] == "complete"
+    assert render_count == 8
+    output_root = tmp_path / "immutable_output"
+    manifest_path = output_root / "manifest.json"
+    manifest_mtime = manifest_path.stat().st_mtime_ns
     changed = json.loads(config_path.read_text(encoding="utf-8"))
     changed["styles"]["paired_fit"]["dpi"] = 96
     config_path.write_text(json.dumps(changed), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="immutable postprocess request changed"):
-        run_formal_postprocess(config_path)
+    original_catalog_loader = formal_postprocess.PublicationCatalog.from_config
+    monkeypatch.setattr(
+        formal_postprocess.PublicationCatalog,
+        "from_config",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("completed formal root reopened publications")
+        ),
+    )
+    reused = run_formal_postprocess(config_path)
+    assert reused["resume_status"] == "reused"
+    assert render_count == 8
+    assert manifest_path.stat().st_mtime_ns == manifest_mtime
+
+    malformed_requests = (
+        ("output_root", None, "output_root must be a nonempty path"),
+        ("publications", {}, "publications must be a nonempty object"),
+        ("styles", [], "styles must be an object"),
+        ("resources", [], "resources must be an object"),
+    )
+    for field, value, message in malformed_requests:
+        malformed = dict(changed)
+        malformed[field] = value
+        config_path.write_text(json.dumps(malformed), encoding="utf-8")
+        with pytest.raises(ValueError, match=message):
+            run_formal_postprocess(config_path)
+    config_path.write_text(json.dumps(changed), encoding="utf-8")
+
+    monkeypatch.setattr(
+        formal_postprocess.PublicationCatalog,
+        "from_config",
+        original_catalog_loader,
+    )
+
+    invalid = dict(changed)
+    invalid["styles"] = []
+    config_path.write_text(json.dumps(invalid), encoding="utf-8")
+    monkeypatch.setattr(
+        formal_postprocess,
+        "_trash",
+        lambda _path: (_ for _ in ()).throw(
+            AssertionError("force trashed output before request admission")
+        ),
+    )
+    with pytest.raises(ValueError, match="styles must be an object"):
+        run_formal_postprocess(config_path, force=True)
+    config_path.write_text(json.dumps(changed), encoding="utf-8")
+
+    trashed = tmp_path / "trashed_formal_output"
+
+    def move_to_trash(path: Path) -> None:
+        path.rename(trashed)
+
+    monkeypatch.setattr(formal_postprocess, "_trash", move_to_trash)
+    forced = run_formal_postprocess(config_path, force=True)
+    assert forced["status"] == "complete"
+    assert render_count == 16
+    assert (trashed / "complete.json").is_file()
+    assert (output_root / "complete.json").is_file()
 
 
 def test_formal_postprocess_keeps_all_three_component_families_for_two_scales(
@@ -981,6 +1087,124 @@ def test_formal_postprocess_keeps_all_three_component_families_for_two_scales(
         item["model_unit"]: item["component_manifest_count"]
         for item in result["endpoint_results"]
     } == {"voxel": 4, "fiber": 2}
+
+
+def test_output_validator_allows_zero_components_for_inapplicable_model_unit(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "voxel_only_output"
+    output_root.mkdir()
+    voxel_rows = []
+    for index in range(3):
+        voxel_output = (
+            f"scales/scale_a/reference/voxel/benefit_map_{index}_data.json"
+        )
+        voxel_manifest = (
+            f"scales/scale_a/reference/voxel/benefit_map_{index}_sections.json"
+        )
+        formal_postprocess._write_json_atomic(
+            output_root / voxel_output,
+            {"value": index},
+        )
+        voxel_row = {
+            "status": "complete",
+            "scale_id": "scale_a",
+            "model_role": "reference",
+            "model_family": "reference_voxel",
+            "result_path": voxel_manifest,
+            "outputs": [voxel_output],
+        }
+        voxel_rows.append(voxel_row)
+        formal_postprocess._write_json_atomic(
+            output_root / voxel_manifest,
+            voxel_row,
+        )
+        formal_postprocess._write_json_atomic(
+            formal_postprocess._component_completion_marker(
+                output_root,
+                "voxel_2d",
+                voxel_manifest,
+            ),
+            {"status": "complete"},
+        )
+    resolved_endpoints = [
+        {
+            "endpoint_id": "endpoint_voxel",
+            "scale_id": "scale_a",
+            "model_role": "reference",
+            "model_unit": "voxel",
+            "model_family": "reference_voxel",
+            "final_model_id": "final_voxel",
+            "final_branch": "reference",
+            "selected_tau": 200,
+            "selected_coverage": 5,
+        },
+        {
+            "endpoint_id": "endpoint_fiber",
+            "scale_id": "scale_a",
+            "model_role": "reference",
+            "model_unit": "fiber",
+            "model_family": "reference_fiber",
+            "final_model_id": "final_fiber",
+            "final_branch": "reference",
+            "selected_tau": 400,
+            "selected_coverage": 5,
+        },
+    ]
+    endpoint_results = formal_postprocess._assemble_endpoint_results(
+        resolved=resolved_endpoints,
+        components=["voxel_2d"],
+        paired=[],
+        voxel=voxel_rows,
+        fiber=[],
+    )
+    assert {
+        item["model_unit"]: item["component_manifest_count"]
+        for item in endpoint_results
+    } == {"voxel": 3, "fiber": 0}
+    formal_postprocess._write_json_atomic(
+        output_root / "request.json",
+        {"schema_version": formal_postprocess.SCHEMA_VERSION},
+    )
+    formal_postprocess._write_json_atomic(
+        output_root / "resolved_request.json",
+        {
+            "schema_version": formal_postprocess.SCHEMA_VERSION,
+            "components": ["voxel_2d"],
+            "endpoint_count": 2,
+            "endpoints": resolved_endpoints,
+        },
+    )
+    formal_postprocess._write_json_atomic(
+        output_root / "manifest.json",
+        {
+            "schema_version": formal_postprocess.SCHEMA_VERSION,
+            "status": "complete",
+            "endpoint_count": 2,
+            "completed_count": 2,
+            "failed_count": 0,
+            "components": ["voxel_2d"],
+            "component_results": {"voxel_2d": voxel_rows},
+            "endpoint_results": endpoint_results,
+        },
+    )
+    formal_postprocess._write_json_atomic(
+        output_root / "complete.json",
+        {"status": "complete"},
+    )
+    formal_postprocess._write_endpoint_index(output_root, endpoint_results)
+    formal_postprocess._write_readme(
+        output_root,
+        ["scale_a"],
+        ["voxel_2d"],
+    )
+
+    terminal = validate_formal_postprocess_output(output_root)
+
+    assert terminal["status"] == "valid"
+    assert terminal["endpoint_count"] == 2
+    assert terminal["declared_output_count"] == 3
+    assert terminal["component_manifest_count"] == 3
 
 
 def test_declared_pdf_requires_successful_poppler_parse_and_arial(

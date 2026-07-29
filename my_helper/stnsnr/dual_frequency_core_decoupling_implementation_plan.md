@@ -22,20 +22,55 @@ validated `study_base.json` without legacy or migration imports.
 
 **Performance refactor contract:**
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
+**Canonical output contract:**
+`my_helper/stnsnr/dual_frequency_output_contract.md`.
 **Task 17 decision record:**
 `my_helper/stnsnr/task17_design_decisions.md`.
 **Three-plan acceptance evidence ledger:**
 `my_helper/stnsnr/task17_three_plan_acceptance_audit.md`.
-The generic core implementation below is complete, but the shared-exposure,
-one-pass connectome, process-scheduler, direct-copy SHA cache, sensitivity
-extension, and missing-parent rebuild work remains collectively
-`implementation_in_progress`. Canonical main publication, final-in-sample
-publication, and the public-only postprocess adapter are accepted. The
-support-preserving v8 jitter computation is completed, the independent formal
-OSS lineage is active, and combined execution, self-contained sensitivity
-publication, full postprocess replay, and final resource/resume acceptance
-remain open. The earlier instruction that deferred Task 17 sensitivity
-execution no longer describes the authorized current phase.
+The generic core, shared-exposure runtime, one-pass connectome preparation,
+persistent process scheduler, minimal path-and-`complete.json` resume,
+Omega-max-only OSS reuse, sensitivity extension framework, and missing-parent
+rebuild implementation are present and regression-tested. Production
+acceptance remains `implementation_in_progress`: canonical main,
+final-in-sample, display-smoothing, jitter-v2 publication, and the public-only
+postprocess adapter are accepted; the independent Omega-max-only OSS lineage is
+active; and combined execution, self-contained OSS/combined publication, full
+postprocess replay, configured-data parity, performance/fault acceptance, and
+final resume/output audit remain open. The earlier instruction that deferred
+Task 17 sensitivity execution no longer describes the authorized current
+phase.
+
+`dual_frequency_output_contract.md` supersedes directory-layout, publication
+index, standalone postprocess-root, cache-path, and output-resume statements in
+this implementation plan when they conflict. Scientific algorithms and
+model-specific artifact meanings remain governed by this plan.
+
+Decisions 44 and 46 define the current ordinary-resume boundary. Task
+restoration depends only on the deterministic task-state path and task-local
+`complete.json`. Sensitivity checkpoint parsing retains required JSON schemas,
+safe URI containment, and typed plan fields, but does not hash or require
+parent artifact payloads before completed child restoration. Parent checkpoint
+metadata and imported child roots are written only during initial child
+creation and are not repaired during resume.
+
+A current read-only production plan replay after Decisions 69 through 71
+resolved 28 scales and 224 endpoints. Through `formal`, the refactored DAG has
+10,920 tasks: 1,288 observed tasks and 9,632 formal tasks. The latter includes
+4,480 permutation blocks and 4,480 bootstrap blocks, corresponding to 40
+fixed 250-replicate blocks for each of the 112 final-model endpoints. Through
+`report`, the same request has 11,648 tasks after adding 728 sensitivity and
+reporting tasks. All four model families are present.
+
+The completed v8 parent has 1,512 persisted tasks because it predates this
+block-level formal-resampling decomposition and used one monolithic permutation
+task plus one monolithic bootstrap task per endpoint. The scientific
+configuration identity is unchanged. The task-count difference therefore
+describes the Task 17 execution refactor, not a scientific-input change and not
+permission to invalidate the completed parent. Run-root completion returns
+before rebuilding that historical plan. The pending configured-data parity
+replay remains responsible for proving numerical equivalence of the old
+monolithic and new block-level implementations.
 
 **Architecture:** Build a new `my_helper/fiber/core/dual_frequency` package next
 to the predecessor package, migrate contracts and orchestration first, then
@@ -81,8 +116,11 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
 - Normative-fiber `sensitive` connectomes emit `SensitiveRecord` only. Exactly
   one `formal` connectome is final-eligible; formal resampling, jitter, and
   endpoint OSS statistics derive from its realized final without a third
-  connectome role. Raw OSS rows move before final realization only in Task 17's
-  accepted `Omega_max` PASS branch; FAIL retains the final-linked producer.
+  connectome role. OSS produces or restores one formal-connectome `Omega_max`
+  row per physical condition before endpoint fan-out; each endpoint selects its
+  ordered final-axis view by canonical fiber ID. Historical paired final-axis
+  rows and equivalence decisions remain certification evidence only and do not
+  gate current execution.
 - Direct voxel and normative fiber are the only model families.
 - ROI/VTA postprocessing, regional heatmaps, GUI, HTTP, and upstream imaging/
   electrode reconstruction are out of scope.
@@ -94,9 +132,10 @@ statsmodels, nibabel, PyYAML, jsonschema, unittest, Lead-DBS, and OSS-DBSv2.
   source, prediction, branch, or final-model classification.
 - Public config never exposes direct-voxel candidate threshold or smoke counts.
 - Expensive producer cache misses require explicit authorization; routine
-  acceptance never implicitly authorizes them. Task 17's bounded real-OSS axis-
-  equivalence decision matrix is a separate precondition, and each cold class
-  may run only after its own explicit authorization.
+  acceptance never implicitly authorizes them. A complete cache hit requires no
+  producer authorization. Authorization applies locally to the actually missing
+  physical row and does not reopen completed rows or establish a separate
+  final-axis equivalence matrix.
 - The historical plan-only production restriction was lifted by explicit user
   authorization for the completed v8 parent and its named Task 17 sensitivity
   children. Formal writes remain restricted to those immutable lineages and
@@ -2529,14 +2568,12 @@ only an authorized miss resolves and validates the installed OSS toolchain.
 declared installed-file inventory for `ossdbs` and `leaddbsinterface`, including
 Python, HOC, MOD, session, and other packaged scientific resources. It also
 records normalized entrypoints, Conda package inventory, Python distribution
-inventory, and exact MATLAB version/release/architecture. The local producer attestation
-includes the complete executed Python producer modules and the transitive
-Lead-DBS/MATLAB coordinate, electrode-specification, and bridge helpers rather
-than only the top-level bridge. The consumed platform-specific ANTs
-point-transform executable is included as well. The pinned definition
-participates in the cache identity; an authorized miss verifies every installed
-lock and the MATLAB runtime immediately before and after every produced row.
-Cached command paths may be reused, but cached validation results may not. The
+inventory, exact MATLAB version/release/architecture, and the consumed
+platform-specific ANTs point-transform executable. Decision 51 removes the
+former repository-source attestation and its before-and-after comparison. The
+stable scientific definition participates in cache identity; an authorized
+miss validates the declared installed environment before its first external
+process, after which that process-local command resolution may be reused. The
 converted JSON is also checked for template-space
 segmentation, `ColeCole4`, inactive diffusion tensors, rectangular zero-phase
 stimulation, requested frequency/pulse width/control mode, and active pathway
@@ -2915,16 +2952,19 @@ acceptance gaps`). No remote push was performed.
 `literature_review_complete`; `threshold_policy_change_authorized`;
 `implementation_in_progress`; `partial_synthetic_acceptance_passed`;
 `production_configuration_validated`; `corrected_production_main_completed`;
-`canonical_publication_and_postprocess_accepted`;
-`sensitivity_extensions_deferred_by_user`; `completion_gap_audited`.
+`main_canonical_publication_accepted`; `jitter_completed`;
+`independent_omega_only_oss_active`; `combined_pending`;
+`formal_postprocess_pending`; `completion_gap_audited`.
 
 **Authority:**
 `my_helper/stnsnr/four_model_shared_exposure_performance_refactor_plan.md`.
 
 This task supersedes the endpoint-specific exposure, payload-checksum cache,
 thread-pool wave scheduler, and model-specific jitter preparation implemented
-in Tasks 7-15. It reopens the final-axis-only OSS producer but replaces it only
-if the bounded axis-equivalence gate passes. It does not reopen the scientific
+in Tasks 7-15. It replaces the final-axis-only OSS producer with one
+Omega-max-only physical row per deduplicated condition. Historical paired rows
+and bounded axis-equivalence decisions remain certification evidence only and
+do not gate or provide a fallback for current production. It does not reopen the scientific
 resolver, classifier, fallback, or continuous-dose scoring definitions. It does
 reopen the user-authorized threshold comparator: voxel/fiber exact tau values
 are active, exact Coverage counts are eligible, and exact selected-reference-tau
@@ -3987,7 +4027,7 @@ satisfy the point-byte-balanced or path-free hot-loop contract. The three
 configured connectomes contain approximately 718 MiB, 4.43 GiB, and 11.54 GiB
 of float32 coordinate rows, with offset arrays below 91 MiB. Every complete
 geometry is therefore `< 16 GiB` and eligible for the shared-resident path under
-the current 48-GiB solver boundary.
+the configured shared-resident geometry budget.
 
 Implement one portable `connectome_geometry` cache generation per semantic
 connectome source. Its scientific identity contains source content SHA,
@@ -4007,18 +4047,16 @@ hemisphere/group metadata before entering a geometry range. The hot function
 then receives only points, offsets, sampler handles, translations, and output
 views. It performs no path lookup, transform lock, NIfTI open, cache lease, or
 artifact publication. Current configured connectomes use one shared read-only
-geometry memmap. A deterministic fallback for future larger connectomes builds
-the fewest consecutive ranges below an explicit point-byte budget, never
-splits a fiber, and selects each stop from cumulative offsets while minimizing
-distance to an HDF5 raw-chunk boundary. Logical point coverage must be exact;
-raw chunk overlap and partial boundary count are separate audit fields.
+geometry memmap. A source outside the shared-resident geometry budget uses the
+fewest consecutive ranges below the declared point-byte budget, never splits a
+fiber, and selects each stop from cumulative offsets while minimizing distance
+to an HDF5 raw-chunk boundary. Logical point coverage must be exact; raw chunk
+overlap and partial boundary count are separate audit fields.
 
-Charge normative-fiber `prepare_exposure` at 32 GiB rather than the generic
-16-GiB preparation charge. The 32-GiB grant covers the largest configured
-geometry memmap, the bilateral transformed-NIfTI sampler working set, output
-rows, offsets, and bounded point scratch while allowing only one such task
-under the effective managed-memory ceiling. Direct-voxel preparation retains
-its existing charge. Acceptance requires byte-identical bilateral exposure,
+Normative-fiber and direct-voxel `prepare_exposure` tasks carry no RAM charge.
+Their admission uses only the declared worker and connectome-I/O tokens. RAM,
+RSS, and swap remain observational execution-segment evidence and do not block
+or terminate work. Acceptance requires byte-identical bilateral exposure,
 `Omega_max`, selected axes, and final statistics against the current adapter;
 identical output across range budgets and worker counts; one cache producer
 under concurrent misses; direct-copy resume; corruption rejection; exact
@@ -4049,14 +4087,14 @@ existing manifest-last atomic cache publication. Concurrent callers share one
 generation and receive non-writeable memmaps. The input-provider plus cache
 regression passes 63 tests and 23 subtests, including a four-caller concurrent
 miss with exactly one producer invocation and exact coordinate/offset replay.
-The third slice switches normative-fiber preparation to the shared geometry
+The historical third slice switched normative-fiber preparation to the shared geometry
 memmaps whenever the scientific cache is available. It constructs one frozen
 sampler plan per physical subject before entering the geometry loop; the pure
 range evaluator receives only immutable samplers, translations, points, and
 offsets. Future uncached or larger sources use deterministic point-byte ranges,
 while synthetic adapters retain the legacy iterator for test compatibility.
-Normative-fiber preparation now receives a 32-GiB admission charge and
-direct-voxel preparation remains at 16 GiB. Complete geometry is mapped only
+That slice assigned 32-GiB and 16-GiB RAM admission charges; Decision 45 later
+removed both charges and every RAM-based admission predicate. Complete geometry is mapped only
 when its coordinate-plus-offset size is `< 16 GiB`; larger sources use the
 point-balanced HDF5 stream without producing a complete geometry cache. A
 two-range provider assertion proves that plan construction occurs once per
@@ -4071,7 +4109,7 @@ connectome parity against retained formal artifacts remains pending. These
 source changes are not loaded into the already-running independent OSS worker
 and therefore do not alter that lineage.
 
-- [ ] **Step 5: Move jitter into Layer 1 and gate shared OSS/pPAM preparation**
+- [ ] **Step 5: Move jitter and Omega-only OSS preparation into Layer 1**
 
 Generate one scale-independent jitter schedule per physical identity while
 preserving the current exact key: `binding_id + frequency_class + subject_id +
@@ -4082,45 +4120,37 @@ load their endpoint clinical workspace once. Every replicate retains immutable
 logical exposure/overlap/support evidence and, when adjusted, its own Delta
 rebuild identity; block storage removes copies but not scientific evidence.
 
-Before replacing the historical final-axis solver, run an explicitly authorized
-bounded decision matrix. For every distinct allocator-relevant equivalence
-class used by the run, final-axis and `Omega_max` inputs for the same physical
-row must produce ten-sample axon-state/count mismatch count `< 1` and
-probability `absolute_difference < accepted_probability_tolerance` for every
-shared fiber. If allocator/RNG behavior depends on axis size/order, retain the
-per-final-axis producer for that class until a separately accepted fiber-keyed
-correction passes. Every real-OSS miss requires explicit expensive-producer
-authorization.
+For the formal connectome, create or restore exactly one cache-first
+`Omega_max` OSS row per deduplicated physical condition. A cache hit requires
+no expensive-producer authorization. A real miss requires explicit
+authorization before the external solver is called. The group task commits the
+exact ordered `omega_row_ids` closure and becomes terminal only after every
+declared row is present.
 
-Persist one immutable `OSSAxisEquivalenceDecision` per exact class, keyed by
-allocator and solver/toolchain versions, connectome and cache schema, tested
-final/`Omega_max` axis pair, physical-row identity, RNG contract, comparison
-fields, and accepted probability tolerance. One decision authorizes only its
-exact class. Global PASS scheduling requires durable decisions covering every
-distinct class used by the run. An absent or changed identity returns that
-class to unproven and retains FAIL behavior until its newly authorized proof
-passes.
+Every endpoint final fiber axis must be an exact ordered canonical-ID subset of
+the shared `Omega_max` axis. Endpoint pPAM obtains an indexed view of that row,
+applies the endpoint-specific overlap and clinical workspace, and refits all
+outcome-dependent statistics without invoking another physical solver. New
+plans contain no final-axis OSS producer, equivalence-decision task, or
+fallback branch. Historical paired decisions remain immutable numerical
+certification evidence only; they are not task, cache, resume, or publication
+gates.
 
-On PASS, prepare OSS/pPAM rows on formal-connectome `Omega_max`, build one
-filtered connectome/mapping per `(connectome, axis, schema)`, and let endpoints
-select final columns by canonical ID. On FAIL, keep the existing per-final-axis
-request/cache/artifact producer and record why shared simulation is unsafe. In
-both branches, coalesce consecutive selected fibers into HDF5 point ranges, use
-one `CanonicalFiberAxis` descriptor per batch, keep row manifests O(1) in fiber
-count, and avoid repeated `fiber_ids.npy` or per-fiber cache items. Attest the
-immutable toolchain once, retain semantic provenance, and use a lightweight row
-guard. Endpoint analysis applies add-on overlap at the existing boundary and
-refits all outcome-dependent statistics. Binary pPAM activation uses strict
-`p(A) > 0.5`; equality at `0.5` is inactive.
+Coalesce consecutive selected fibers into HDF5 point ranges, use one
+`CanonicalFiberAxis` descriptor per batch, keep row manifests O(1) in fiber
+count, and avoid repeated `fiber_ids.npy` or per-fiber cache items. Validate
+the declared external solver inputs only on a real miss, retain semantic
+provenance, and use the mount-continuity guard without RAM thresholds.
+Binary pPAM activation uses strict `p(A) > 0.5`; equality at `0.5` is inactive.
 
 - [ ] **Step 6: Implement sensitivity checkpoints, extension runs, and missing-parent rebuild**
 
 Publish one durable `sensitivity_base.json` for every realized final. It binds
 the parent run/model identity, scale, final branch/role, selected source,
 subject/outcome/nuisance axes, shared exposure semantic ID, final artifact
-references, E-field/transform/connectome source-content identity, `Omega_max`
-and OSS gate state when applicable, producer/schema versions, and RNG schedule
-identity. Reject every scratch URI.
+references, E-field/transform/connectome source-content identity, the
+`Omega_max` descriptor when applicable, producer/schema versions, and RNG
+schedule identity. Reject every scratch URI.
 
 Add an application command with explicit `--base-run`, `--analyses`, `--run-id`,
 and resource controls. With a complete parent checkpoint, compile only requested
@@ -4140,8 +4170,10 @@ converter command before the generic runtime; do not import project code.
 Permit statistics from an exact prepared jitter or OSS cache when physical
 sources are absent. Require source E-fields/transforms/connectome/toolchain for
 new physical production. Missing source and missing prepared cache fail as
-`missing_sensitivity_source`. Extension resume restores only valid completed
-extension tasks and re-evaluates dependency-derived skips.
+`missing_sensitivity_source`. Extension resume restores a task only when its
+deterministic task-state path and task-local `complete.json` both exist. A
+missing pair makes only that task eligible to run, and dependency-derived
+skips are re-evaluated.
 
 - [ ] **Step 7: Implement one persistent spawned scheduler and global resource ledger**
 
@@ -4171,31 +4203,38 @@ idempotent/transient-safe work. Add hard-exit/generation-restart acceptance.
 
 Keep `execution.workers` as the sole public n_jobs-like CPU ceiling. Its current
 default remains `3`; `12` is a benchmark scenario, not a default and not a list
-of CPU core IDs. Give every task CPU, memory, connectome-I/O, external-solver,
-and internal-parallelism requirements. Remove nested executors outside this
-ledger. Set numerical-library limits before worker imports, verify actual BLAS/
-OpenMP threads, and keep every Python worker at one numerical-library thread for
-its lifetime. Give OSS/MATLAB subprocesses explicit tokens and thread
-limits. The sum of Python baseline, extra BLAS/OpenMP, and solver CPU tokens must
-remain `< execution.workers + 1`; solver-instance slots grant no extra CPU.
-A compiled GIL-releasing kernel may use a separately declared thread resource
-class only after measured parity, utilization, and oversubscription acceptance;
+of CPU core IDs. Give every task CPU, connectome-I/O, external-solver, and
+internal-parallelism requirements. Remove nested executors outside this ledger.
+Set numerical-library limits before worker imports, verify actual BLAS/OpenMP
+threads, and keep every Python worker at one numerical-library thread for its
+lifetime. Give OSS/MATLAB subprocesses explicit tokens and thread limits. The
+sum of Python baseline, extra BLAS/OpenMP, and solver CPU tokens must remain
+`< execution.workers + 1`; solver-instance slots grant no extra CPU. A compiled
+GIL-releasing kernel may use a separately declared thread resource class only
+after measured parity, utilization, and oversubscription acceptance;
 h5py-call-heavy and Python-bytecode-heavy preparation stays process-based.
-Define `reserve = max(16 GiB, 20% physical RAM)` and
-`managed = min(64 GiB, max(0, currently_available - reserve))`. Charge expected
-MATLAB/OSS RSS and per-reader HDF5 raw chunk caches to task memory rather than
-the reserve. Normal admission requires `task_memory_bytes < managed` and
-`projected_available_after_admission > reserve`. Otherwise the task remains
-pending or runs alone under an explicit measured override that still preserves
-the reserve and `swap_delta_bytes < 1`. Periodically reconcile live process-tree
-RSS, available memory, shared-memory charges, child RSS, and outstanding grants,
-pausing new admission when the strict reserve predicate fails.
+Tasks have no RAM charge. Available RAM, RSS, and swap remain observational and
+do not block admission or terminate work.
 
-Resume uses only three gates: study-base JSON content SHA, ordered content SHA
-values for the three input YAML files, and a parseable completed task JSON with
-a decodable result. Failed, running, skipped, missing, malformed, and
-result-incomplete task JSON is rerun. Append code and resource provenance to a
-separate execution-segment manifest without using either as a resume gate.
+Admission parses the study JSON and three YAML profiles and validates their
+required fields. Resume restores a task only when its deterministic state path
+and task-local `complete.json` both exist; the run-root `complete.json` closes
+the whole run. Missing paths make only that task eligible to run. Code,
+configuration, input, plan, parent, file-metadata, and payload hashes are not
+resume gates. Append code and resource provenance to a separate execution-
+segment manifest without using either as a resume gate.
+
+Completion markers are append-only within one run root. Failed or partial
+execution does not remove a task-local or run-root marker. Such a marker is
+written only after successful publication, so normal execution never converts
+that same task or run back to failed. Explicit force replaces an entire run
+root through Trash; it does not delete individual markers in place.
+
+The chronological evidence below is retained to explain earlier interrupted
+lineages. Any statement there that treats a content SHA, task RAM charge,
+managed-memory reserve, RSS ceiling, or swap-growth threshold as a current
+gate is superseded by Decisions 44 and 45 and cannot be used for final
+acceptance.
 
 A focused resume replay on 2026-07-22 passed seven tests under Conda
 `leaddbs`. It proves exact restoration of a complete result, selective rerun of
@@ -4207,9 +4246,10 @@ plan hashes, code identity, parent identity, source URIs, and machine paths;
 unchanged JSON and ordered YAML content still restores the completed result,
 while changed JSON or YAML content is rejected. A direct audit of
 `RunStore._validate_resume` confirms that these audit-only fields are recorded
-as provenance and are not hidden resume gates. This accepts the three-gate
-resume implementation boundary; the active independent OSS lineage still
-requires terminal replay evidence after its two equivalence gates close.
+as provenance and are not hidden resume gates. This is historical three-gate
+implementation evidence; ordinary resume is now governed by Decisions 44 and
+46. The active independent OSS lineage still requires terminal replay evidence
+after its two `OSSSharedOmegaGroupRecord` tasks close.
 
 A 2026-07-25 isolated pre-merge replay exposed one test-only resource
 dependency. The historical accepted-OSS cache-only resume fixture created its
@@ -5195,7 +5235,10 @@ Reference and add-on fiber endpoints now plan one cache-first observed task,
 one schedule, the configured number of fixed blocks, and one aggregate. The
 resource ledger assigns solver and connectome-I/O tokens only to observed
 preparation. New plans contain no serial activation service, while the registry
-retains both legacy handlers for old checkpoint compatibility.
+at that historical slice retained legacy handlers for old checkpoints.
+Decision 65 later removed the paired equivalence handler from the production
+registry and activation path; the historical decoder remains isolated from
+current execution.
 
 An OSS child plan recursively selects the exact pPAM sensitivity ancestors of
 each aggregate before deriving checkpoint roots. The observed parent run,
@@ -5281,10 +5324,13 @@ statistics do not identify the subject-index rows. Its child therefore reports
 
 The first implementation uses one endpoint task and one complete null array,
 matching current LOOCV persistence. It adds no 250-replicate block and no
-block-level resume. Valid completed endpoint JSON is reusable; failed,
-interrupted, malformed, or incomplete endpoints rerun in full. Later Step 9
-sharding may refactor both formal paths together only after the historical RNG
-and worker-invariance gates pass.
+block-level resume. Resume restores the endpoint task only when its
+deterministic task-state path and task-local `complete.json` both exist. A
+missing pair makes that endpoint task eligible to rerun in full. Result parsing
+occurs only when a downstream consumer actually reads the restored task; a
+local parse failure remains visible and does not trigger automatic
+recomputation. Later Step 9 sharding may refactor both formal paths together
+only after the historical RNG and worker-invariance gates pass.
 
 Mirror the LOOCV report with in-sample Spearman rho and nominal p, Pearson r
 and nominal p, plus-one two-sided permutation p, standard R2, nuisance-relative
@@ -5353,8 +5399,10 @@ work count `< 1`, full cache-verification count per used entry and process
 endpoint-selected payload-copy count `< 1`, fault-free pool-generation count
 `> 0` and `< 2`, untracked nested
 pool count `< 1`, bounded HDF5/solver/BLAS concurrency, parent-only persistence,
-and `swap_delta_bytes < 1`. Exact-threshold fixtures must exclude voxel/fiber
-E-field/tau, Coverage, reference overlap, support-QC, and pPAM boundaries.
+and complete observational RSS/swap telemetry when available. RAM and swap
+values have no acceptance threshold. Exact-threshold fixtures must exclude
+voxel/fiber E-field/tau, Coverage, reference overlap, support-QC, and pPAM
+boundaries.
 
 On current 28-scale data, reduce 1540 endpoint-derived row evaluations per
 connectome to 42 physical rows in the shared pass. For the 12-worker benchmark,
@@ -5362,8 +5410,8 @@ define `effective_cores = aggregate process CPU time / wall time` in five-second
 windows. Eligible windows have `runnable_cpu_slots > 5` and no measured
 admission block; require
 `fraction(effective_cores > 6 among eligible windows) > 0.80`. Storage-limited
-windows retain their measured I/O classification. Require
-`swap_delta_bytes < 1`. Test
+windows retain their measured I/O classification. Retain measured RSS and swap
+as descriptive evidence only. Test
 fail-once resume so formerly dependency-skipped descendants run after recovery,
 and verify that resource-only resume overrides preserve scientific artifacts.
 Run main-through-final followed by new-process jitter, OSS, and combined
@@ -5461,7 +5509,6 @@ normative_fiber_model
 workflow_profile
 conda_environment
 working_directory
-maximum_task_tree_rss_bytes
 real_cold_solver_authorization
 ```
 
@@ -5471,18 +5518,39 @@ scale, endpoint, task ID, cache-state, solver-mode, worker-count, burden, or
 row-command field. `prepare` derives the configured connectomes, workers 1, 3,
 6, and 12, every selected scientific request, every measured task slice, all
 row commands, and the exact 72-row closure. Both accepted roots must be
-terminal, configuration-compatible, and SHA-bound to the same scientific
-parent. The four source files must match the parent's recorded input JSON and
-YAML identities. The benchmark root is a separate CLI argument and must be
-disjoint from the parent, independent OSS, canonical publication, configured
-output, configured run, and shared production-cache roots.
+terminal and bound to the same scientific parent. The four source paths must
+match the accepted parent's input-bundle paths. The harness recompiles them,
+requires the normalized scientific configuration to match the accepted
+parent, and freezes the current executable task slices locally in the resolved
+benchmark plan. The historical accepted-parent whole-DAG plan hash is not a
+benchmark admission gate: execution-topology changes outside a selected slice
+do not invalidate scientific results, while each selected slice still binds
+its exact current tasks, parameters, dependencies, and slice-plan hash. Raw
+source-file SHA values and raw request bytes are not benchmark gates. This
+stage reads only each input-bundle row's
+`relative_path`; historical digest fields are not required. The benchmark root
+is a separate CLI argument and must be disjoint from the parent, independent
+OSS, canonical publication, configured output, configured run, and shared
+production-cache roots.
+
+Production preparation on 2026-07-28 confirmed the need for this local
+compatibility boundary. The accepted parent and current compiler produced the
+same scientific-configuration SHA-256
+`6d23bc0e9f30e697806d0847f238c1c8b09170673dc1ff0c29253808a5c401d5`,
+but the historical and current whole-DAG plan hashes differed after the
+documented execution, resume, and Omega-only topology changes. No scientific
+configuration differed. Rejecting the benchmark at that global plan hash
+would therefore invalidate unrelated execution structure before the existing
+slice-level task, parameter, dependency, and checkpoint checks could run.
 
 The resolved plan retains the validated Conda environment token and canonical
-working-directory path in an `execution_environment` object. They remain bound
-by the original request SHA and plan identity. The harness parent derives every
-child command from this object; a caller cannot replace either value on `run`
-or `resume`, and the child rejects a current working directory or Conda prefix
-that differs before it opens a row RunStore.
+working-directory path in an `execution_environment` object. All request path
+fields are resolved before the canonical parsed-request identity is computed,
+so equivalent path spellings have one identity. The environment and working
+directory remain bound by that request identity and plan identity. The harness
+parent derives every child command from this object; a caller cannot replace
+either value on `run` or `resume`, and the child rejects a current working directory
+or Conda prefix that differs before it opens a row RunStore.
 
 Cold and warm cache state is a harness-owned input condition rather than a
 label added after execution:
@@ -5512,20 +5580,20 @@ Enumeration of the configured production shared cache remains forbidden.
 Measured warm rows copy only that frozen seed closure; an empty seed, an
 unexpected entry, or any manifest difference fails before readiness.
 
-`prepare` resolves the accepted OSS gate records from the terminal independent
-OSS lineage and records their exact group IDs, decision IDs, final/Omega row
-identities, cache-entry manifest SHAs, and one canonical closure SHA in the
-resolved benchmark plan. Every referenced entry must resolve under the
-configured shared scientific-cache root and pass its ordinary cache, row, and
-decision validators. Directory enumeration, newest-entry selection, and
-unreferenced compatible rows are forbidden. The resolved plan records the
-shared-cache source path only as a read-only accepted input; measured rows never
-open that path after their row-local seed has been copied and verified.
-Injected rows derive deterministic ten-sample states from the accepted
-probability rows by activating the first `probability * 10` samples for each
-fiber. The accepted pass decision must prove identical probabilities on the
-final-axis subset before that derivation is accepted. This reconstruction is
-benchmark-only and cannot publish into the production shared cache.
+`prepare` resolves exactly two terminal `OSSSharedOmegaGroupRecord` values from
+the independent Omega-only OSS lineage and records their group IDs, ordered
+Omega-row identities, cache-entry manifest SHAs, and one canonical closure SHA
+in the resolved benchmark plan. Every referenced entry must resolve under the
+configured shared scientific-cache root and pass its ordinary cache and row
+validators. Final-axis rows, equivalence decisions, directory enumeration,
+newest-entry selection, and unreferenced compatible rows are forbidden. The
+resolved plan records the shared-cache source path only as a read-only accepted
+input; measured rows never open that path after their row-local seed has been
+copied and verified. Injected rows derive deterministic ten-sample states from
+the accepted Omega probability rows by activating the first
+`probability * 10` samples for each fiber. Endpoint tasks use their exact
+ordered final-axis subset of those rows. This reconstruction is benchmark-only
+and cannot publish into the production shared cache.
 
 The harness records the empty-cache proof or warm-seed manifest SHA, copied
 entry closure, and first producer/cache-resolution events in each row
@@ -5566,7 +5634,7 @@ The measured slices are:
   selected physical group, plus the selected endpoint's matching jitter
   consumer; and
 - pPAM: the selected fiber endpoint's `prepare_exposure` task,
-  `establish_oss_axis_equivalence`,
+  `prepare_oss_omega_max_rows`,
   `prepare_ppam_observed_workspace`,
   `prepare_ppam_permutation_schedule`, every `run_ppam_permutation_block`, and
   `aggregate_ppam_activation` task.
@@ -5589,14 +5657,14 @@ cannot read a production-cache path directly or receive a copied selected-task
 result.
 
 pPAM has three separate slice identities even though their task service closure
-is the same. Injected cold and warm rows execute the OSS gate against a
-repository-owned deterministic toolchain whose probability rows and expected
-decision are derived from the accepted independent OSS closure. Real-cache-hit
-warm rows execute the gate against a verified row-local copy of the accepted
-OSS row and decision cache. Authorized real-cold rows execute the same gate
-against an empty row-local cache and the production toolchain. The accepted OSS
-gate task outcome is never copied as a checkpoint-only selected result.
-Injected warm seeds are created by one unmeasured injected gate execution;
+is the same. Injected cold and warm rows execute Omega-only OSS preparation
+against a repository-owned deterministic toolchain whose probability rows are
+derived from the accepted independent OSS closure. Real-cache-hit warm rows
+execute the same preparation against a verified row-local copy of the accepted
+Omega-row cache. Authorized real-cold rows execute it against an empty row-local
+cache and the production toolchain. The accepted OSS group task outcome is
+never copied as a checkpoint-only selected result. Injected warm seeds are
+created by one unmeasured injected preparation;
 real-cache-hit warm seeds are direct verified copies. Any solver call in a
 real-cache-hit row or any production solver call in an injected row fails the
 row.
@@ -5655,7 +5723,7 @@ copied.
 The executor retains scheduler samples in memory at five-second cadence and
 publishes them once, atomically, when the execution segment closes. Each sample
 contains UTC start and finish times, ready and running task counts,
-`runnable_cpu_slots`, reserved CPU, memory, connectome-reader and solver slots,
+`runnable_cpu_slots`, reserved CPU, connectome-reader and solver slots,
 and the active admission reasons. This adds no hot-loop path lookup, hash,
 lock, or per-sample filesystem write. The terminal segment records the
 scheduler-window payload SHA and row count.
@@ -5694,7 +5762,7 @@ rows/row_<digest>/
 ```
 
 `row_contract.json` is immutable and binds the complete resolved-plan SHA,
-slice ID, cache-seed identity, worker count, solver mode, resource ceiling, and
+slice ID, cache-seed identity, worker count, solver mode, token settings, and
 expected terminal-evidence paths. A terminal `row_result.json` is reused only
 after its contract SHA and every evidence SHA revalidate. A partial row keeps
 all prior attempts and creates the next monotonic attempt directory. A
@@ -5760,9 +5828,9 @@ Performance acceptance independently validates the complete scheduler sidecar;
 it does not assume that a separate resource-acceptance invocation already
 accepted the benchmark. The scheduler document and every row must have the
 exact repository-owned field closure. Window timestamps are UTC, positive, and
-contiguous. Ready, running, runnable, CPU, managed-memory, reserved-memory,
-connectome-I/O, solver, admission-reason, and storage-limited values are typed
-and bounded by the selected segment's worker and resource declarations.
+contiguous. Ready, running, runnable, CPU, connectome-I/O, solver,
+admission-reason, and storage-limited values are typed and bounded by the
+selected segment's worker and token declarations.
 `runnable_cpu_slots` is the bounded sum of ready and running tasks, and
 `storage_limited` is true exactly when the connectome-I/O admission count is
 positive. A valid SHA over structurally incomplete or resource-inconsistent
@@ -6172,13 +6240,14 @@ whose output would still require the same review. Production plan preparation
 and execution remain pending until the terminal OSS and combined authorities
 exist.
 
-- [ ] **Step 11: Update current status and commit**
+- [ ] **Step 11: Update current status without committing**
 
 Only after all acceptance gates pass, mark the performance refactor complete in
 the goal/design/plan, update every current threshold/output-contract/model-
-summary statement to the strict rule, record the complete benchmark matrix and
-chosen defaults, and commit without modifying, migrating, or deleting existing
-scientific output trees.
+summary statement to the strict rule, and record the complete benchmark matrix
+and chosen defaults without modifying, migrating, or deleting existing
+scientific output trees. This worktree remains uncommitted under the user's
+explicit instruction.
 
 ---
 
@@ -6526,13 +6595,27 @@ The active child lineages are:
 
 - `task17-jitter-v8-support-preserving-formal-20260719` for independent
   jitter;
-- `task17-oss-v1-inclusive-formal-20260719` for independent OSS and pPAM;
+- `task17-oss-v2-omega-only-formal-20260726` for independent Omega-max-only OSS
+  and pPAM;
 - `task17-combined-v1-inclusive-formal-20260719` for the joint cache-reuse and
   closure check.
 
+The immutable v8 parent workflow snapshot predates
+`storage.delete_run_cache_on_success`; the loader therefore records its schema
+default `true` in sensitivity-child resolved provenance. This value is inert
+for OSS, jitter, combined, and `publish-extension`: cache cleanup is called only
+by completed canonical main-model publication, not by sensitivity execution or
+extension-v2 replay. Failed or partial runs are never cleanup-eligible, shared
+scientific cache is outside the cleanup boundary, and the current repository
+workflow explicitly sets the policy to `false` for every new parent run.
+Therefore the active OSS and future combined lineages retain checkpoint,
+shared-cache, and `runtime_work` recovery state despite the inherited
+historical provenance value.
+
 The initial combined launch occurs only after the independent OSS child is
-terminal, both equivalence groups pass, all downstream pPAM tasks complete, and
-its reporting and artifact index validate. Its acceptance command is:
+terminal, both Omega group records are complete, all downstream pPAM tasks
+complete, and its reporting and artifact index validate. Its acceptance
+command is:
 
 ```bash
 conda run --no-capture-output -n leaddbs \
@@ -6544,21 +6627,33 @@ conda run --no-capture-output -n leaddbs \
 ```
 
 The initial command deliberately omits `--allow-expensive-producers`. Every
-physical jitter block, OSS row, and equivalence decision must reuse an already
-verified independent-child cache entry. An unexpected cache miss therefore
+physical jitter block and OSS Omega row must reuse an already verified
+independent-child cache entry. An unexpected cache miss therefore
 fails closed instead of silently launching another solver or physical jitter
 producer. If an identity-matching combined root already exists after an
 interruption, audit its parent, scientific configuration, requested analyses,
 and terminal task documents before adding `--resume`; never create a replacement
 lineage to bypass a partial reusable root.
 
-A read-only prelaunch audit on 2026-07-22 confirmed that the frozen combined
+Because the immutable v8 parent predates the portable `omega_max` base field,
+new OSS-containing child creation may derive that descriptor in memory from
+the exact shared-cache manifest identities already declared by the parent.
+This derivation reads no cached array payload, performs no payload SHA pass,
+does not write the parent, and does not authorize production. Existing-child
+resume uses its persisted plan and never re-enters this derivation. A missing
+or invalid exact Omega manifest remains a local creation failure. Unrelated
+shared-cache entries are ignored before or during the manifest scan, so their
+absence or corruption cannot invalidate an otherwise complete Omega
+descriptor.
+
+A read-only prelaunch audit repeated on 2026-07-26 confirmed that the frozen combined
 run root does not exist and that neither domain contains a combined-v2
 publication. The first combined invocation must therefore use the command
 above without `--resume`; only a later interruption may activate exact-root
-resume after its three input-identity gates pass. VAL reported approximately
-821 GiB available during this audit. This capacity check does not waive the
-independent OSS terminal gate or authorize any expensive producer.
+resume. Under Decision 44, that resume reuses only task states with their
+task-local `complete.json` markers; it does not compare input or repository
+hashes. The independent OSS terminal gate remains mandatory and the combined
+command authorizes no expensive producer.
 
 A 2026-07-21 read-only code audit found one prerequisite for that acceptance
 command. The executor correctly allows `cache_first_expensive` tasks to enter
@@ -7791,61 +7886,29 @@ the builder, guard, and both resource validators pass 30 focused tests
 together. The production command remains gated on terminal independent OSS
 closure.
 
-After the source child is terminal, inspect its actual terminal segment document
-before choosing a resource validator. Never copy a historical segment ID into
-the command. If the terminal segment declares `resource_sample_count > 0` and
-the complete strict scheduler/resource fields, validate it with its matching
-guard CSV:
+After the replacement Omega-max-only child is terminal, inspect its actual
+terminal segment document and use that segment with its matching mount-only
+guard CSV. Never copy a historical segment ID into the command. The current
+lineage is instrumented, so it uses the strict scheduler/resource validator:
 
 ```bash
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/validate_task17_resource_acceptance.py \
-  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v2-omega-only-formal-20260726 \
   --segment-id <terminal-instrumented-segment-id> \
   --guard-csv <matching-terminal-segment-guard-csv> \
   --workers 14 \
-  --max-rss-bytes 68719476736 \
-  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-resource-acceptance-v1.json
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v2-resource-acceptance-v1.json
 ```
 
-Do not invoke the pre-instrumentation validator for such a segment. If the
-terminal segment lacks the strict instrumentation fields, identify the guard
-CSV whose single epoch contains the terminal maximum-row and owning-decision
-commits, then generate and validate the bounded pre-instrumentation evidence
-with these commands. The currently active candidate is `segment_0020`, with
-`/private/tmp/task17-oss-segment_0020-resource-guard.csv` as its matching guard.
-Those values may replace the placeholders below only if that segment becomes
-terminal and satisfies the selected validator contract. If the lineage needs
-another resume, use the actual later terminal segment and its matching guard;
-never combine a segment record, guard CSV, or commit window from different
-epochs.
-
-```bash
-env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
-  my_helper/fiber/pipelines/build_task17_preinstrumentation_windows.py \
-  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
-  --cache-root /Volumes/VAL/STNSNr/cache/dual_frequency \
-  --guard-csv <guard-csv-containing-terminal-maximum-row> \
-  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-windows-v1.json
-
-env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
-  my_helper/fiber/pipelines/validate_task17_preinstrumentation_resources.py \
-  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
-  --segment-id <terminal-pre-instrumentation-segment-id> \
-  --cache-root /Volumes/VAL/STNSNr/cache/dual_frequency \
-  --guard-csv <guard-csv-containing-terminal-maximum-row> \
-  --measurement-windows /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-windows-v1.json \
-  --workers 14 \
-  --max-rss-bytes 68719476736 \
-  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-preinstrumentation-resource-acceptance-v1.json
-```
-
-The selected guard CSV must belong to the declared segment and contain the
-required commit envelope; a guard from another segment is invalid even when its
-peak appears numerically safe. All validator and builder commands remain
-read-only with respect to the run and cache. Their only writes are the named
-acceptance documents, each installed atomically and reused only when its bytes
-are identical.
+The selected guard CSV must belong to the declared segment. A guard from
+another segment is invalid. Under Decision 45, RSS and swap values are retained
+only as observations; they have no threshold and cannot reject the run. The
+guard writes `-1` when optional swap telemetry is unavailable and continues
+the VAL mount-generation check; telemetry failure cannot terminate the runner.
+The strict validator accepts that sentinel only as missing observation. The
+historical paired v1 lineage and its pre-instrumentation-window workflow remain
+archival evidence only and are not part of current Omega-only acceptance.
 
 The first combined launch must attach the checked-in guard immediately after
 the runner PID is known:
@@ -7903,16 +7966,71 @@ and production-shaped mismatch coverage before combined execution begins.
 They now do: the strict and pre-instrumentation focused suites pass 12 tests,
 including an identity-mismatch rejection for each validator.
 
-An older immutable `sensitivity_plan.json` may omit the later scheduler-only
-task fields `timeout_seconds`, `transient_safe`, and
-`max_transient_retries`. Resume comparison interprets those omissions only as
-the exact defaults `null`, `false`, and `0`. This is a narrow v1 compatibility
-normalization: the persisted file is not rewritten, and any non-default
-scheduler value or any remaining structural or scientific difference still
-rejects resume. The production OSS plan comparison covers all 590 tasks and is
-identical after removing only those omitted defaults. The compatibility tests
-and complete 613-test package regression pass, and the production plan file is
-byte-identical before and after the compatibility check.
+For an existing sensitivity child, the persisted
+`sensitivity_plan.json` is now the resume task-plan authority. Initial child
+creation still compiles from the parent checkpoint, but resume of the same
+child path does not reload the parent sensitivity bases solely to reconstruct
+an already persisted graph. Task-local and run-root `complete.json` markers
+remain the skip boundaries. The persisted JSON must contain the fields needed
+to reconstruct the typed plan; additional unrelated fields are ignored. A
+missing or invalid required field fails locally without parent recompilation,
+cache scanning, hash comparison, repair, or compatibility fallback. The fixed
+parent seed-task JSON may be read only for the task-ID whitelist required by
+causal reporting; this does not load parent sensitivity bases or inspect
+scientific payloads.
+
+Decision 72 further narrows the startup order. After the declared study JSON
+and YAML profiles pass their ordinary input-boundary parsing, the deterministic
+run root is known. A present run-root `complete.json` must return success before
+main DAG compilation, persisted sensitivity-plan loading, or parent seed-task
+whitelist loading. Sensitivity retains exact base-run resolution and one
+run-manifest parse as its untrusted JSON input boundary. An incomplete main
+resume still compiles the main DAG because it has work to schedule. An
+incomplete sensitivity resume loads its own persisted plan and must not compile
+the parent DAG merely to recover that child. This is a startup-work reduction
+only; it does not change any task, cache, scientific, force, or marker
+contract. The implementation changes only later application entrypoint calls
+and does not alter the loaded executor, worker, provider, or scientific
+operation of the active independent OSS process.
+
+This startup reduction is implemented. The main terminal regression rejects
+any DAG compilation, configuration-source hashing, task-state read, report
+aggregation, or finalization. The terminal sensitivity regression rejects
+parent DAG compilation, persisted child-plan loading, parent seed-task loading,
+and any service call while retaining the required base-run manifest parse. Both
+direct cases pass. The incomplete sensitivity replay additionally rejects
+parent DAG compilation while rerunning exactly its missing child task. The
+complete application-service, synthetic end-to-end, and public CLI modules pass
+23 tests and five subtests with warnings treated as errors.
+
+The same review removes the now-unused `RunStore.is_complete()` helper. After
+the entrypoints moved the terminal decision to the deterministic run-root
+marker, the helper had no production caller and only duplicated the literal
+`complete.json` contract in one test. Finalization remains tested against that
+marker path directly; no invalidation or resume behavior changes.
+The focused finalization and plan-audit replay passes nine tests with warnings
+treated as errors.
+
+Decision 75 closes the path boundary exposed by the earlier terminal-check
+ordering. Main, sensitivity-child, and optional rebuilt-parent run IDs now use
+one application helper before path construction. The helper accepts one
+nonempty component and rejects separators, `.`, and `..`. It performs no
+filesystem scan and changes no task, cache, scientific, or marker identity.
+The focused public-application module passes six tests and seven subtests.
+
+Decision 76 applies the same single-component rule to canonical
+`extension_id` values before either final-in-sample or terminal jitter or OSS
+publication creates a writer. One publication-local helper replaces both
+copies of the incomplete separator-only rule. The complete publication module
+passes 18 tests.
+
+After Decisions 72 through 76, the complete current-worktree dual-frequency
+directory passes 818 tests and 331 subtests. The successful command applies
+`-W error` inside pytest without exporting `PYTHONWARNINGS` to the fault
+harness's nested `conda run` commands. This distinction is required because
+the latter environment variable makes the outer Conda Python stop on its own
+deprecation warning before a fault command starts; it is not a workflow
+failure.
 
 The later combined lineage starts under the instrumented code and must use the
 strict validator with its own terminal segment and guard CSV, the same limits,
@@ -8032,6 +8150,12 @@ It projects only terminal endpoint-level scientific records. Jitter block
 payloads, pPAM schedules, pPAM block nulls, operator scratch, leases, and other
 execution-only intermediates remain in the run or shared cache and are never
 public inputs.
+
+A source run is canonical-publication-eligible only when its run-root
+`complete.json` exists and its `run_manifest.json` is terminal-completed. This
+applies to both main and extension replay. The publisher and independent
+extension validator check only the marker path; they do not parse or hash the
+marker and do not use it to invalidate any completed task or cache entry.
 
 ```text
 <model-set-root>/extensions/<extension-id>/
@@ -8168,7 +8292,7 @@ The canonical replay target IDs are frozen before the live lineages finish.
 The completed jitter child publishes as
 `task17-jitter-v8-support-preserving-formal-20260719-v2` in both domain model
 sets. The independent OSS child publishes as
-`task17-oss-v1-inclusive-formal-20260719-v2` only in the normative-fiber model
+`task17-oss-v2-omega-only-formal-20260726-v2` only in the normative-fiber model
 set. The combined child publishes as
 `task17-combined-v1-inclusive-formal-20260719-v2` in both model sets, with
 jitter in both domains and OSS only in normative fiber. These names follow the
@@ -8189,7 +8313,7 @@ env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
 
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/run_dual_frequency_models.py publish-extension \
-  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v2-omega-only-formal-20260726
 
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/run_dual_frequency_models.py publish-extension \
@@ -8253,9 +8377,9 @@ After each source child has been published twice with its frozen unfiltered
 ```bash
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/validate_task17_extension_publication.py \
-  --source-run /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v1-inclusive-formal-20260719 \
-  --extension-root /Volumes/VAL/STNSNr/summary/spot/normative_fiber/dual_frequency_four_model_v1/extensions/task17-oss-v1-inclusive-formal-20260719-v2 \
-  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v1-extension-v2-validation-v1.json
+  --source-run /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v2-omega-only-formal-20260726 \
+  --extension-root /Volumes/VAL/STNSNr/summary/spot/normative_fiber/dual_frequency_four_model_v1/extensions/task17-oss-v2-omega-only-formal-20260726-v2 \
+  --output /Volumes/VAL/STNSNr/summary/spot/acceptance/task17-oss-v2-omega-only-extension-v2-validation-v1.json
 
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
   my_helper/fiber/pipelines/validate_task17_extension_publication.py \
@@ -9077,12 +9201,12 @@ remain valid, ordered-axis concatenation remains exact, and the accepted
 reference closure remains authoritative; the incompatibility is lookup
 identity, not numerical meaning.
 
-Decision 39 in `task17_design_decisions.md` freezes the repair. OSS cache
-identity must use a stable internal scientific contract version and explicit
-scientific inputs. The complete implementation fingerprint remains a
-before-and-after execution attestation for authorized misses but cannot
-invalidate, hide, or force recomputation of an unchanged completed row. A
-cache-first legacy resolver may atomically promote a fully verified
+Decision 39 in `task17_design_decisions.md` freezes the cache-identity repair.
+Decision 51 supersedes only the later before-and-after implementation
+attestation: the live producer no longer hashes repository source or rejects a
+row because files on disk changed while the already-loaded producer was
+running. OSS cache identity uses a stable internal scientific contract version
+and explicit scientific inputs. A cache-first legacy resolver may atomically promote a fully verified
 scientifically unique old payload and pass decision under the stable identity.
 It must reject missing, corrupt, mismatched, ambiguous, or conflicting
 candidates before any external toolchain starts.
@@ -9097,14 +9221,14 @@ execution-only code changes.
 
 Implementation checkpoint on 2026-07-24:
 
-The compatibility repair is isolated in
+The compatibility repair was isolated in
 `/private/tmp/leaddbs-task17-oss-cache-compat` while the formal add-on solver
-continues from the unchanged main checkout. The worktree now contains the
+continued from the unchanged main checkout. That worktree contained the
 stable scientific backend version, cache-first legacy row and decision
-promotion, promotion provenance, and before/after implementation attestation.
-Newly executed rows persist the accepted attestation in
-`row_metadata.json`; promoted rows retain the verified historical fingerprints
-in `compatibility_source.json`. Neither provenance field participates in the
+promotion, promotion provenance, and a before-and-after implementation
+attestation. Decision 51 later removed the live attestation and its failure
+path. Promoted rows retain verified historical fingerprints only as immutable
+compatibility provenance. That historical field does not participate in the
 stable scientific identity. Production APIs use the project-neutral term
 `historical`; the recognized historical backend string remains the exact
 portable `definition-sha256-*` format.
@@ -9347,7 +9471,8 @@ the complete dual-frequency regression with warnings treated as errors.
 Production acceptance requires a new guarded lineage, exact cache-only
 reference closure, only 15 missing add-on solver rows, terminal downstream
 pPAM work, identical resume, artifact-index and reporting closure, canonical
-OSS-v2 publication, task-tree RSS `< 64 GiB`, and swap growth `< 1` byte.
+OSS-v2 publication, worker/I/O/solver-token limits, and uninterrupted VAL
+mount-generation evidence. Decision 45 makes RAM and swap observational only.
 
 Decision 43 code acceptance is complete. Commit `dc3dc6543` froze the
 documentation contract before implementation, and commit `0d41b5e5d`
@@ -9365,6 +9490,41 @@ into the production checkout, where the same 768 dual-frequency tests and 54
 visualization tests passed again with warnings treated as errors. Production
 execution remains open.
 
+After the replacement child is terminal and its runner, worker, solver, and
+guard processes have exited, the first new-code resume uses exactly these two
+operator-invoked commands:
+
+```bash
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/migrate_dual_frequency_completion_markers.py \
+  --run-root /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-oss-v2-omega-only-formal-20260726
+
+env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
+  my_helper/fiber/pipelines/run_dual_frequency_models.py sensitivity \
+  --base-run /Volumes/VAL/STNSNr/summary/spot/.runs/stnsnr_frequency_addon/task17-main-v8-tau-grid-formal-20260717 \
+  --analyses oss \
+  --run-id task17-oss-v2-omega-only-formal-20260726 \
+  --workers 14 \
+  --resume
+```
+
+The migration runs once immediately before the identical resume and may be
+repeated idempotently. The resume deliberately omits
+`--allow-expensive-producers`: a terminal child must restore from its own task
+paths and completion markers without invoking a solver. Before and after
+non-runtime file inventories must prove that the resume rewrites no task,
+marker, manifest, report, artifact, checkpoint, or cache payload.
+The executor carries no residual cache-replay set after restoration. Completed
+tasks are absent from the pending set; incomplete tasks use the invocation's
+ordinary expensive-producer authorization directly.
+The public sensitivity command also exposes `--force` as the explicit
+alternative to `--resume`. It replaces the named child root through the same
+`RunStore.open` path used by the main command; the two flags are mutually
+exclusive, and no sensitivity-only configuration or deletion mechanism is
+introduced. The shared replacement path moves the displaced untracked root to
+the operating-system Trash before creating the new root; it does not
+permanently delete the prior result or fall back to deletion if archival fails.
+
 The combined-extension cache-first launch boundary was revalidated on
 2026-07-26 without reading or writing VAL. Ten focused tests covered executor
 authorization propagation, historical accepted-OSS resume, OSS row-cache copy
@@ -9377,16 +9537,15 @@ the physical or OSS producer. Production combined execution remains gated on
 terminal independent OSS and must omit `--allow-expensive-producers`.
 
 The guard and resource-acceptance boundary was also replayed on 2026-07-26
-without reading or writing VAL. All 44 tests passed with warnings treated as
-errors. The closure covers unmount, RSS, and swap termination; confinement to
-the declared runner process tree; permission and missing-process failures;
-guard-output placement; strict multi-epoch segment identity; scheduler memory,
-I/O, runnable, timestamp, and admission derivations; terminal task closure;
-current guard event spelling; pre-instrumentation maximum-row derivation;
-commit-window containment; probability tolerance; and rejection of stopped,
-stale, instrumented, or mismatched evidence. Production acceptance still
-requires the actual terminal `segment_0020` or later segment document and its
-matching complete guard epoch.
+without reading or writing VAL. That 44-test result is historical
+pre-Decision-45 evidence. Decision 45 later removed RAM admission, RSS
+termination, swap-growth termination, and their acceptance predicates. The
+current guard confines itself to the declared runner process tree and pinned
+VAL mount generation; scheduler acceptance retains worker, connectome-I/O,
+solver-token, runnable, timestamp, and terminal-task closure. Production
+acceptance now requires the active replacement lineage's terminal segment and
+matching mount-continuity epoch, while retaining RSS and swap only as
+descriptive observations.
 
 A later clean-worktree replay on the same date exercised the checked-in guard,
 the strict instrumented resource validator, and the pre-instrumentation
@@ -9530,15 +9689,49 @@ reviewed merge closure is compatible with the current main source, but it does
 not replace the required production-checkout merge and complete regression
 after terminal independent OSS.
 
-The formal configured benchmark request is frozen at
+The configured benchmark request is stored at
 `config/four_model_v1/acceptance/task17_performance_benchmark_request.json`.
-It binds the completed v8 parent, the independent OSS lineage, the exact four
-input copies retained by the parent run, Conda `leaddbs`, the repository
-working directory, a 64-GiB RSS ceiling, and no real-cold solver
-authorization. Its separate benchmark root is
+Decision 43 supersedes its historical paired-OSS binding: the current request
+binds the completed v8 parent, the replacement Omega-max-only independent OSS
+lineage `task17-oss-v2-omega-only-formal-20260726`, the exact four input copies
+retained by the parent run, Conda `leaddbs`, the repository working directory,
+and no real-cold solver authorization. Decision 45 removes the former RSS
+ceiling from this request. The request cannot pass `prepare` until the
+replacement OSS root is terminal-completed. Its separate benchmark root is
 `/Volumes/VAL/STNSNr/summary/spot/acceptance/task17-performance-matrix-v1-20260725`.
-Only after independent OSS is terminal, the isolated implementation is merged,
-and the complete regression passes, execute:
+This dedicated `acceptance/` child is allowed below the configured scientific
+output root. Benchmark admission still rejects overlap with the accepted
+parent run, accepted OSS run, shared cache root, and workflow run root. It does
+not reject the benchmark merely because the configured acceptance root is a
+descendant of the broader scientific output root; doing so would make the
+frozen benchmark location unusable without protecting any production payload
+that the harness actually opens for mutation.
+For the pPAM burden row, the Omega-max feature count is read from the current
+sensitivity descriptor at `omega_max.feature_axis.count`. The earlier
+standalone `omega_max.axis_count` shape is not part of the current checkpoint
+contract and is not retained as a compatibility branch.
+Benchmark planning recompiles the accepted scientific selection through the
+`sensitivity` stage. The accepted parent itself ended at its configured main
+stage, but the performance matrix explicitly includes jitter and pPAM slices;
+using the parent's main-stage execution boundary would omit those required
+tasks from the benchmark plan.
+The documented direct script entrypoint resolves both the core
+`dual_frequency` package and the repository-level `my_helper` package. This is
+required because `prepare` invokes the sibling configured candidate-parity
+runner after compiling the benchmark slices.
+The first production warm-seed attempt on 2026-07-28 completed every selected
+scientific task but failed while publishing its cache closure because exFAT
+had created AppleDouble `._*` metadata beside cache directories. Benchmark
+cache enumeration excludes only these filesystem metadata entries; every
+scientific kind and identity directory remains fully verified. If a warm-seed
+run has already committed its root `complete.json` and
+`seed_attempt_result.json` but the outer `warm_seed.json` is absent, the next
+`run` publishes the missing manifest from that completed attempt's isolated
+cache instead of recomputing the seed.
+The reviewed implementation is already present in the production checkout. A
+current uncommitted-worktree replay passes all 801 dual-frequency tests plus
+326 subtests and all 55 visualization tests with warnings treated as errors.
+Only after independent OSS is terminal, execute:
 
 ```bash
 env -u PYTHONPATH /opt/anaconda3/envs/leaddbs/bin/python \
@@ -9596,12 +9789,12 @@ unchecked until both columns are complete.
 | 2 | Direct-copy SHA cache, process-local verification reuse, persisted indexed views for reference and all raw add-on matrices, bounded consumers, copied-root checkpoint replay, and corruption tests pass. | Measure configured-data parity and production-scale logical-versus-physical write reduction from the post-refactor replay. |
 | 3 | Shared bilateral sampling plans, scale-neutral physical rows, endpoint row/column views, and direct-voxel parity fixtures pass. | Record configured full-matrix parity and production physical-row counters. |
 | 4 | Point-balanced HDF5 traversal, exact inclusive minimum-grid `Omega_max`, shared geometry, bounded fallback, and real-HDF5 path fixtures pass. | Record configured connectome parity and production chunk/resource counters. |
-| 5 | Jitter v8 is complete; physical blocks are cache-first; 45 historical paired decisions prove exact numerical containment and provide reusable stable `Omega_max` rows. Decision 39 freezes stable semantic identity and legacy promotion. Decision 43 implements and fully regressions `OSSSharedOmegaGroupRecord`, one Omega-max-only row per physical condition, exact canonical-ID endpoint views, copied-cache resume, corruption rejection, and downstream cache-only pPAM. | Start the replacement lineage, reuse all 45 stable Omega-max rows, produce only 15 missing add-on rows, run the dependency-derived pPAM tasks, and accept independent OSS reporting and publication. |
-| 6 | Portable sensitivity bases, exact resume, extension-v2 replay, missing-parent checks, and self-contained publication fixtures pass. | Publish canonical independent OSS and combined extension-v2 trees from terminal children. |
-| 7 | Persistent spawn scheduling, pure-data commands, parent-owned state mutation, resource ledger, timeout/retry boundaries, one solver token, and 64-GiB guard fixtures pass. | Retain terminal live RSS, CPU, swap, worker, resume, and generation evidence across independent OSS and combined execution. |
+| 5 | Jitter v8 is complete; physical blocks are cache-first; 45 historical paired decisions prove exact numerical containment and provide reusable stable `Omega_max` rows. Decision 39 freezes stable semantic identity and legacy promotion. Decision 43 implements and fully regressions `OSSSharedOmegaGroupRecord`, one Omega-max-only row per physical condition, exact canonical-ID endpoint views, copied-cache resume, corruption rejection, and downstream cache-only pPAM. The replacement lineage `task17-oss-v2-omega-only-formal-20260726` is active; its reference group is terminal with 34 rows and its add-on group is the sole running task. | Complete the active add-on group, re-evaluate all 196 dependent tasks, run the dependency-derived pPAM closure, and accept independent OSS reporting and publication. |
+| 6 | Portable sensitivity bases, exact resume, extension-v2 replay, missing-parent checks, and self-contained publication fixtures pass. Decision 48 scopes the OSS-only `omega_max` descriptor to analysis sets containing OSS. Explicit marker migration and exact resume are accepted for the completed main and jitter lineages with no non-runtime file rewrite. | Complete identical resume for terminal OSS and combined children, then publish their canonical extension-v2 trees. |
+| 7 | Persistent spawn scheduling, pure-data commands, parent-owned state mutation, worker, connectome-I/O, and single-solver token limits pass. Decision 45 removes task RAM budgets, RAM admission, RSS termination, and swap-growth termination. The local guard now protects only runner lifecycle and VAL mount generation while retaining RSS and swap as observations. | Retain terminal CPU, RSS, swap, worker, resume, solver-token, I/O-token, mount-continuity, and generation evidence across independent OSS and combined execution without treating RAM observations as gates. |
 | 9 | Formal and bootstrap schedules, scratch, durable blocks, ordered aggregation, pPAM blocks, jitter blocks, fixed historical RNG, and selective resume pass local regression. | Accept the production downstream pPAM block closure and combined cache-only replay. |
 | 10 | Numerical, cache-copy, corruption, resume, cleanup, publication, and visualization component suites pass. | Run the configured parity replay, no-authorization combined child, canonical publication, full public-only postprocess, identical resume, and sampled visual review. |
-| 11 | All implementation and checkpoint changes are recorded in focused commits and the worktree is clean. | Complete the requirement-by-requirement three-plan audit, update final statuses, and commit only after every production artifact and verifier passes. |
+| 11 | Implementation and checkpoint changes are retained in the shared working tree under the operator's explicit no-commit instruction. | Complete the requirement-by-requirement three-plan audit and update final statuses without creating a commit. |
 
 ---
 
@@ -9617,7 +9810,7 @@ performance-contract review was added on 2026-07-16:
 | 3. Dependency/fallback | PASS | Task 5 defines the exhaustive readiness/source/Delta/fallback truth table; Tasks 11-12 integrate it without bidirectional fallback. |
 | 4. Round/interface/provenance | PASS | Tasks 2, 6-8, and 13-16 cover every Round, typed requests/arrays/artifacts, project import isolation, standalone CLI, connectome roles, and resolved configuration artifacts. |
 | 5. Bounded acceptance | PASS | Task 1 requires an exact reviewed task allowlist; Tasks 9-14 use only applicable completed fixtures; Task 16 blocks expensive misses and parity expansion. |
-| 6. Shared physical preparation and resources | DESIGN PASS / PARTIAL IMPLEMENTATION | Code audit plus primary literature/official runtime guidance map Task 17 to the authorized mixed threshold policy, distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. Decision 43 retains exact subset mapping but supersedes final-axis row production and row-decision resume. The Omega-max-only group record and producer path, replacement formal OSS lineage, and remaining full Task 17 audit are open. |
+| 6. Shared physical preparation and resources | DESIGN PASS / PARTIAL IMPLEMENTATION | Code audit plus primary literature/official runtime guidance map Task 17 to the authorized mixed threshold policy, distinct voxel/fiber preparation, exact `Omega_max`, single-write no-payload-reread caches, bounded semantic identity, a persistent spawn-safe resource scheduler, parity-preserving RNG blocks, vectorized kernels, resume correctness, and measured performance gates. Decision 43 retains exact subset mapping but supersedes final-axis row production and row-decision resume. The Omega-max-only group record and producer path are implemented; the replacement formal OSS execution and remaining full Task 17 audit are open. Decision 48 keeps the OSS-only descriptor out of pure jitter resume while retaining it for OSS and combined compilation. |
 
 This record validates closure of the generic-core implementation and design
 closure of the performance refactor. Task 17 remains open. The historical OSS
@@ -9669,6 +9862,8 @@ publication, or full resource audit.
   complete repository implementation fingerprint; verified historical
   `Omega_max` rows promote cache-first without an expensive producer, while
   historical decision caches remain immutable certification evidence only.
+  The live producer performs no repository implementation hash or source-drift
+  comparison.
   The new group record commits the exact ordered `omega_row_ids` closure.
   Omega-max-only implementation, complete regression, and production reuse
   remain pending.
@@ -9689,14 +9884,14 @@ publication, or full resource audit.
   invariant to worker count and scheduling order.
 - [ ] Resume re-evaluates dependency-derived skips and permits only accepted
   resource-provenance overrides without changing scientific identity.
-- [ ] Managed RAM is the smaller of 64 GiB and available RAM after the larger of
-  a 16-GiB or 20%-physical reserve; one solver receives a conservative 48-GiB
-  admission charge, complete task-tree RSS stays `< 64 GiB`, and swap satisfies
-  `swap_delta_bytes < 1`. A token-free local guard samples mount state, runner
-  liveness, task-tree RSS, and swap at approximately one-second intervals and
-  terminates the runner on a contract violation. Codex progress inspection and
-  user-facing reporting remain limited to the user-selected two-hour interval;
-  they do not replace the local safety guard.
+- [ ] RAM and swap are observational only. No task RAM budget, available-memory
+  reserve, RAM admission predicate, RSS termination condition, or swap-growth
+  termination condition remains. A token-free local guard samples runner
+  liveness, VAL mount generation, task-tree RSS, and swap at approximately
+  one-second intervals; only loss or replacement of the guarded VAL mount, or
+  loss of trustworthy mount-continuity evidence, may stop the writer. Codex
+  progress inspection and user-facing reporting remain limited to the
+  user-selected two-hour interval.
 - [ ] Voxel/fiber thresholds include exact tau and Coverage values, and overlap
   includes the exact selected reference tau; support-QC uses its documented
   strict direction and pPAM uses `p(A) > 0.5`. Every reopened boundary fixture

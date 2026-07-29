@@ -11,6 +11,9 @@ subjects:
 dwi:
   distortion_correction: synb0
   phase_encoding_vector: [0, 1, 0]
+  b0_reference:
+    strategy: mean
+    threshold: 10
   total_readout_time:
     strategy: json_then_fallback
     seconds: 0.05

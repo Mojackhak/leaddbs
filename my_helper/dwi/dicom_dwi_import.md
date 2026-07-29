@@ -173,9 +173,31 @@ Supported values:
 
 - `row_major_right_to_left`: default; read each tile row from right to left.
 - `row_major_left_to_right`: read each tile row from left to right.
+- `bottom_to_top_left_to_right`: read rows from the bottom of the dcm2niix
+  mosaic array to the top and read each row from left to right.
 
 This option does not affect normal multi-slice DWI conversion. Review mosaic
 orientation before downstream preprocessing if a non-default value is needed.
+
+### `SliceCount`
+
+Optional positive scalar that overrides the DICOM- or reference-derived slice
+count during mosaic reconstruction. Use this only when the acquisition slice
+count has been independently verified. The requested count must not exceed the
+number of tile slots.
+
+Default: empty, using the inferred slice count.
+
+### `SkipPaddingTiles`
+
+Optional logical flag used only for mosaic reconstruction. When enabled, the
+converter examines every tile across every DWI volume, treats a tile as
+padding only when all of its values are zero, and requires the number of
+non-padding tiles to equal `SliceCount` exactly. The selected and excluded
+one-based `[row, column]` tile coordinates are recorded in reconstruction QC
+metadata.
+
+Default: `false` for backward compatibility.
 
 ### `Parallel`
 
@@ -238,6 +260,8 @@ result = mh_fiber_convert_dicom_dwi_to_leaddbs( ...
     'WorkDir', '', ...
     'ReferenceNifti', '', ...
     'TileOrder', 'row_major_right_to_left', ...
+    'SliceCount', [], ...
+    'SkipPaddingTiles', false, ...
     'Parallel', false, ...
     'ParallelWorkers', 4, ...
     'Force', false, ...

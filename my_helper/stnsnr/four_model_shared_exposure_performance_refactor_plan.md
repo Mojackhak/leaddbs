@@ -12,6 +12,8 @@
 > **Historical implementation plan.**
 > `my_helper/stnsnr/four_model_yaml_core_refactor_implementation_plan.md`
 > **Scientific specifications.** `my_helper/stnsnr/model_summaries/`
+> **Canonical output contract.**
+> `my_helper/stnsnr/dual_frequency_output_contract.md`
 > **Current branch.** `stnvop`
 > **Status.** `design_documented`; `code_audit_complete`;
 > `literature_review_complete`; `threshold_policy_change_authorized`;
@@ -20,8 +22,11 @@
 > `corrected_production_main_completed`;
 > `canonical_publication_and_postprocess_accepted`;
 > `configured_production_outputs_published`;
-> `sensitivity_extensions_deferred_by_user`.
-> **Last updated.** 2026-07-19
+> `omega_only_oss_active`;
+> `minimal_path_resume_implemented`;
+> `ram_controls_removed`;
+> `production_acceptance_in_progress`.
+> **Last updated.** 2026-07-26
 
 ---
 
@@ -33,6 +38,24 @@ reopened threshold-comparator statements where they conflict with the rules
 below. Except for that comparator, it does not change the source resolver,
 prediction classifier, branch-role state machine, final-model realization, or
 inferential definitions.
+
+`dual_frequency_output_contract.md` is authoritative for canonical result
+paths, integrated visualization placement, model-local reporting files,
+runtime/cache paths, completion markers, and the removal of redundant indexes.
+Historical layout and hashing text in this document is implementation history
+where it conflicts with that contract.
+
+Decisions 43, 44, 45, and 46 in `task17_design_decisions.md` supersede
+historical paired final-axis OSS production, hash-gated task restoration,
+sensitivity-checkpoint hash and artifact preflights, and RAM-control sections
+retained later in this document as execution history. The current runtime
+produces or restores only one `Omega_max` OSS row per physical condition,
+restores a task solely from its deterministic task-state path plus task-local
+`complete.json`, performs no parent-payload existence or hash gate before
+completed child restoration, and treats RAM and swap as observational
+telemetry. No task RAM budget, available-memory reserve, RAM admission
+predicate, task-tree RSS termination, or swap-growth termination is part of the
+current contract.
 
 The user's 2026-07-17 correction reopens three scientific boundaries.
 Direct-voxel and normative-fiber E-field values below tau are inactive and all
@@ -1346,10 +1369,10 @@ may still perform the validation needed when a new task actually consumes a
 payload, but that validation is not a run-opening or completed-task restoration
 gate.
 
-After worker-count invariance is proven, CPU, memory, I/O, solver, and scratch
-limits are execution provenance rather than scientific identity. A resume may
-lower `execution.workers` or memory admission without changing the run's
-scientific compatibility. Every execution segment records the effective
+After worker-count invariance is proven, CPU, I/O, solver, and scratch limits
+are execution provenance rather than scientific identity. A resume may lower
+`execution.workers` or an I/O/solver concurrency limit without changing the
+run's scientific compatibility. Every execution segment records the effective
 resource settings used.
 
 The resource-only override whitelist is exactly:
@@ -1357,7 +1380,7 @@ The resource-only override whitelist is exactly:
 ```text
 execution.workers
 CPU/BLAS/solver stage caps within that global ceiling
-managed memory and connectome-I/O admission limits
+connectome-I/O admission limits
 external solver instance limit
 heartbeat/timeout values
 storage.scratch_root
@@ -1389,9 +1412,11 @@ invalidates only incomplete scratch-dependent work and deterministically rebuild
 required fold/interpolation workspaces from durable artifacts before admitting
 downstream tasks. Resume-with-new-scratch-root is an acceptance test.
 
-### Memory-aware admission
+### Historical memory-aware admission
 
-The scheduler combines the global worker ceiling with task memory estimates.
+The following section records the superseded admission design and is not a
+current implementation or acceptance requirement. The scheduler formerly
+combined the global worker ceiling with task memory estimates.
 Admission requires `projected_available_after_admission > required_reserve`,
 reduces swap risk, and avoids allocating one full endpoint-specific fiber memmap
 per worker. Shared matrices are read-only memmaps; endpoint inputs are indexed
@@ -1889,7 +1914,7 @@ behavioral contracts above must remain intact.
   shared pass.
 - For a `workers=12` run, `effective_cores = aggregate process CPU time / wall
   time`. Eligible five-second windows have `runnable_cpu_slots > 5` and no
-  measured memory/I/O/solver admission block; require
+  measured I/O/solver admission block; require
   `fraction(effective_cores > 6 among eligible windows) > 0.80`.
   Storage-limited windows are classified from measured throughput/I/O wait
   rather than silently excluded.
@@ -1918,8 +1943,8 @@ behavioral contracts above must remain intact.
   worker idle fraction, and cancellation/timeout/retry counts are included in
   acceptance evidence.
 - No test passes solely because more RAM was allocated. macOS acceptance
-  requires `swap_delta_bytes < 1`; pre-existing system swap is recorded but is
-  not misreported as swap created by the run.
+  records `swap_delta_bytes` as descriptive telemetry only; pre-existing
+  system swap is recorded but is not misreported as swap created by the run.
 
 ### Benchmark matrix and configuration decision
 
@@ -2780,7 +2805,7 @@ the parent process alone owns scheduler and RunStore mutation
 large producers write final-format payloads or shards once and endpoints consume logical indexed views
 endpoint statistical results remain independent
 jitter schedules and jittered physical exposure are prepared before scale analysis
-OSS/pPAM uses formal-connectome Omega_max only for classes covered by final-axis equivalence decisions
+OSS/pPAM produces or restores formal-connectome Omega_max rows once per physical condition and selects endpoint final axes by canonical fiber ID
 parallel blocks preserve existing RNG schedules and never use worker identity
 endpoint jitter and OSS statistics select subsets and remain outcome-dependent
 ```

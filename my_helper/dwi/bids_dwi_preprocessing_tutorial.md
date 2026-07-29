@@ -76,6 +76,9 @@ subjects:
 dwi:
   distortion_correction: synb0
   phase_encoding_vector: [0, 1, 0]
+  b0_reference:
+    strategy: mean
+    threshold: 10
   total_readout_time:
     strategy: json_then_fallback
     seconds: 0.05
@@ -148,12 +151,23 @@ subjects:
 - `dwi.distortion_correction`: `synb0` or `none`.
 - `dwi.phase_encoding_vector`: three-element signed unit vector with exactly one
   nonzero axis, for example `[0, 1, 0]` or `[0, -1, 0]`.
+- `dwi.b0_reference.strategy`: `mean` preserves the compatibility behavior;
+  `last` selects the final volume satisfying the configured b0 threshold and
+  moves it to the first eddy input position.
+- `dwi.b0_reference.threshold`: positive b-value threshold used to identify b0
+  volumes; the default is `10`.
 - `dwi.total_readout_time.strategy`: `json_then_fallback` or `fixed`.
 - `dwi.total_readout_time.seconds`: positive readout time in seconds.
 
 With `json_then_fallback`, the workflow uses a valid `TotalReadoutTime` from the
 DWI JSON and otherwise uses `seconds` as the fallback. With `fixed`, it always
 uses the configured value.
+
+With `last`, DWI volumes, b-values, and b-vectors are reordered together for
+eddy. Corrected DWI volumes and rotated b-vectors are restored to source order
+after eddy, and the formal corrected b0 is extracted from the selected source
+volume rather than averaging all corrected b0 volumes. The reversible mapping
+and selected-reference hash are stored in the run provenance.
 
 Phase-encoding direction and readout time are acquisition-specific. Do not copy
 them from another project without checking the DICOM or scanner metadata.

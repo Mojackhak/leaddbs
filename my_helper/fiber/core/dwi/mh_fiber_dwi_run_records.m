@@ -167,6 +167,9 @@ fprintf(fid, 'dwi:\n');
 fprintf(fid, '  distortion_correction: %s\n', config.dwi.distortion_correction);
 fprintf(fid, '  phase_encoding_vector: [%g, %g, %g]\n', ...
     config.dwi.phase_encoding_vector);
+fprintf(fid, '  b0_reference:\n');
+fprintf(fid, '    strategy: %s\n', config.dwi.b0_reference.strategy);
+fprintf(fid, '    threshold: %.12g\n', config.dwi.b0_reference.threshold);
 fprintf(fid, '  total_readout_time:\n');
 fprintf(fid, '    strategy: %s\n', config.dwi.total_readout_time.strategy);
 fprintf(fid, '    seconds: %.12g\n\n', config.dwi.total_readout_time.seconds);

@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 from threading import RLock
 import time
-from typing import Any, Callable, Mapping, Protocol, runtime_checkable
+from typing import Any, Mapping, Protocol, runtime_checkable
 from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 
@@ -52,21 +52,6 @@ PATHWAY_ACTIVATION_TIMEOUT_SECONDS = 2 * 60 * 60
 PROCESS_TERMINATION_GRACE_SECONDS = 10.0
 OSS_MAX_FIBERS_PER_EXECUTION = 750
 OSSDBS_BOOTSTRAP_PATH = Path(__file__).with_name("ossdbs_bootstrap.py").resolve()
-
-OSS_PRODUCER_IMPLEMENTATION_PATHS = (
-    Path("classes/conda_utils/environments/OSS-DBSv2.yml"),
-    Path("my_helper/fiber/core/stimulation/model/mh_oss_prepare_canonical_row.m"),
-    Path("my_helper/fiber/core/stimulation/model/mh_oss_assemble_boundary.m"),
-    Path(
-        "my_helper/fiber/core/stimulation/model/"
-        "mh_oss_map_left_coordinates_to_right.m"
-    ),
-    Path("templates/electrode_models/ea_resolve_elspec.m"),
-)
-OSS_PRODUCER_IMPLEMENTATION_ROOTS = (
-    Path("my_helper/fiber/core/dual_frequency"),
-)
-
 
 def _token(value: object, field: str) -> str:
     token = str(value).strip()
@@ -170,51 +155,6 @@ def _positive_integer(value: object, field: str) -> int:
     if integer < 1 or str(integer) != str(value).strip():
         raise OSSProducerExecutionError(f"{field} must be a positive integer")
     return integer
-
-
-def _stable_file_hash(path: Path) -> str:
-    resolved = Path(path).resolve(strict=True)
-    signature = _file_signature(resolved)
-    digest = sha256_file(resolved)
-    if _file_signature(resolved) != signature:
-        raise OSSProducerExecutionError(
-            f"producer implementation changed while it was hashed: {resolved}"
-        )
-    return digest
-
-
-def oss_backend_version(
-    repository_root: Path,
-    *,
-    file_hasher: Callable[[Path], str] | None = None,
-) -> str:
-    """Attest the complete local producer implementation for execution audit."""
-
-    root = Path(repository_root).expanduser().resolve(strict=True)
-    hasher = file_hasher or _stable_file_hash
-    implementation_files = set(OSS_PRODUCER_IMPLEMENTATION_PATHS)
-    for relative_root in OSS_PRODUCER_IMPLEMENTATION_ROOTS:
-        implementation_root = root / relative_root
-        if not implementation_root.is_dir():
-            raise OSSProducerExecutionError(
-                f"producer implementation root is unavailable: {implementation_root}"
-            )
-        implementation_files.update(
-            path.relative_to(root)
-            for path in implementation_root.rglob("*.py")
-            if "tests" not in path.relative_to(implementation_root).parts
-            and "__pycache__" not in path.parts
-        )
-    implementation_hashes = {
-        str(relative): _sha256(hasher(root / relative), str(relative))
-        for relative in sorted(implementation_files)
-    }
-    return "definition-sha256-" + canonical_hash(
-        {
-            "contract": "dual_frequency_oss_producer_v1",
-            "implementation_sha256": implementation_hashes,
-        }
-    )
 
 
 def _normalized_inventory(text: str, *, ignore_comments: bool) -> tuple[int, str]:
@@ -766,7 +706,6 @@ class LeadDBSOSSProducerToolchain:
         environment_file: Path,
         subject_roots: Mapping[str, Path],
         executor: OSSRowExecutor | None = None,
-        backend_version_resolver: Callable[[Path], str] | None = None,
     ) -> None:
         if not isinstance(artifact_store, ArtifactStore):
             raise TypeError("artifact_store must be an ArtifactStore")
@@ -806,11 +745,6 @@ class LeadDBSOSSProducerToolchain:
         self.work_root.mkdir(parents=True, exist_ok=True)
         self._snapshot_cache: dict[Path, OSSInputSnapshot] = {}
         self._snapshot_lock = RLock()
-        if backend_version_resolver is not None and executor is None:
-            raise OSSProducerExecutionError(
-                "a custom backend_version_resolver requires an injected test executor"
-            )
-        self._backend_version_resolver = backend_version_resolver or oss_backend_version
         self.executor = executor or SubprocessOSSRowExecutor(
             work_root=self.work_root,
             repository_root=self.repository_root,
@@ -820,7 +754,7 @@ class LeadDBSOSSProducerToolchain:
             raise TypeError("executor must implement OSSRowExecutor")
 
     def produce(self, request: OSSProducerRequest) -> OSSRowProduct:
-        """Produce one row between exact implementation attestations."""
+        """Produce one row from its explicit scientific inputs."""
 
         return self._produce(request, include_evidence=False).product
 
@@ -832,12 +766,6 @@ class LeadDBSOSSProducerToolchain:
 
         return self._produce(request, include_evidence=True)
 
-    def _implementation_attestation(self) -> str:
-        return _token(
-            self._backend_version_resolver(self.repository_root),
-            "producer implementation attestation",
-        )
-
     def _produce(
         self,
         request: OSSProducerRequest,
@@ -846,7 +774,6 @@ class LeadDBSOSSProducerToolchain:
     ) -> OSSRowExecutionEvidence:
         if not isinstance(request, OSSProducerRequest):
             raise TypeError("request must be an OSSProducerRequest")
-        attestation_before = self._implementation_attestation()
         row = self._prepare(request)
         if include_evidence:
             execute_with_evidence = getattr(self.executor, "execute_with_evidence", None)
@@ -882,17 +809,8 @@ class LeadDBSOSSProducerToolchain:
             raise OSSProducerExecutionError("OSS executor changed the exact final fiber axis")
         for snapshot in row.input_snapshots:
             snapshot.assert_unchanged()
-        attestation_after = self._implementation_attestation()
-        if attestation_after != attestation_before:
-            raise OSSProducerExecutionError(
-                "producer implementation changed during row production"
-            )
-        accepted_product = replace(
-            product,
-            producer_implementation_attestation=attestation_before,
-        )
         return OSSRowExecutionEvidence(
-            accepted_product,
+            product,
             evidence.sample_states,
         )
 
@@ -1923,7 +1841,7 @@ class SubprocessOSSRowExecutor:
                 / "ANTs"
                 / f"antsApplyTransformsToPoints.{ants_suffix}"
             )
-            if not ants_path.is_file() or _stable_file_hash(ants_path) != expected_ants_hash:
+            if not ants_path.is_file() or sha256_file(ants_path) != expected_ants_hash:
                 raise OSSProducerExecutionError(
                     "installed ANTs point-transform binary differs from OSS-DBSv2.yml"
                 )

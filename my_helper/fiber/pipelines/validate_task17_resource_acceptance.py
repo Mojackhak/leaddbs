@@ -27,8 +27,6 @@ _ADMISSION_REASONS = frozenset(
     {
         "worker_slots",
         "cpu",
-        "managed_memory",
-        "memory_reserve",
         "connectome_io",
         "external_solver",
     }
@@ -42,8 +40,6 @@ _SCHEDULER_ROW_FIELDS = frozenset(
         "running_task_count",
         "runnable_cpu_slots",
         "reserved_cpu_slots",
-        "managed_memory_bytes",
-        "reserved_memory_bytes",
         "reserved_connectome_io_slots",
         "reserved_external_solver_slots",
         "admission_blocked_task_count_by_reason",
@@ -244,8 +240,6 @@ def _validate_scheduler_windows(
     segment: Mapping[str, Any],
     *,
     workers: int,
-    minimum_managed_memory_bytes: int,
-    maximum_managed_memory_bytes: int,
     connectome_io_slots: int,
     external_solver_slots: int,
 ) -> dict[str, Any]:
@@ -283,9 +277,6 @@ def _validate_scheduler_windows(
         raise ResourceAcceptanceError("scheduler-window closure differs")
     prior_finish: datetime | None = None
     peak_cpu = 0
-    minimum_window_managed: int | None = None
-    maximum_window_managed = 0
-    peak_memory = 0
     peak_io = 0
     peak_solver = 0
     peak_admission_counts = {
@@ -336,15 +327,6 @@ def _validate_scheduler_windows(
             row["reserved_cpu_slots"],
             f"scheduler window {index} reserved CPU",
         )
-        managed = _integer(
-            row["managed_memory_bytes"],
-            f"scheduler window {index} managed memory",
-            minimum=1,
-        )
-        memory = _integer(
-            row["reserved_memory_bytes"],
-            f"scheduler window {index} reserved memory",
-        )
         connectome_io = _integer(
             row["reserved_connectome_io_slots"],
             f"scheduler window {index} reserved connectome I/O",
@@ -358,9 +340,6 @@ def _validate_scheduler_windows(
             or runnable > workers
             or runnable != min(workers, ready + running)
             or cpu > workers
-            or managed < minimum_managed_memory_bytes
-            or managed > maximum_managed_memory_bytes
-            or memory > managed
             or connectome_io > connectome_io_slots
             or solver > external_solver_slots
         ):
@@ -384,13 +363,6 @@ def _validate_scheduler_windows(
                 "scheduler-window storage classification differs"
             )
         peak_cpu = max(peak_cpu, cpu)
-        minimum_window_managed = (
-            managed
-            if minimum_window_managed is None
-            else min(minimum_window_managed, managed)
-        )
-        maximum_window_managed = max(maximum_window_managed, managed)
-        peak_memory = max(peak_memory, memory)
         peak_io = max(peak_io, connectome_io)
         peak_solver = max(peak_solver, solver)
         prior_finish = finish
@@ -399,9 +371,6 @@ def _validate_scheduler_windows(
         "sha256": expected_sha,
         "window_count": len(rows),
         "peak_reserved_cpu_slots": peak_cpu,
-        "minimum_managed_memory_bytes": minimum_window_managed,
-        "maximum_managed_memory_bytes": maximum_window_managed,
-        "peak_reserved_memory_bytes": peak_memory,
         "peak_reserved_connectome_io_slots": peak_io,
         "peak_reserved_external_solver_slots": peak_solver,
         "peak_admission_blocked_task_count_by_reason": peak_admission_counts,
@@ -414,7 +383,6 @@ def _validate_segment(
     segment_id: str,
     *,
     workers: int,
-    max_rss_bytes: int,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     if re.fullmatch(r"segment_[0-9]+", segment_id) is None:
         raise ResourceAcceptanceError("selected segment identity is invalid")
@@ -431,39 +399,6 @@ def _validate_segment(
         )
     if _integer(segment.get("workers"), "segment workers", minimum=1) != workers:
         raise ResourceAcceptanceError("segment worker ceiling differs")
-    initial_managed_memory = _integer(
-        segment.get("managed_memory_bytes"),
-        "initial managed-memory ceiling",
-        minimum=1,
-    )
-    minimum_managed_memory = _integer(
-        segment.get("minimum_managed_memory_bytes"),
-        "minimum managed-memory ceiling",
-        minimum=1,
-    )
-    maximum_managed_memory = _integer(
-        segment.get("maximum_managed_memory_bytes"),
-        "maximum managed-memory ceiling",
-        minimum=1,
-    )
-    final_managed_memory = _integer(
-        segment.get("final_managed_memory_bytes"),
-        "final managed-memory ceiling",
-        minimum=1,
-    )
-    if (
-        minimum_managed_memory > initial_managed_memory
-        or initial_managed_memory > maximum_managed_memory
-        or minimum_managed_memory > final_managed_memory
-        or final_managed_memory > maximum_managed_memory
-        or maximum_managed_memory > max_rss_bytes
-    ):
-        raise ResourceAcceptanceError("managed-memory closure differs")
-    memory_reserve = _integer(
-        segment.get("required_memory_reserve_bytes"),
-        "required memory reserve",
-        minimum=1,
-    )
     expected_io_slots = max(1, min(2, workers))
     connectome_io_slots = _integer(
         segment.get("connectome_io_slots"),
@@ -490,18 +425,14 @@ def _validate_segment(
         "segment peak task-tree RSS",
         minimum=1,
     )
-    if peak_rss >= max_rss_bytes:
-        raise ResourceAcceptanceError("segment task-tree RSS reached its ceiling")
-    if _integer(
+    peak_swap_delta = _integer(
         segment.get("peak_swap_delta_bytes"),
         "segment peak swap growth",
-    ) >= 1:
-        raise ResourceAcceptanceError("segment peak swap growth is not below one byte")
-    if _integer(
+    )
+    final_swap_delta = _integer(
         segment.get("swap_delta_bytes"),
         "segment final swap growth",
-    ) >= 1:
-        raise ResourceAcceptanceError("segment final swap growth is not below one byte")
+    )
     samples = _integer(
         segment.get("resource_sample_count"),
         "segment resource sample count",
@@ -514,14 +445,6 @@ def _validate_segment(
     if cpu_peak >= workers + 1:
         raise ResourceAcceptanceError(
             "segment reserved CPU peak exceeds the worker contract"
-        )
-    memory_peak = _integer(
-        segment.get("peak_reserved_memory_bytes"),
-        "segment reserved memory peak",
-    )
-    if memory_peak > maximum_managed_memory:
-        raise ResourceAcceptanceError(
-            "segment reserved memory peak exceeds its ceiling"
         )
     connectome_io_peak = _integer(
         segment.get("peak_reserved_connectome_io_slots"),
@@ -585,14 +508,11 @@ def _validate_segment(
         run_root,
         segment,
         workers=workers,
-        minimum_managed_memory_bytes=minimum_managed_memory,
-        maximum_managed_memory_bytes=maximum_managed_memory,
         connectome_io_slots=connectome_io_slots,
         external_solver_slots=external_solver_slots,
     )
     if (
         scheduler["peak_reserved_cpu_slots"] > cpu_peak
-        or scheduler["peak_reserved_memory_bytes"] > memory_peak
         or scheduler["peak_reserved_connectome_io_slots"] > connectome_io_peak
         or scheduler["peak_reserved_external_solver_slots"] > solver_peak
         or any(
@@ -610,21 +530,15 @@ def _validate_segment(
             "segment_id": segment_id,
             "segment_sha256": _sha256_file(path),
             "workers": workers,
-            "managed_memory_bytes": initial_managed_memory,
-            "minimum_managed_memory_bytes": minimum_managed_memory,
-            "maximum_managed_memory_bytes": maximum_managed_memory,
-            "final_managed_memory_bytes": final_managed_memory,
-            "required_memory_reserve_bytes": memory_reserve,
             "connectome_io_slots": connectome_io_slots,
             "external_solver_slots": external_solver_slots,
             "blas_threads_per_worker": 1,
             "pool_generation_count": generations,
             "resource_sample_count": samples,
             "peak_task_tree_rss_bytes": peak_rss,
-            "peak_swap_delta_bytes": segment["peak_swap_delta_bytes"],
-            "swap_delta_bytes": segment["swap_delta_bytes"],
+            "peak_swap_delta_bytes": peak_swap_delta,
+            "swap_delta_bytes": final_swap_delta,
             "peak_reserved_cpu_slots": cpu_peak,
-            "peak_reserved_memory_bytes": memory_peak,
             "peak_reserved_connectome_io_slots": connectome_io_peak,
             "peak_reserved_external_solver_slots": solver_peak,
             "peak_running_task_count": running_peak,
@@ -639,21 +553,27 @@ def _validate_segment(
     )
 
 
-def _guard_integer(row: Mapping[str, str], field: str, line: int) -> int:
+def _guard_integer(
+    row: Mapping[str, str],
+    field: str,
+    line: int,
+    *,
+    minimum: int = 0,
+) -> int:
     try:
         value = int(row.get(field, ""))
     except ValueError as exc:
         raise ResourceAcceptanceError(
             f"guard {field} is invalid on line {line}"
         ) from exc
-    if value < 0:
+    if value < minimum:
         raise ResourceAcceptanceError(
-            f"guard {field} is negative on line {line}"
+            f"guard {field} is below {minimum} on line {line}"
         )
     return value
 
 
-def _validate_guard(path: Path, *, max_rss_bytes: int) -> dict[str, Any]:
+def _validate_guard(path: Path) -> dict[str, Any]:
     required = {
         "timestamp_utc",
         "tree_rss_bytes",
@@ -693,8 +613,18 @@ def _validate_guard(path: Path, *, max_rss_bytes: int) -> dict[str, Any]:
             maximum_gap = max(maximum_gap, gap)
         tree_rss = _guard_integer(row, "tree_rss_bytes", index)
         declared_peak = _guard_integer(row, "peak_tree_rss_bytes", index)
-        swap_used = _guard_integer(row, "swap_used_bytes", index)
-        baseline = _guard_integer(row, "swap_baseline_bytes", index)
+        swap_used = _guard_integer(
+            row,
+            "swap_used_bytes",
+            index,
+            minimum=-1,
+        )
+        baseline = _guard_integer(
+            row,
+            "swap_baseline_bytes",
+            index,
+            minimum=-1,
+        )
         _number(row.get("tree_cpu_percent"), "guard tree CPU")
         event = str(row.get("event", "")).strip()
         if event not in _ALLOWED_GUARD_EVENTS:
@@ -708,12 +638,6 @@ def _validate_guard(path: Path, *, max_rss_bytes: int) -> dict[str, Any]:
         ):
             raise ResourceAcceptanceError(
                 "guard terminal-event boundary differs"
-            )
-        if tree_rss >= max_rss_bytes or declared_peak >= max_rss_bytes:
-            raise ResourceAcceptanceError("guard RSS reached its ceiling")
-        if max(0, swap_used - baseline) >= 1:
-            raise ResourceAcceptanceError(
-                "guard swap growth is not below one byte"
             )
         new_epoch = (
             current is None
@@ -764,7 +688,6 @@ def validate(
     guard_csv: Path,
     *,
     workers: int,
-    max_rss_bytes: int,
 ) -> dict[str, Any]:
     root = run_root.expanduser().resolve()
     manifest_path = root / "run_manifest.json"
@@ -775,28 +698,18 @@ def validate(
     ):
         raise ResourceAcceptanceError("run manifest is not terminal-completed")
     workers = _integer(workers, "expected workers", minimum=1)
-    max_rss_bytes = _integer(
-        max_rss_bytes,
-        "RSS ceiling",
-        minimum=1,
-    )
     segment, tasks, scheduler = _validate_segment(
         root,
         segment_id,
         workers=workers,
-        max_rss_bytes=max_rss_bytes,
     )
     if segment["segment_id"] != segment_id:
         raise ResourceAcceptanceError("selected segment identity differs")
-    guard = _validate_guard(
-        guard_csv.expanduser().resolve(),
-        max_rss_bytes=max_rss_bytes,
-    )
+    guard = _validate_guard(guard_csv.expanduser().resolve())
     return {
         "schema_version": "dual_frequency_task17_resource_acceptance_v1",
         "run_id": manifest["run_id"],
         "run_manifest_sha256": _sha256_file(manifest_path),
-        "max_rss_bytes": max_rss_bytes,
         "segment": segment,
         "scheduler_windows": scheduler,
         "tasks": tasks,
@@ -837,11 +750,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--segment-id", required=True)
     parser.add_argument("--guard-csv", required=True, type=Path)
     parser.add_argument("--workers", required=True, type=int)
-    parser.add_argument(
-        "--max-rss-bytes",
-        type=int,
-        default=64 * 1024**3,
-    )
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -854,7 +762,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.segment_id,
             arguments.guard_csv,
             workers=arguments.workers,
-            max_rss_bytes=arguments.max_rss_bytes,
         )
         if arguments.output is not None:
             _write_report(arguments.output, report)

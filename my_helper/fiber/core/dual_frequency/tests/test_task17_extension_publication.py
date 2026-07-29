@@ -60,6 +60,7 @@ class Task17ExtensionPublicationTest(unittest.TestCase):
             "selected_sensitivity_analyses": ["jitter"],
         }
         _write_json(self.source / "run_manifest.json", source_manifest)
+        _write_json(self.source / "complete.json", {})
         _write_json(
             self.source / "base_run_reference.json",
             {
@@ -235,6 +236,14 @@ class Task17ExtensionPublicationTest(unittest.TestCase):
         with self.assertRaisesRegex(
             validator.ExtensionPublicationError,
             "extension and source child identities differ",
+        ):
+            validator.validate(self.source, (self.extension,))
+
+    def test_missing_source_completion_marker_fails(self) -> None:
+        (self.source / "complete.json").unlink()
+        with self.assertRaisesRegex(
+            validator.ExtensionPublicationError,
+            "source child completion marker is missing",
         ):
             validator.validate(self.source, (self.extension,))
 

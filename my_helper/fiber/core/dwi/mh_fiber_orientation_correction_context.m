@@ -5,7 +5,7 @@ if nargin < 1 || isempty(metadata)
     metadata = struct();
 end
 transformName = validatestring(char(string(transformName)), ...
-    {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
+    {'identity', 'flipY', 'flipZ', 'rotX180', 'rotZ180'}, ...
     'mh_fiber_orientation_correction_context', 'transformName');
 
 incrementalMatrix = mh_fiber_orientation_transform_matrix(transformName);
@@ -42,7 +42,7 @@ context.NetTransform = matrix_to_transform_name(netMatrix);
 end
 
 function transformName = matrix_to_transform_name(matrix)
-names = {'identity', 'flipY', 'flipZ', 'rotX180'};
+names = {'identity', 'flipY', 'flipZ', 'rotX180', 'rotZ180'};
 for i = 1:numel(names)
     candidate = mh_fiber_orientation_transform_matrix(names{i});
     if isequal(round(matrix), candidate)

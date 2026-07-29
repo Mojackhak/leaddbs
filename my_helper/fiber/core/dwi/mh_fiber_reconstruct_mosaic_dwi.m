@@ -15,6 +15,7 @@ parser.addParameter('TileSize', [], @(x) isempty(x) || (isnumeric(x) && numel(x)
 parser.addParameter('TileGrid', [], @(x) isempty(x) || (isnumeric(x) && numel(x) == 2));
 parser.addParameter('SliceCount', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x)));
 parser.addParameter('TileOrder', 'row_major_right_to_left', @(x) ischar(x) || isstring(x));
+parser.addParameter('SkipPaddingTiles', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
@@ -43,20 +44,20 @@ if sourceSize(3) ~= 1
 end
 
 paths = output_paths(opts.OutputDir, opts.OutputBase);
+mosaicData = niftiread(opts.SourceNifti);
+if ndims(mosaicData) < 4
+    mosaicData = reshape(mosaicData, size(mosaicData, 1), size(mosaicData, 2), size(mosaicData, 3), 1);
+end
+geometry = attach_tile_selection(geometry, mosaicData, opts.SkipPaddingTiles);
 result = base_result(opts, paths, geometry);
 if opts.DryRun
     result.Status = 'dry_run';
-    result.Message = 'Mosaic reconstruction geometry inferred; no files written.';
+    result.Message = 'Mosaic reconstruction geometry and tile selection validated; no files written.';
     return;
 end
 
 ensure_output_available(paths, opts.Force);
 mh_util_make_dir(opts.OutputDir);
-
-mosaicData = niftiread(opts.SourceNifti);
-if ndims(mosaicData) < 4
-    mosaicData = reshape(mosaicData, size(mosaicData, 1), size(mosaicData, 2), size(mosaicData, 3), 1);
-end
 
 reconstructed = reconstruct_all_volumes(mosaicData, geometry, opts.Parallel, opts.ParallelWorkers);
 write_reconstructed_nifti(reconstructed, sourceInfo, opts.ReferenceNifti, paths.Nifti, geometry);
@@ -82,8 +83,10 @@ for i = 1:numel(fields)
     opts.(fields{i}) = char(string(opts.(fields{i})));
 end
 opts.TileOrder = validatestring(char(string(opts.TileOrder)), ...
-    {'row_major_right_to_left', 'row_major_left_to_right'}, ...
+    {'row_major_right_to_left', 'row_major_left_to_right', ...
+    'bottom_to_top_left_to_right'}, ...
     'mh_fiber_reconstruct_mosaic_dwi', 'TileOrder');
+opts.SkipPaddingTiles = logical(opts.SkipPaddingTiles);
 opts.Parallel = logical(opts.Parallel);
 opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
 opts.Force = logical(opts.Force);
@@ -133,9 +136,13 @@ result.OutputBval = paths.Bval;
 result.OutputBvec = paths.Bvec;
 result.QcJson = paths.QcJson;
 result.GeometrySource = geometry.GeometrySource;
+result.SliceCountSource = geometry.SliceCountSource;
 result.TileSize = mat2str(geometry.TileSize);
 result.TileGrid = mat2str(geometry.TileGrid);
 result.TileOrder = geometry.TileOrder;
+result.SkipPaddingTiles = geometry.SkipPaddingTiles;
+result.SelectedTileCoordinatesRowColumn = geometry.SelectedTileCoordinatesRowColumn;
+result.ExcludedTileCoordinatesRowColumn = geometry.ExcludedTileCoordinatesRowColumn;
 result.SliceCount = geometry.SliceCount;
 result.VolumeCount = geometry.VolumeCount;
 result.OutputImageSize = mat2str(geometry.OutputImageSize);
@@ -429,25 +436,83 @@ else
 end
 end
 
-function volume = reconstruct_one_volume(frame, geometry)
-tileWidth = geometry.TileSize(1);
-tileHeight = geometry.TileSize(2);
-gridCols = geometry.TileGrid(1);
-sliceCount = geometry.SliceCount;
-volume = zeros(tileWidth, tileHeight, sliceCount, 'like', frame);
+function geometry = attach_tile_selection(geometry, mosaicData, skipPaddingTiles)
+coordinates = ordered_tile_coordinates(geometry);
+slotCount = size(coordinates, 1);
 
-for sliceIndex = 1:sliceCount
-    tileZero = sliceIndex - 1;
-    tileRow = floor(tileZero / gridCols);
+if skipPaddingTiles
+    isNonPadding = false(slotCount, 1);
+    for slotIndex = 1:slotCount
+        tile = extract_tile(mosaicData, geometry, coordinates(slotIndex, :));
+        isNonPadding(slotIndex) = any(tile(:) ~= 0);
+    end
+    detectedCount = sum(isNonPadding);
+    if detectedCount ~= geometry.SliceCount
+        error('mh_fiber_reconstruct_mosaic_dwi:PaddingTileCountMismatch', ...
+            ['Detected %d non-padding tiles, but SliceCount is %d. ', ...
+            'Padding detection requires exact agreement.'], ...
+            detectedCount, geometry.SliceCount);
+    end
+    selected = coordinates(isNonPadding, :);
+    excluded = coordinates(~isNonPadding, :);
+else
+    selected = coordinates(1:geometry.SliceCount, :);
+    excluded = coordinates((geometry.SliceCount + 1):end, :);
+end
+
+geometry.SkipPaddingTiles = logical(skipPaddingTiles);
+geometry.SelectedTileCoordinatesRowColumn = selected;
+geometry.ExcludedTileCoordinatesRowColumn = excluded;
+end
+
+function coordinates = ordered_tile_coordinates(geometry)
+gridCols = geometry.TileGrid(1);
+gridRows = geometry.TileGrid(2);
+slotCount = gridCols * gridRows;
+coordinates = zeros(slotCount, 2);
+
+for traversalIndex = 1:slotCount
+    tileZero = traversalIndex - 1;
+    traversalRow = floor(tileZero / gridCols);
+    traversalCol = mod(tileZero, gridCols);
     switch geometry.TileOrder
         case 'row_major_right_to_left'
-            tileCol = gridCols - 1 - mod(tileZero, gridCols);
+            tileRow = traversalRow;
+            tileCol = gridCols - 1 - traversalCol;
         case 'row_major_left_to_right'
-            tileCol = mod(tileZero, gridCols);
+            tileRow = traversalRow;
+            tileCol = traversalCol;
+        case 'bottom_to_top_left_to_right'
+            tileRow = gridRows - 1 - traversalRow;
+            tileCol = traversalCol;
         otherwise
             error('mh_fiber_reconstruct_mosaic_dwi:InvalidTileOrder', ...
                 'Unsupported TileOrder: %s', geometry.TileOrder);
     end
+    coordinates(traversalIndex, :) = [tileRow + 1, tileCol + 1];
+end
+end
+
+function tile = extract_tile(frame, geometry, rowColumn)
+tileWidth = geometry.TileSize(1);
+tileHeight = geometry.TileSize(2);
+tileRow = rowColumn(1) - 1;
+tileCol = rowColumn(2) - 1;
+xRange = (tileCol * tileWidth + 1):((tileCol + 1) * tileWidth);
+yRange = (tileRow * tileHeight + 1):((tileRow + 1) * tileHeight);
+tile = frame(xRange, yRange, :, :);
+end
+
+function volume = reconstruct_one_volume(frame, geometry)
+tileWidth = geometry.TileSize(1);
+tileHeight = geometry.TileSize(2);
+sliceCount = geometry.SliceCount;
+volume = zeros(tileWidth, tileHeight, sliceCount, 'like', frame);
+
+for sliceIndex = 1:sliceCount
+    rowColumn = geometry.SelectedTileCoordinatesRowColumn(sliceIndex, :);
+    tileRow = rowColumn(1) - 1;
+    tileCol = rowColumn(2) - 1;
     xRange = (tileCol * tileWidth + 1):((tileCol + 1) * tileWidth);
     yRange = (tileRow * tileHeight + 1):((tileRow + 1) * tileHeight);
     volume(:, :, sliceIndex) = frame(xRange, yRange);
@@ -531,9 +596,13 @@ metadata.MosaicReconstructionSourceJson = opts.SourceJson;
 metadata.MosaicReconstructionSourceBval = opts.SourceBval;
 metadata.MosaicReconstructionSourceBvec = opts.SourceBvec;
 metadata.MosaicGeometrySource = geometry.GeometrySource;
+metadata.MosaicSliceCountSource = geometry.SliceCountSource;
 metadata.MosaicTileSize = geometry.TileSize;
 metadata.MosaicTileGrid = geometry.TileGrid;
 metadata.MosaicTileOrder = geometry.TileOrder;
+metadata.MosaicSkipPaddingTiles = geometry.SkipPaddingTiles;
+metadata.MosaicSelectedTileCoordinatesRowColumn = geometry.SelectedTileCoordinatesRowColumn;
+metadata.MosaicExcludedTileCoordinatesRowColumn = geometry.ExcludedTileCoordinatesRowColumn;
 metadata.MosaicSliceCount = geometry.SliceCount;
 metadata.MosaicVolumeCount = geometry.VolumeCount;
 metadata.MosaicTileSlotCount = geometry.TileSlotCount;
@@ -576,11 +645,15 @@ qc.OutputJson = paths.Json;
 qc.OutputBval = paths.Bval;
 qc.OutputBvec = paths.Bvec;
 qc.GeometrySource = geometry.GeometrySource;
+qc.SliceCountSource = geometry.SliceCountSource;
 qc.SourceImageSize = geometry.SourceImageSize;
 qc.OutputImageSize = geometry.OutputImageSize;
 qc.TileSize = geometry.TileSize;
 qc.TileGrid = geometry.TileGrid;
 qc.TileOrder = geometry.TileOrder;
+qc.SkipPaddingTiles = geometry.SkipPaddingTiles;
+qc.SelectedTileCoordinatesRowColumn = geometry.SelectedTileCoordinatesRowColumn;
+qc.ExcludedTileCoordinatesRowColumn = geometry.ExcludedTileCoordinatesRowColumn;
 qc.SliceCount = geometry.SliceCount;
 qc.VolumeCount = geometry.VolumeCount;
 qc.TileSlotCount = geometry.TileSlotCount;

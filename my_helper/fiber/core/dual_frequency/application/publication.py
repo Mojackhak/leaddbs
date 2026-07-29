@@ -26,6 +26,7 @@ from ..contracts import (
     ActivationArtifact,
     ArtifactRef,
     BranchRecord,
+    DeltaReferenceBundle,
     EndpointInputRecord,
     FinalSelectionRecord,
     FormalResult,
@@ -36,11 +37,34 @@ from ..contracts import (
     SensitivityResult,
     SourceRecord,
 )
+from ..backends.nuisance import (
+    ADJUSTED_BRANCH,
+    NO_DELTA_BRANCH,
+    build_addon_nuisance_plan,
+)
+from ..backends.statistics import (
+    average_rank,
+    benefit_oriented_weights,
+    partial_spearman_weights_complete,
+    rank_columns,
+)
 from ..workflow import TaskOutcome
 
 
 class PublicationError(RuntimeError):
     """Raised when a completed run cannot be projected safely."""
+
+
+def _path_component(value: object, field: str) -> str:
+    token = str(value).strip()
+    if (
+        not token
+        or token in {".", ".."}
+        or "/" in token
+        or "\\" in token
+    ):
+        raise PublicationError(f"{field} must be a nonempty path-safe token")
+    return token
 
 
 @dataclass(frozen=True)
@@ -167,6 +191,32 @@ def _json_bytes(payload: Mapping[str, Any]) -> bytes:
     return (
         json.dumps(dict(payload), indent=2, sort_keys=True, allow_nan=False) + "\n"
     ).encode("utf-8")
+
+
+def _npy_bytes(values: np.ndarray) -> bytes:
+    stream = io.BytesIO()
+    np.save(stream, np.asarray(values), allow_pickle=False)
+    return stream.getvalue()
+
+
+def _indices_for_ids(parent_ids: np.ndarray, selected_ids: np.ndarray) -> np.ndarray:
+    parent = np.asarray(parent_ids, dtype=np.int64)
+    selected = np.asarray(selected_ids, dtype=np.int64)
+    if parent.ndim != 1 or selected.ndim != 1:
+        raise PublicationError("fiber-ID axes must be one-dimensional")
+    if np.unique(parent).size != parent.size:
+        raise PublicationError("parent fiber-ID axis contains duplicates")
+    if np.unique(selected).size != selected.size:
+        raise PublicationError("selected fiber-ID axis contains duplicates")
+    order = np.argsort(parent, kind="stable")
+    sorted_parent = parent[order]
+    positions = np.searchsorted(sorted_parent, selected)
+    valid = positions < sorted_parent.size
+    if np.any(valid):
+        valid[valid] &= sorted_parent[positions[valid]] == selected[valid]
+    if not np.all(valid):
+        raise PublicationError("selected fiber IDs are absent from the prepared axis")
+    return np.asarray(order[positions], dtype=np.int64)
 
 
 def _csv_bytes(rows: Iterable[Mapping[str, Any]], fields: Iterable[str]) -> bytes:
@@ -772,13 +822,10 @@ class CanonicalPublisher:
             if outcome.status == "completed" and outcome.result is not None
         }
         endpoint_keys = self._endpoint_keys(outcomes, records)
-        selected_extension_id = str(extension_id or manifest["run_id"]).strip()
-        if (
-            not selected_extension_id
-            or "/" in selected_extension_id
-            or "\\" in selected_extension_id
-        ):
-            raise PublicationError("extension_id must be a nonempty path-safe token")
+        selected_extension_id = _path_component(
+            extension_id or manifest["run_id"],
+            "extension_id",
+        )
         base_reference = self._json(root / "base_run_reference.json")
         parent_run_id = str(base_reference["base_run_id"])
         aggregate_rows = {
@@ -1088,15 +1135,10 @@ class CanonicalPublisher:
             if record is not None:
                 by_endpoint[outcome.endpoint_id].append(record)
 
-        selected_extension_id = str(
-            extension_id or f"{manifest['run_id']}-v2"
-        ).strip()
-        if (
-            not selected_extension_id
-            or "/" in selected_extension_id
-            or "\\" in selected_extension_id
-        ):
-            raise PublicationError("extension_id must be a nonempty path-safe token")
+        selected_extension_id = _path_component(
+            extension_id or f"{manifest['run_id']}-v2",
+            "extension_id",
+        )
         base_reference = self._json(root / "base_run_reference.json")
         parent_run_id = str(base_reference["base_run_id"])
         if str(aggregate.get("parent_run_id")) != parent_run_id:
@@ -1510,6 +1552,8 @@ class CanonicalPublisher:
         payload = CanonicalPublisher._json(root / "run_manifest.json")
         if payload.get("final_status") != "completed":
             raise PublicationError("canonical replay requires a completed run manifest")
+        if not (root / "complete.json").is_file():
+            raise PublicationError("canonical replay requires a run completion marker")
         return payload
 
     @staticmethod
@@ -2692,6 +2736,7 @@ class CanonicalPublisher:
                     connectome_roles,
                     str(resolved["scientific_configuration_hash"]),
                     study,
+                    str(scale_definitions[scale_id]["direction"]),
                     times,
                 )
             sensitive_statuses: list[str] = []
@@ -2762,6 +2807,7 @@ class CanonicalPublisher:
         connectome_roles: Mapping[str, str],
         scientific_configuration_hash: str,
         study: Mapping[str, Any],
+        scale_direction: str,
         times: tuple[str | None, str | None],
     ) -> None:
         endpoint = selection.endpoint
@@ -2860,6 +2906,18 @@ class CanonicalPublisher:
             writer, source, endpoint_input, resolver, context
         )
         resolver_paths.extend(score_paths)
+        resolver_paths.extend(
+            self._publish_fiber_target_inference_basis(
+                writer,
+                selection,
+                records,
+                source,
+                endpoint_input,
+                resolver,
+                context,
+                scale_direction,
+            )
+        )
         resolver_paths.append(
             self._publish_fiber_score_support(
                 writer,
@@ -3113,6 +3171,309 @@ class CanonicalPublisher:
             artifact_kind="stage_status",
             context={**context, "stage": "resolver"},
         )
+
+    def _publish_fiber_target_inference_basis(
+        self,
+        writer: _PublicationWriter,
+        selection: FinalSelectionRecord,
+        records: list[tuple[TaskOutcome, object]],
+        source: SourceRecord,
+        endpoint_input: EndpointInputRecord,
+        resolver: str,
+        context: Mapping[str, object],
+        scale_direction: str,
+    ) -> list[str]:
+        """Publish the exact patient-by-valid-fiber basis for target inference."""
+
+        if selection.final_model is None or endpoint_input.subject_axis is None:
+            raise PublicationError("target inference requires a realized final model")
+        prepared_records = tuple(
+            record
+            for _, record in records
+            if isinstance(record, PreparedExposureRecord)
+        )
+        if len(prepared_records) != 1:
+            raise PublicationError(
+                "target inference requires exactly one PreparedExposureRecord"
+            )
+        prepared = prepared_records[0]
+        artifacts = {item.kind: item for item in source.artifacts}
+        required = {
+            "normative_fiber_valid_union_ids",
+            "benefit_oriented_fiber_weights",
+        }
+        if not required.issubset(artifacts):
+            raise PublicationError(
+                "target inference source lacks the final fiber axis or weights"
+            )
+
+        parent_ids = np.asarray(
+            np.load(
+                self._artifact_path(prepared.feature_ids),
+                mmap_mode="r",
+                allow_pickle=False,
+            ),
+            dtype=np.int64,
+        )
+        valid_ids = np.asarray(
+            np.load(
+                self._artifact_path(artifacts["normative_fiber_valid_union_ids"]),
+                allow_pickle=False,
+            ),
+            dtype=np.int64,
+        )
+        parent_positions = _indices_for_ids(parent_ids, valid_ids)
+        parent_exposure = np.load(
+            self._artifact_path(prepared.exposure),
+            mmap_mode="r",
+            allow_pickle=False,
+        )
+        expected_shape = (
+            endpoint_input.subject_axis.count,
+            prepared.feature_axis.count,
+        )
+        if parent_exposure.shape != expected_shape:
+            raise PublicationError(
+                "prepared fiber exposure does not match its published axes"
+            )
+        valid_exposure = np.asarray(
+            parent_exposure[:, parent_positions],
+            dtype=np.float64,
+        )
+        if not np.all(np.isfinite(valid_exposure)):
+            raise PublicationError(
+                "target inference requires a common finite valid-fiber exposure matrix"
+            )
+
+        if endpoint_input.outcome is None or endpoint_input.baseline is None:
+            raise PublicationError("target inference requires outcome and baseline inputs")
+        outcome = np.asarray(
+            np.load(
+                self._artifact_path(endpoint_input.outcome),
+                allow_pickle=False,
+            ),
+            dtype=np.float64,
+        )
+        baseline = np.asarray(
+            np.load(
+                self._artifact_path(endpoint_input.baseline),
+                allow_pickle=False,
+            ),
+            dtype=np.float64,
+        )
+        subject_count = endpoint_input.subject_axis.count
+        if (
+            outcome.shape != (subject_count,)
+            or baseline.shape != (subject_count,)
+            or not np.all(np.isfinite(outcome))
+            or not np.all(np.isfinite(baseline))
+        ):
+            raise PublicationError(
+                "target inference outcome and baseline must be finite subject vectors"
+            )
+
+        role = str(context["model_family"])
+        branch = "reference" if role == "reference" else str(context["branch_id"])
+        if role == "reference":
+            nuisance_covariates = baseline[:, None]
+            nuisance_columns = ("baseline_outcome",)
+        elif branch == NO_DELTA_BRANCH:
+            nuisance_covariates = build_addon_nuisance_plan(
+                baseline,
+                NO_DELTA_BRANCH,
+            ).full_covariates
+            nuisance_columns = ("reference_outcome",)
+        elif branch == ADJUSTED_BRANCH:
+            delta_records = tuple(
+                record
+                for _, record in records
+                if isinstance(record, DeltaReferenceBundle) and record.valid
+            )
+            if len(delta_records) != 1:
+                raise PublicationError(
+                    "adjusted target inference requires one valid DeltaReferenceBundle"
+                )
+            delta = delta_records[0]
+            assert delta.full_scores is not None and delta.fold_scores is not None
+            nuisance_covariates = build_addon_nuisance_plan(
+                baseline,
+                ADJUSTED_BRANCH,
+                delta_full_scores=np.asarray(
+                    np.load(
+                        self._artifact_path(delta.full_scores),
+                        allow_pickle=False,
+                    ),
+                    dtype=np.float64,
+                ),
+                delta_fold_scores=np.asarray(
+                    np.load(
+                        self._artifact_path(delta.fold_scores),
+                        allow_pickle=False,
+                    ),
+                    dtype=np.float64,
+                ),
+            ).full_covariates
+            nuisance_columns = (
+                "reference_outcome",
+                "standardized_delta_reference_score",
+            )
+        else:
+            raise PublicationError(f"unsupported target-inference branch {branch!r}")
+
+        ranked_outcome = average_rank(outcome)
+        ranked_exposure = rank_columns(valid_exposure)
+        ranked_nuisance = rank_columns(nuisance_covariates)
+        ranked_design = np.column_stack(
+            [np.ones(subject_count, dtype=np.float64), ranked_nuisance]
+        )
+        design_rank = int(np.linalg.matrix_rank(ranked_design))
+        if design_rank != ranked_design.shape[1] or subject_count <= design_rank:
+            raise PublicationError(
+                "target inference ranked nuisance design is not estimable"
+            )
+
+        observed_weights = benefit_oriented_weights(
+            partial_spearman_weights_complete(
+                outcome,
+                valid_exposure,
+                nuisance_covariates,
+            ),
+            scale_direction,
+        )
+        published_weights = np.asarray(
+            np.load(
+                self._artifact_path(artifacts["benefit_oriented_fiber_weights"]),
+                allow_pickle=False,
+            ),
+            dtype=np.float64,
+        )
+        if published_weights.shape != observed_weights.shape:
+            raise PublicationError(
+                "target inference weights do not match the final valid-fiber axis"
+            )
+        difference = np.abs(observed_weights - published_weights)
+        finite_difference = difference[np.isfinite(difference)]
+        max_abs_difference = (
+            float(np.max(finite_difference)) if finite_difference.size else 0.0
+        )
+        if not np.array_equal(np.isfinite(observed_weights), np.isfinite(published_weights)):
+            raise PublicationError(
+                "target inference changes the finite observed fiber-weight support"
+            )
+        if not np.allclose(
+            observed_weights,
+            published_weights,
+            rtol=0.0,
+            atol=5e-7,
+            equal_nan=True,
+        ):
+            raise PublicationError(
+                "target inference observed weights do not reproduce full_weights.npy"
+            )
+
+        target_root = f"{resolver}/target_inference"
+        array_specs = (
+            (
+                "valid_fiber_exposure.npy",
+                valid_exposure,
+                "target_inference_valid_fiber_exposure",
+            ),
+            (
+                "ranked_valid_fiber_exposure.npy",
+                ranked_exposure,
+                "target_inference_ranked_valid_fiber_exposure",
+            ),
+            ("valid_fiber_ids.npy", valid_ids, "target_inference_valid_fiber_ids"),
+            ("outcome.npy", outcome, "target_inference_outcome"),
+            ("ranked_outcome.npy", ranked_outcome, "target_inference_ranked_outcome"),
+            (
+                "ranked_nuisance_design.npy",
+                ranked_design,
+                "target_inference_ranked_nuisance_design",
+            ),
+        )
+        paths: list[str] = []
+        for name, values, kind in array_specs:
+            relative = f"{target_root}/{name}"
+            writer.bytes(
+                relative,
+                _npy_bytes(np.asarray(values)),
+                artifact_kind=kind,
+                context={**context, "stage": "resolver"},
+            )
+            paths.append(relative)
+
+        subject_order_path = f"{target_root}/subject_order.csv"
+        writer.csv(
+            subject_order_path,
+            (
+                {"subject_index": index, "subject_id": subject_id}
+                for index, subject_id in enumerate(endpoint_input.included_subject_ids)
+            ),
+            ("subject_index", "subject_id"),
+            artifact_kind="target_inference_subject_order",
+            context={**context, "stage": "resolver"},
+        )
+        paths.append(subject_order_path)
+
+        exchangeability_path = f"{target_root}/exchangeability_blocks.csv"
+        writer.csv(
+            exchangeability_path,
+            (
+                {
+                    "subject_index": index,
+                    "subject_id": subject_id,
+                    "exchangeability_block": "all_subjects",
+                }
+                for index, subject_id in enumerate(endpoint_input.included_subject_ids)
+            ),
+            ("subject_index", "subject_id", "exchangeability_block"),
+            artifact_kind="target_inference_exchangeability_blocks",
+            context={**context, "stage": "resolver"},
+        )
+        paths.append(exchangeability_path)
+
+        manifest_path = f"{target_root}/inference_input.json"
+        hashes = {
+            Path(path).name: str(writer.rows[path]["sha256"])
+            for path in paths
+        }
+        writer.json(
+            manifest_path,
+            {
+                "schema_version": "conditional_signed_target_inference_input_v1",
+                "scale_id": selection.endpoint.scale_id,
+                "model_role": role,
+                "model_family": selection.endpoint.model_family,
+                "final_model_id": selection.final_model.identifier,
+                "final_branch": branch,
+                "selected_tau_v_per_m": source.selected_tau,
+                "selected_coverage_subjects_min": source.selected_coverage,
+                "benefit_direction": scale_direction,
+                "selection_scope": "conditional_on_published_final_model",
+                "rank_tie_method": "average",
+                "complete_case_rule": (
+                    "endpoint_subject_axis_with_complete_finite_valid_fiber_matrix"
+                ),
+                "nuisance_columns": list(nuisance_columns),
+                "nuisance_design_includes_intercept": True,
+                "nuisance_design_rank": design_rank,
+                "residual_degrees_of_freedom": subject_count - design_rank,
+                "subject_axis_sha256": endpoint_input.subject_axis.sha256,
+                "fiber_axis_sha256": source.feature_axis.axis.sha256,
+                "exchangeability_mode": "unrestricted_unique_subjects",
+                "observed_weight_max_abs_difference": max_abs_difference,
+                "observed_weight_parity_tolerance": 5e-7,
+                "artifact_sha256": hashes,
+                "source_selection_relative_path": f"{resolver}/source_selection.json",
+                "code_commit": None,
+                "code_commit_is_resume_gate": False,
+            },
+            artifact_kind="target_inference_input_manifest",
+            context={**context, "stage": "resolver"},
+        )
+        paths.append(manifest_path)
+        return paths
 
     def _publish_fiber_score_support(
         self,

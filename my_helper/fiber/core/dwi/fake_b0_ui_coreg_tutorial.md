@@ -428,6 +428,7 @@ identity
 flipY
 flipZ
 rotX180
+rotZ180
 ```
 
 The accepted formal correction must be chosen from QC. For example, `flipZ`
@@ -438,12 +439,23 @@ unchanged. The corresponding bvec update is:
 bvec_corrected = diag([1 1 -1]) * bvec_original
 ```
 
-The correction is a post-hoc image-content correction. It preserves the current
-NIfTI affine/header transform and changes the voxel array and FSL bvec sidecar
-in lockstep. The bval sidecar is copied unchanged. JSON sidecars must record
+The same-grid correction preserves the current NIfTI affine/header transform
+and changes the voxel array and FSL bvec sidecar in lockstep. The bval sidecar
+is copied unchanged. `rotZ180` flips voxel dimensions 1 and 2 and applies
+`diag([-1 -1 1])` to the b-vectors. A signed BIDS
+`PhaseEncodingDirection` must be transformed in lockstep; for example,
+`rotZ180` maps `j` to `j-` and `j-` to `j`. If the JSON contains only
+`PhaseEncodingAxis`, the missing sign remains unresolved and must be supplied
+by validated preprocessing configuration. JSON sidecars must record
 `ImageContentOrientationCorrection=true`, the transform name, source paths,
 source SHA256 values, and the correction chain when an incremental correction
 is applied after a previous orientation correction.
+
+For formal diffusion analysis, apply an accepted correction to the raw DWI
+before denoising, Synb0-DISCO, topup, and eddy, then regenerate every
+DWI-derived output. The post-hoc application wrapper below is retained for
+legacy repair and candidate inspection; it must not be used as a substitute
+for rerunning preprocessing when image-to-gradient correspondence changes.
 
 Use candidate QC before applying the formal correction:
 
@@ -452,7 +464,8 @@ status = run_stnsnr_dwi_orientation_qc( ...
     'RepoDir', '/Users/mojackhu/Github/leaddbs', ...
     'SourceRoot', '/Volumes/VAL/STNSNrdwi', ...
     'SubjectIds', {'<SubjectA>', '<SubjectB>'}, ...
-    'TransformCandidates', {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
+    'TransformCandidates', ...
+        {'identity', 'flipY', 'flipZ', 'rotX180', 'rotZ180'}, ...
     'GenerateColorFa', true, ...
     'Force', false);
 ```
@@ -469,8 +482,9 @@ cohort display convention. The color FA should retain plausible tensor
 directions: corpus callosum left-right, corticospinal tract superior-inferior,
 and anterior-posterior fibres anterior-posterior.
 
-After QC approval, apply the same correction to the formal source, rawdata, and
-preprocessing layers without rerunning Synb0-DISCO, topup, or eddy:
+For a legacy same-grid repair only, the correction can be applied to the
+existing layers with the following wrapper. Do not use this shortcut for a
+formal reanalysis that depends on diffusion directions:
 
 ```matlab
 status = run_stnsnr_apply_dwi_orientation_correction( ...

@@ -510,10 +510,10 @@ end
 % add default view buttons
 uipushtool(ht, 'CData',ea_get_icn('defaultviewsave'),...
     'TooltipString', 'Save current view as default.',...
-    'ClickedCallback',@save_currentview_callback);
+    'ClickedCallback',{@save_currentview_callback,resultfig});
 uipushtool(ht, 'CData',ea_get_icn('defaultviewset'),...
     'TooltipString', 'Display default view',...
-    'ClickedCallback',@set_defaultview_callback);
+    'ClickedCallback',{@set_defaultview_callback,resultfig});
 
 % Reorder toggles to move eleToggle to the end
 if strcmp(options.leadprod,'group')
@@ -549,7 +549,7 @@ end
 
 try
     togglestates = prefs.machine.togglestates;
-    ea_defaultview(v,togglestates);
+    ea_defaultview(resultfig,v,togglestates);
 end
 
 if options.d3.elrendering==1 && options.d3.exportBB % export vizstruct for lateron export to JSON file / Brainbrowser.
@@ -689,18 +689,24 @@ delete(gcf);
 
 
 % default view buttons callback
-function save_currentview_callback(source,eventdata)
+function save_currentview_callback(source,eventdata,resultfig)
 % call ea_defaultview so current view is saved
-ea_defaultview()
+if nargin < 3 || ~isgraphics(resultfig, 'figure')
+    resultfig = ancestor(source, 'figure');
+end
+ea_defaultview(resultfig)
 
 
-function set_defaultview_callback(source,eventdata)
+function set_defaultview_callback(source,eventdata,resultfig)
 % get stored default view preferences and call ea_defaultview
+if nargin < 3 || ~isgraphics(resultfig, 'figure')
+    resultfig = ancestor(source, 'figure');
+end
 prefs = ea_prefs;
 v = prefs.machine.view;
 togglestates = prefs.machine.togglestates;
-ea_defaultview_transition(v,togglestates);
-ea_defaultview(v,togglestates);
+ea_defaultview_transition(resultfig,v,togglestates);
+ea_defaultview(resultfig,v,togglestates);
 
 
 function ea_setElvisBlackBackground(resultfig)

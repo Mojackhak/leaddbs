@@ -71,7 +71,6 @@ from dual_frequency.workflow import RegisteredService, ServiceRegistry
 from dual_frequency.workflow.executor import (
     ServiceResult,
     TaskExecutionRequest,
-    _ResourceLedger,
 )
 
 
@@ -1527,15 +1526,6 @@ def _registry_with_fake_activation(
 
 
 class SyntheticEndToEndTest(unittest.TestCase):
-    def setUp(self) -> None:
-        memory_patcher = patch.object(
-            _ResourceLedger,
-            "_memory_state",
-            return_value=(128 * 1024**3, 128 * 1024**3),
-        )
-        memory_patcher.start()
-        self.addCleanup(memory_patcher.stop)
-
     def test_true_cleanup_runs_only_after_complete_canonical_publication(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory).resolve()
@@ -1677,6 +1667,24 @@ class SyntheticEndToEndTest(unittest.TestCase):
                 path.name: path.read_text(encoding="utf-8")
                 for path in (parent_root / "tasks").glob("*.json")
             }
+            historical_fiber_bases: list[Path] = []
+            for base_path in sorted(
+                (parent_root / "sensitivity_bases").glob(
+                    "*/sensitivity_base.json"
+                )
+            ):
+                base = json.loads(base_path.read_text(encoding="utf-8"))
+                if not str(base.get("model_family", "")).endswith("fiber"):
+                    continue
+                base.pop("omega_max", None)
+                base_path.write_text(
+                    json.dumps(base, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                historical_fiber_bases.append(base_path)
+            historical_base_bytes = {
+                path: path.read_bytes() for path in historical_fiber_bases
+            }
 
             service_calls.clear()
             jitter = service.sensitivity(
@@ -1714,6 +1722,9 @@ class SyntheticEndToEndTest(unittest.TestCase):
             parent_manifest_after = hashlib.sha256(
                 (parent_root / "run_manifest.json").read_bytes()
             ).hexdigest()
+            historical_base_bytes_after = {
+                path: path.read_bytes() for path in historical_fiber_bases
+            }
             jitter_root = root / "runs" / "project_neutral_study" / "jitter-extension"
             oss_root = root / "runs" / "project_neutral_study" / "oss-extension"
             combined_root = (
@@ -1801,6 +1812,8 @@ class SyntheticEndToEndTest(unittest.TestCase):
                 )
             )
         self.assertEqual(parent_manifest_before, parent_manifest_after)
+        self.assertTrue(historical_fiber_bases)
+        self.assertEqual(historical_base_bytes_after, historical_base_bytes)
         self.assertTrue(restored_parent_states)
         self.assertTrue(
             all(
@@ -1809,6 +1822,105 @@ class SyntheticEndToEndTest(unittest.TestCase):
             )
         )
         self.assertTrue(all(output_flags.values()), output_flags)
+
+    def test_completed_extension_resume_ignores_missing_parent_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            complete_request = _write_profiles(root)
+            main_request = WorkflowRequest(
+                study_base=complete_request.study_base,
+                direct_voxel_model=complete_request.direct_voxel_model,
+                normative_fiber_model=complete_request.normative_fiber_model,
+                workflow_profile=complete_request.workflow_profile,
+                overrides=WorkflowOverrides(all_available=True, through="observed"),
+            )
+            configuration = load_workflow(
+                main_request.workflow_profile,
+                main_request.overrides,
+            )
+            study = load_study_base(main_request.study_base)
+            catalog = build_endpoint_catalog(configuration, study)
+            service_calls: dict[str, int] = {}
+            service = WorkflowService(
+                registry=_registry_with_fake_activation(
+                    _FakeActivationBackend(),
+                    service_calls,
+                ),
+                provider=_SyntheticRuntimeProvider(configuration, catalog, root),
+            )
+            main = service.run(main_request, run_id="missing-artifact-parent")
+            parent_root = (
+                root
+                / "runs"
+                / "project_neutral_study"
+                / "missing-artifact-parent"
+            )
+            extension_request = SensitivityExtensionRequest(
+                base_run=parent_root,
+                analyses=("jitter",),
+                run_id="missing-artifact-extension",
+                workers=2,
+            )
+            first = service.sensitivity(extension_request)
+            bases = tuple(
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in sorted(
+                    (parent_root / "sensitivity_bases").glob(
+                        "*/sensitivity_base.json"
+                    )
+                )
+            )
+            portable_uri = next(
+                str(base["final_artifacts"][0]["uri"])
+                for base in bases
+                if base["final_artifacts"]
+            )
+            parsed = urlsplit(portable_uri)
+            artifact_root = {
+                "base-run": parent_root,
+                "cache": configuration.workflow.storage.cache_root,
+                "output": configuration.direct_voxel.output.root,
+            }[parsed.scheme]
+            artifact_path = artifact_root / unquote(parsed.path.lstrip("/"))
+            artifact_path.unlink()
+            seed_task_path = (
+                parent_root
+                / "sensitivity_bases"
+                / "seed_task_states.json"
+            )
+            seed_task_path.unlink()
+
+            service_calls.clear()
+            with (
+                patch(
+                    "dual_frequency.application.service.compile_execution_plan",
+                    side_effect=AssertionError(
+                        "completed extension resume must not compile the parent DAG"
+                    ),
+                ),
+                patch(
+                    "dual_frequency.application.service._persisted_sensitivity_plan",
+                    side_effect=AssertionError(
+                        "completed extension resume must not load its persisted plan"
+                    ),
+                ),
+                patch(
+                    "dual_frequency.application.service._parent_seed_task_ids",
+                    side_effect=AssertionError(
+                        "completed extension resume must not read parent seed tasks"
+                    ),
+                ),
+            ):
+                resumed = service.sensitivity(
+                    replace(extension_request, resume=True)
+                )
+
+        self.assertEqual(main.exit_code, 0)
+        self.assertEqual(first.exit_code, 0)
+        self.assertEqual(resumed.exit_code, 0)
+        self.assertEqual(service_calls, {})
+        self.assertFalse(artifact_path.exists())
+        self.assertFalse(seed_task_path.exists())
 
     def test_extension_resume_executes_only_the_noncompleted_sensitivity_task(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -1847,6 +1959,37 @@ class SyntheticEndToEndTest(unittest.TestCase):
             extension_root = (
                 root / "runs" / "project_neutral_study" / "resume-extension"
             )
+            checkpoint_index_path = (
+                parent_root / "sensitivity_bases" / "index.json"
+            )
+            checkpoint_index = json.loads(
+                checkpoint_index_path.read_text(encoding="utf-8")
+            )
+            seed_path = (
+                checkpoint_index_path.parent
+                / checkpoint_index["seed_task_states"]["relative_path"]
+            )
+            seed_payload = json.loads(seed_path.read_text(encoding="utf-8"))
+            checkpoint_task_ids = tuple(
+                task_id
+                for state in seed_payload["task_states"]
+                for task_id in (str(state["task_id"]),)
+                if (
+                    extension_root / "tasks" / f"{task_id}.json"
+                ).is_file()
+            )
+            checkpoint_paths = tuple(
+                path
+                for task_id in checkpoint_task_ids
+                for path in (
+                    extension_root / "tasks" / f"{task_id}.json",
+                    extension_root / "tasks" / task_id / "complete.json",
+                )
+            )
+            checkpoint_before = {
+                path: (path.read_bytes(), path.stat().st_mtime_ns)
+                for path in checkpoint_paths
+            }
             jitter_states = []
             for path in sorted((extension_root / "tasks").glob("*.json")):
                 payload = json.loads(path.read_text(encoding="utf-8"))
@@ -1859,15 +2002,82 @@ class SyntheticEndToEndTest(unittest.TestCase):
                 json.dumps(interrupted, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
+            (extension_root / "complete.json").unlink()
+            (
+                extension_root
+                / "tasks"
+                / str(interrupted["task_id"])
+                / "complete.json"
+            ).unlink()
+
+            parent_manifest_path = parent_root / "run_manifest.json"
+            parent_manifest = json.loads(
+                parent_manifest_path.read_text(encoding="utf-8")
+            )
+            parent_manifest["scientific_configuration_hash"] = "f" * 64
+            parent_manifest_path.write_text(
+                json.dumps(parent_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            for row in checkpoint_index["bases"]:
+                row["sha256"] = "e" * 64
+                base_path = checkpoint_index_path.parent / row["relative_path"]
+                base_payload = json.loads(base_path.read_text(encoding="utf-8"))
+                for artifact in base_payload["final_artifacts"]:
+                    artifact["sha256"] = "c" * 64
+                base_path.write_text(
+                    json.dumps(base_payload, indent=4, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            checkpoint_index["seed_task_states"]["sha256"] = "d" * 64
+            checkpoint_index_path.write_text(
+                json.dumps(checkpoint_index, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            seed_path.write_text(
+                json.dumps(seed_payload, indent=4, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
 
             service_calls.clear()
-            resumed = service.sensitivity(
-                replace(extension_request, workers=3, resume=True)
-            )
+            with (
+                patch(
+                    "dual_frequency.application.sensitivity.sha256_file",
+                    side_effect=AssertionError(
+                        "sensitivity resume must not hash parent checkpoint payloads"
+                    ),
+                ),
+                patch.object(
+                    WorkflowService,
+                    "_configuration_sources",
+                    side_effect=AssertionError(
+                        "sensitivity resume must not hash configuration sources"
+                    ),
+                ),
+                patch(
+                    "dual_frequency.application.service.load_sensitivity_checkpoint",
+                    side_effect=AssertionError(
+                        "existing sensitivity child must use its persisted plan"
+                    ),
+                ),
+                patch(
+                    "dual_frequency.application.service.compile_execution_plan",
+                    side_effect=AssertionError(
+                        "sensitivity resume must not compile the parent DAG"
+                    ),
+                ),
+            ):
+                resumed = service.sensitivity(
+                    replace(extension_request, workers=3, resume=True)
+                )
             final_states = [
                 json.loads(path.read_text(encoding="utf-8"))
                 for path, _payload in jitter_states
             ]
+            checkpoint_after = {
+                path: (path.read_bytes(), path.stat().st_mtime_ns)
+                for path in checkpoint_paths
+            }
 
         self.assertEqual(main.exit_code, 0)
         self.assertEqual(first.exit_code, 0)
@@ -1879,6 +2089,7 @@ class SyntheticEndToEndTest(unittest.TestCase):
         self.assertEqual(sum(service_calls.values()), 1)
         self.assertTrue(all(key.endswith("_jitter") for key in service_calls))
         self.assertTrue(all(payload["status"] == "completed" for payload in final_states))
+        self.assertEqual(checkpoint_after, checkpoint_before)
 
     def test_formal_permutation_resume_reruns_only_one_block_and_aggregate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -1962,6 +2173,10 @@ class SyntheticEndToEndTest(unittest.TestCase):
                     json.dumps(state, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
+                (run_root / "tasks" / task.task_id / "complete.json").unlink()
+            (run_root / "complete.json").unlink()
+            input_bundle_path = run_root / "inputs" / "input_bundle.json"
+            input_bundle_path.unlink()
 
             service_calls.clear()
             resumed = service.run(
@@ -1987,6 +2202,7 @@ class SyntheticEndToEndTest(unittest.TestCase):
                 }
                 for task_id, attempt in first_attempts.items()
             }
+            input_bundle_recreated = input_bundle_path.exists()
 
         self.assertEqual(len(blocks), 2)
         self.assertEqual(first.exit_code, 0)
@@ -2011,6 +2227,7 @@ class SyntheticEndToEndTest(unittest.TestCase):
             {interrupted_block.task_id: 2, aggregate.task_id: 2},
         )
         self.assertEqual(attempt_snapshots, retained_snapshots)
+        self.assertFalse(input_bundle_recreated)
 
     def test_formal_bootstrap_resume_reruns_only_one_block_and_aggregate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -2094,6 +2311,8 @@ class SyntheticEndToEndTest(unittest.TestCase):
                     json.dumps(state, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
+                (run_root / "tasks" / task.task_id / "complete.json").unlink()
+            (run_root / "complete.json").unlink()
 
             service_calls.clear()
             resumed = service.run(

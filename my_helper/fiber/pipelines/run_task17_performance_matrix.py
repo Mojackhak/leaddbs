@@ -27,6 +27,9 @@ import yaml
 
 
 CORE_ROOT = Path(__file__).resolve().parents[1] / "core"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 if str(CORE_ROOT) not in sys.path:
     sys.path.insert(0, str(CORE_ROOT))
 
@@ -50,15 +53,9 @@ from dual_frequency.config import WorkflowOverrides  # noqa: E402
 from dual_frequency.contracts import (  # noqa: E402
     ArtifactRef,
     FinalSelectionRecord,
-    OSSAxisEquivalenceGroupRecord,
     OSSSharedOmegaGroupRecord,
     PreparedExposureRecord,
     SensitiveRecord,
-    TaskKey,
-)
-from dual_frequency.runtime.oss_axis_equivalence import (  # noqa: E402
-    OSS_AXIS_PROBABILITY_TOLERANCE,
-    accepted_group_uses_stable_scientific_cache,
 )
 from dual_frequency.runtime.oss_shared_omega import (  # noqa: E402
     shared_omega_group_uses_stable_scientific_cache,
@@ -66,13 +63,14 @@ from dual_frequency.runtime.oss_shared_omega import (  # noqa: E402
 from dual_frequency.workflow import (  # noqa: E402
     BenchmarkOSSInjectedFixtureSpec,
     ExecutionPlan,
-    GateRequirement,
     ExecutionContext,
+    PlanningError,
     RunIdentity,
     RunStore,
     ServiceResult,
     SpawnWorkerSpec,
     TaskSpec,
+    execution_plan_from_payload,
     execute_plan,
     plan_hash,
 )
@@ -102,7 +100,6 @@ _REQUEST_FIELDS = {
     "workflow_profile",
     "conda_environment",
     "working_directory",
-    "maximum_task_tree_rss_bytes",
     "real_cold_solver_authorization",
 }
 _MAIN_SLICE_SERVICES = {
@@ -141,7 +138,6 @@ _JITTER_SERVICES = {
     "run_addon_fiber_jitter",
 }
 _PPAM_SERVICES = {
-    "establish_oss_axis_equivalence",
     "prepare_oss_omega_max_rows",
     "prepare_ppam_observed_workspace",
     "prepare_ppam_permutation_schedule",
@@ -972,7 +968,10 @@ def _load_request(path: Path) -> tuple[dict[str, Any], str]:
         )
     if request["schema_version"] != _REQUEST_SCHEMA:
         raise PerformanceMatrixHarnessError("benchmark request schema differs")
-    _safe_token(request["plan_id"], "benchmark plan ID")
+    request["plan_id"] = _safe_token(
+        request["plan_id"],
+        "benchmark plan ID",
+    )
     for field in (
         "accepted_parent_root",
         "accepted_independent_oss_root",
@@ -982,7 +981,7 @@ def _load_request(path: Path) -> tuple[dict[str, Any], str]:
         "workflow_profile",
         "working_directory",
     ):
-        _path_token(request[field], field)
+        request[field] = str(_path_token(request[field], field))
     environment = _safe_token(
         request["conda_environment"],
         "benchmark Conda environment",
@@ -991,11 +990,6 @@ def _load_request(path: Path) -> tuple[dict[str, Any], str]:
     if not Path(str(request["working_directory"])).expanduser().resolve().is_dir():
         raise PerformanceMatrixHarnessError(
             "benchmark working directory must be a directory"
-        )
-    maximum_rss = request["maximum_task_tree_rss_bytes"]
-    if type(maximum_rss) is not int or maximum_rss < 1:
-        raise PerformanceMatrixHarnessError(
-            "maximum task-tree RSS must be a positive integer"
         )
     authorization = request["real_cold_solver_authorization"]
     if authorization is not None:
@@ -1007,7 +1001,8 @@ def _load_request(path: Path) -> tuple[dict[str, Any], str]:
             raise PerformanceMatrixHarnessError(
                 "real cold solver authorization must be a file"
             )
-    return request, _sha256_file(request_path)
+        request["real_cold_solver_authorization"] = str(authorization_path)
+    return request, _canonical_sha256(request)
 
 
 def _terminal_run(root: Path, label: str) -> dict[str, Any]:
@@ -1018,33 +1013,25 @@ def _terminal_run(root: Path, label: str) -> dict[str, Any]:
         manifest.get("schema_version") != "dual_frequency_run_v1"
         or manifest.get("final_status") != "completed"
         or not str(manifest.get("run_id", "")).strip()
+        or not (root / "complete.json").is_file()
     ):
         raise PerformanceMatrixHarnessError(f"{label} is not a completed run")
     return manifest
 
 
-def _accepted_oss_gate_records(
+def _accepted_oss_group_records(
     oss_root: Path,
-) -> tuple[
-    tuple[str, OSSAxisEquivalenceGroupRecord | OSSSharedOmegaGroupRecord],
-    ...,
-]:
-    """Decode the exact accepted OSS gate records from one terminal lineage."""
+) -> tuple[tuple[str, OSSSharedOmegaGroupRecord], ...]:
+    """Decode the two accepted Omega-only groups from one terminal lineage."""
 
     tasks_root = oss_root / "tasks"
-    records: list[
-        tuple[str, OSSAxisEquivalenceGroupRecord | OSSSharedOmegaGroupRecord]
-    ] = []
+    records: list[tuple[str, OSSSharedOmegaGroupRecord]] = []
     for path in sorted(tasks_root.glob("task_*.json")):
         payload = _read_json(path, "accepted OSS task state")
         result_payload = payload.get("result")
         if (
             payload.get("status") != "completed"
-            or payload.get("service_id")
-            not in {
-                "establish_oss_axis_equivalence",
-                "prepare_oss_omega_max_rows",
-            }
+            or payload.get("service_id") != "prepare_oss_omega_max_rows"
             or not isinstance(result_payload, Mapping)
         ):
             continue
@@ -1054,21 +1041,13 @@ def _accepted_oss_gate_records(
             raise PerformanceMatrixHarnessError(
                 "accepted OSS gate result cannot be decoded"
             ) from exc
-        if not isinstance(
-            record,
-            (OSSAxisEquivalenceGroupRecord, OSSSharedOmegaGroupRecord),
-        ):
+        if not isinstance(record, OSSSharedOmegaGroupRecord):
             raise PerformanceMatrixHarnessError(
-                "accepted OSS preparation task returned a different record type"
+                "accepted OSS group task returned a different record type"
             )
-        accepted = (
-            record.gate_status == "accepted_omega_max"
-            if isinstance(record, OSSAxisEquivalenceGroupRecord)
-            else record.preparation_status == "omega_max_ready"
-        )
-        if not accepted:
+        if record.preparation_status != "omega_max_ready":
             raise PerformanceMatrixHarnessError(
-                "accepted OSS preparation is not terminally ready"
+                "accepted OSS group is not terminally ready"
             )
         task_id = str(payload.get("task_id", path.stem))
         if task_id != path.stem:
@@ -1083,196 +1062,67 @@ def _accepted_oss_gate_records(
         or len({record.group_id for _, record in records}) != len(records)
     ):
         raise PerformanceMatrixHarnessError(
-            "accepted OSS lineage lacks the exact two fiber gate records"
+            "accepted OSS lineage lacks the exact two Omega-only groups"
         )
     return tuple(sorted(records, key=lambda item: item[1].group_id))
 
 
 def _accepted_oss_cache_closure(
-    records: Sequence[
-        tuple[str, OSSAxisEquivalenceGroupRecord | OSSSharedOmegaGroupRecord]
-    ],
+    records: Sequence[tuple[str, OSSSharedOmegaGroupRecord]],
     *,
     cache_root: Path,
 ) -> dict[str, object]:
-    """Validate and bind all decision and row entries referenced by OSS gates."""
+    """Validate and bind the Omega rows referenced by the accepted groups."""
 
     cache = ContentAddressedCache(cache_root)
     groups: list[dict[str, object]] = []
     all_rows: dict[str, dict[str, object]] = {}
-    expected_decision_fields = {
-        "schema_version",
-        "decision_id",
-        "group_id",
-        "status",
-        "final_row_identity",
-        "omega_row_identity",
-        "state_mismatch_count",
-        "activation_count_mismatch_count",
-        "max_probability_difference",
-        "probability_tolerance",
-    }
     for task_id, record in records:
-        if isinstance(record, OSSSharedOmegaGroupRecord):
-            try:
-                stable = shared_omega_group_uses_stable_scientific_cache(
-                    record,
-                    cache,
-                )
-            except (OSError, RuntimeError, TypeError, ValueError) as exc:
-                raise PerformanceMatrixHarnessError(
-                    "accepted shared Omega-max cache closure is invalid"
-                ) from exc
-            if not stable:
-                raise PerformanceMatrixHarnessError(
-                    "accepted shared Omega-max group references historical cache keys"
-                )
-            group_rows: list[dict[str, object]] = []
-            for row_id in record.omega_row_ids:
-                row_entry = cache.resolve_identity("oss_rows", row_id)
-                if row_entry is None:
-                    raise PerformanceMatrixHarnessError(
-                        "accepted shared Omega-max row cache is unavailable"
-                    )
-                try:
-                    arrays = OSSRowMaterializer._load_entry(row_entry.path)
-                except (OSError, RuntimeError, TypeError, ValueError) as exc:
-                    raise PerformanceMatrixHarnessError(
-                        "accepted shared Omega-max row payload is invalid"
-                    ) from exc
-                row_payload = {
-                    "scientific_identity": row_id,
-                    "manifest_sha256": _sha256_file(row_entry.manifest_path),
-                    "feature_count": int(arrays[0].size),
-                }
-                previous = all_rows.get(row_id)
-                if previous is not None and previous != row_payload:
-                    raise PerformanceMatrixHarnessError(
-                        "accepted OSS row identity has conflicting evidence"
-                    )
-                all_rows[row_id] = row_payload
-                group_rows.append(row_payload)
-            groups.append(
-                {
-                    "task_id": task_id,
-                    "group_id": record.group_id,
-                    "model_family": record.model_family,
-                    "omega_row_ids": list(record.omega_row_ids),
-                    "rows": group_rows,
-                    "decisions": [],
-                }
-            )
-            continue
         try:
-            stable = accepted_group_uses_stable_scientific_cache(record, cache)
+            stable = shared_omega_group_uses_stable_scientific_cache(
+                record,
+                cache,
+            )
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             raise PerformanceMatrixHarnessError(
-                "accepted OSS group cache closure is invalid"
+                "accepted shared Omega-max cache closure is invalid"
             ) from exc
         if not stable:
             raise PerformanceMatrixHarnessError(
-                "accepted OSS group still references historical cache keys"
+                "accepted shared Omega-max group references historical cache keys"
             )
-        decisions: list[dict[str, object]] = []
-        for decision_id in record.row_decision_ids:
-            decision_entry = cache.resolve_identity(
-                "oss_axis_equivalence",
-                decision_id,
-            )
-            if decision_entry is None:
+        group_rows: list[dict[str, object]] = []
+        for row_id in record.omega_row_ids:
+            row_entry = cache.resolve_identity("oss_rows", row_id)
+            if row_entry is None:
                 raise PerformanceMatrixHarnessError(
-                    "accepted OSS decision cache is unavailable"
+                    "accepted shared Omega-max row cache is unavailable"
                 )
-            decision = _read_json(
-                decision_entry.file_path("decision.json"),
-                "accepted OSS decision",
-            )
-            if (
-                set(decision) != expected_decision_fields
-                or decision.get("decision_id") != decision_id
-                or decision.get("group_id") != record.group_id
-                or decision.get("status") != "pass"
-                or type(decision.get("state_mismatch_count")) is not int
-                or decision["state_mismatch_count"] > 0
-                or type(decision.get("activation_count_mismatch_count"))
-                is not int
-                or decision["activation_count_mismatch_count"] > 0
-                or not isinstance(
-                    decision.get("max_probability_difference"),
-                    (int, float),
-                )
-                or float(decision["max_probability_difference"])
-                > OSS_AXIS_PROBABILITY_TOLERANCE
-            ):
+            try:
+                arrays = OSSRowMaterializer._load_entry(row_entry.path)
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 raise PerformanceMatrixHarnessError(
-                    "accepted OSS decision payload differs from a pass decision"
-                )
-            row_payloads: dict[str, dict[str, object]] = {}
-            row_arrays: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-            for role in ("final", "omega"):
-                identity = decision.get(f"{role}_row_identity")
-                if type(identity) is not str:
-                    raise PerformanceMatrixHarnessError(
-                        "accepted OSS decision row identity is invalid"
-                    )
-                row_entry = cache.resolve_identity("oss_rows", identity)
-                if row_entry is None:
-                    raise PerformanceMatrixHarnessError(
-                        "accepted OSS row cache is unavailable"
-                    )
-                try:
-                    arrays = OSSRowMaterializer._load_entry(row_entry.path)
-                except (OSError, RuntimeError, TypeError, ValueError) as exc:
-                    raise PerformanceMatrixHarnessError(
-                        "accepted OSS row payload is invalid"
-                    ) from exc
-                row_payload = {
-                    "scientific_identity": identity,
-                    "manifest_sha256": _sha256_file(row_entry.manifest_path),
-                    "feature_count": int(arrays[0].size),
-                }
-                previous = all_rows.get(identity)
-                if previous is not None and previous != row_payload:
-                    raise PerformanceMatrixHarnessError(
-                        "accepted OSS row identity has conflicting evidence"
-                    )
-                all_rows[identity] = row_payload
-                row_payloads[role] = row_payload
-                row_arrays[role] = arrays
-            final_ids, final_probabilities = row_arrays["final"]
-            omega_ids, omega_probabilities = row_arrays["omega"]
-            positions = np.searchsorted(omega_ids, final_ids)
-            if (
-                np.any(positions >= omega_ids.size)
-                or not np.array_equal(omega_ids[positions], final_ids)
-                or np.any(
-                    np.abs(
-                        final_probabilities.astype(np.float64)
-                        - omega_probabilities[positions].astype(np.float64)
-                    )
-                    > OSS_AXIS_PROBABILITY_TOLERANCE
-                )
-            ):
+                    "accepted shared Omega-max row payload is invalid"
+                ) from exc
+            row_payload = {
+                "scientific_identity": row_id,
+                "manifest_sha256": _sha256_file(row_entry.manifest_path),
+                "feature_count": int(arrays[0].size),
+            }
+            previous = all_rows.get(row_id)
+            if previous is not None and previous != row_payload:
                 raise PerformanceMatrixHarnessError(
-                    "accepted OSS final and Omega rows differ on the final axis"
+                    "accepted OSS row identity has conflicting evidence"
                 )
-            decisions.append(
-                {
-                    "decision_id": decision_id,
-                    "manifest_sha256": _sha256_file(
-                        decision_entry.manifest_path
-                    ),
-                    "final_row": row_payloads["final"],
-                    "omega_row": row_payloads["omega"],
-                }
-            )
+            all_rows[row_id] = row_payload
+            group_rows.append(row_payload)
         groups.append(
             {
                 "task_id": task_id,
                 "group_id": record.group_id,
                 "model_family": record.model_family,
-                "decision_ids": list(record.row_decision_ids),
-                "decisions": decisions,
+                "omega_row_ids": list(record.omega_row_ids),
+                "rows": group_rows,
             }
         )
     closure = {
@@ -1289,11 +1139,10 @@ def _accepted_oss_cache_closure(
 def _accepted_oss_cache_entry_descriptors(
     closure: Mapping[str, object],
 ) -> tuple[dict[str, str], ...]:
-    """Return the exact deduplicated decision and row entries in one closure."""
+    """Return the exact deduplicated Omega-row entries in one closure."""
 
-    groups = closure.get("groups")
     rows = closure.get("rows")
-    if not isinstance(groups, list) or not isinstance(rows, list):
+    if not isinstance(rows, list):
         raise PerformanceMatrixHarnessError(
             "accepted OSS cache closure is incomplete"
         )
@@ -1311,25 +1160,6 @@ def _accepted_oss_cache_entry_descriptors(
         output[
             (descriptor["kind"], descriptor["scientific_identity"])
         ] = descriptor
-    for group in groups:
-        decisions = group.get("decisions") if isinstance(group, Mapping) else None
-        if not isinstance(decisions, list):
-            raise PerformanceMatrixHarnessError(
-                "accepted OSS decision descriptor is invalid"
-            )
-        for item in decisions:
-            if not isinstance(item, Mapping):
-                raise PerformanceMatrixHarnessError(
-                    "accepted OSS decision descriptor is invalid"
-                )
-            descriptor = {
-                "kind": "oss_axis_equivalence",
-                "scientific_identity": str(item.get("decision_id", "")),
-                "manifest_sha256": str(item.get("manifest_sha256", "")),
-            }
-            output[
-                (descriptor["kind"], descriptor["scientific_identity"])
-            ] = descriptor
     descriptors = tuple(output[key] for key in sorted(output))
     if not descriptors:
         raise PerformanceMatrixHarnessError(
@@ -1558,13 +1388,27 @@ def _isolated_cache_entry_descriptors(
     if not shared.is_dir():
         return ()
     descriptors: list[dict[str, str]] = []
-    for kind_root in sorted(shared.iterdir(), key=lambda path: path.name):
+    for kind_root in sorted(
+        (
+            path
+            for path in shared.iterdir()
+            if not path.name.startswith("._")
+        ),
+        key=lambda path: path.name,
+    ):
         if not kind_root.is_dir() or kind_root.is_symlink():
             raise PerformanceMatrixHarnessError(
                 "isolated cache contains an invalid kind entry"
             )
         kind = kind_root.name
-        for entry_root in sorted(kind_root.iterdir(), key=lambda path: path.name):
+        for entry_root in sorted(
+            (
+                path
+                for path in kind_root.iterdir()
+                if not path.name.startswith("._")
+            ),
+            key=lambda path: path.name,
+        ):
             if not entry_root.is_dir() or entry_root.is_symlink():
                 raise PerformanceMatrixHarnessError(
                     "isolated cache contains an invalid scientific entry"
@@ -1793,31 +1637,22 @@ def _validate_input_bundle(
     output: dict[str, dict[str, str]] = {}
     for role, requested in roles.items():
         item = files[role]
-        if not isinstance(item, Mapping) or set(item) != {
-            "relative_path",
-            "sha256",
-        }:
+        if not isinstance(item, Mapping) or "relative_path" not in item:
             raise PerformanceMatrixHarnessError(
                 f"parent input bundle row differs: {role}"
             )
         bundled = (parent_root / str(item["relative_path"])).resolve()
-        if (
-            parent_root not in bundled.parents
-            or not bundled.is_file()
-            or _sha256_file(bundled) != item["sha256"]
-        ):
+        if parent_root not in bundled.parents or not bundled.is_file():
             raise PerformanceMatrixHarnessError(
                 f"parent input bundle failed validation: {role}"
             )
         requested_path = Path(str(requested)).expanduser().resolve()
-        requested_sha = _sha256_file(requested_path)
-        if requested_sha != item["sha256"]:
+        if requested_path != bundled:
             raise PerformanceMatrixHarnessError(
                 f"requested input differs from parent: {role}"
             )
         output[role] = {
             "path": str(requested_path),
-            "sha256": requested_sha,
         }
     return output
 
@@ -1850,7 +1685,6 @@ def _workflow_request(
         selected_models = tuple(snapshot["selection"]["models"])
         selected_connectomes = tuple(snapshot["selection"]["connectomes"])
         execution = snapshot["execution"]
-        through = str(execution["through"])
         allow_expensive = bool(execution["allow_expensive_producers"])
         workers = int(execution["workers"])
     except (KeyError, TypeError, ValueError) as exc:
@@ -1867,7 +1701,7 @@ def _workflow_request(
             all_available=False,
             models=selected_models,
             connectomes=selected_connectomes,
-            through=through,
+            through="sensitivity",
             resume=False,
             force=False,
             allow_expensive_producers=allow_expensive,
@@ -1891,15 +1725,16 @@ def _axis_count(base: Mapping[str, object], field: str) -> int:
 
 def _omega_count(base: Mapping[str, object]) -> int:
     omega = base.get("omega_max")
+    axis = omega.get("feature_axis") if isinstance(omega, Mapping) else None
     if (
-        not isinstance(omega, Mapping)
-        or type(omega.get("axis_count")) is not int
-        or omega["axis_count"] < 1
+        not isinstance(axis, Mapping)
+        or type(axis.get("count")) is not int
+        or axis["count"] < 1
     ):
         raise PerformanceMatrixHarnessError(
             "fiber sensitivity base has an invalid Omega_max axis"
         )
-    return int(omega["axis_count"])
+    return int(axis["count"])
 
 
 def _maximum_base(
@@ -2052,142 +1887,10 @@ def _execution_slice_plan(
 def _execution_plan_from_payload(raw: object) -> ExecutionPlan:
     """Decode one exact persisted execution slice without permissive defaults."""
 
-    if not isinstance(raw, Mapping) or set(raw) != {
-        "configuration_hash",
-        "scientific_configuration_hash",
-        "through",
-        "tasks",
-    }:
-        raise PerformanceMatrixHarnessError(
-            "persisted execution plan fields differ"
-        )
-    raw_tasks = raw["tasks"]
-    if not isinstance(raw_tasks, list) or not raw_tasks:
-        raise PerformanceMatrixHarnessError(
-            "persisted execution task closure differs"
-        )
-    task_fields = {
-        "key",
-        "endpoint_id",
-        "model_family",
-        "connectome_role",
-        "stage",
-        "round_id",
-        "phase",
-        "service_id",
-        "dependencies",
-        "gates",
-        "output_record_type",
-        "execution_parameters",
-        "expensive_producer",
-        "cache_first_expensive",
-        "checkpoint_only",
-        "timeout_seconds",
-        "transient_safe",
-        "max_transient_retries",
-    }
-    tasks: list[TaskSpec] = []
-    for index, item in enumerate(raw_tasks):
-        if not isinstance(item, Mapping) or set(item) != task_fields:
-            raise PerformanceMatrixHarnessError(
-                f"persisted execution task fields differ: {index}"
-            )
-        key = item["key"]
-        if not isinstance(key, Mapping) or set(key) != {
-            "endpoint_id",
-            "stage",
-            "branch",
-            "parameter_identity",
-        }:
-            raise PerformanceMatrixHarnessError(
-                f"persisted execution task key differs: {index}"
-            )
-        gates = item["gates"]
-        dependencies = item["dependencies"]
-        parameters = item["execution_parameters"]
-        if (
-            not isinstance(gates, list)
-            or not isinstance(dependencies, list)
-            or not isinstance(parameters, list)
-        ):
-            raise PerformanceMatrixHarnessError(
-                f"persisted execution task collections differ: {index}"
-            )
-        decoded_gates: list[GateRequirement] = []
-        for gate in gates:
-            if not isinstance(gate, Mapping) or set(gate) != {
-                "fact",
-                "false_status",
-            }:
-                raise PerformanceMatrixHarnessError(
-                    f"persisted execution gate differs: {index}"
-                )
-            decoded_gates.append(
-                GateRequirement(
-                    fact=str(gate["fact"]),
-                    false_status=str(gate["false_status"]),
-                )
-            )
-        decoded_parameters: list[tuple[str, str]] = []
-        for parameter in parameters:
-            if (
-                not isinstance(parameter, list)
-                or len(parameter) != 2
-                or not all(isinstance(value, str) for value in parameter)
-            ):
-                raise PerformanceMatrixHarnessError(
-                    f"persisted execution parameter differs: {index}"
-                )
-            decoded_parameters.append((parameter[0], parameter[1]))
-        try:
-            task = TaskSpec(
-                key=TaskKey(
-                    endpoint_id=str(key["endpoint_id"]),
-                    stage=str(key["stage"]),
-                    branch=str(key["branch"]),
-                    parameter_identity=str(key["parameter_identity"]),
-                ),
-                endpoint_id=str(item["endpoint_id"]),
-                model_family=str(item["model_family"]),
-                connectome_role=str(item["connectome_role"]),
-                stage=str(item["stage"]),
-                round_id=str(item["round_id"]),
-                phase=str(item["phase"]),
-                service_id=str(item["service_id"]),
-                dependencies=tuple(str(value) for value in dependencies),
-                gates=tuple(decoded_gates),
-                output_record_type=str(item["output_record_type"]),
-                execution_parameters=tuple(decoded_parameters),
-                expensive_producer=item["expensive_producer"],
-                cache_first_expensive=item["cache_first_expensive"],
-                checkpoint_only=item["checkpoint_only"],
-                timeout_seconds=item["timeout_seconds"],
-                transient_safe=item["transient_safe"],
-                max_transient_retries=item["max_transient_retries"],
-            )
-        except (TypeError, ValueError) as exc:
-            raise PerformanceMatrixHarnessError(
-                f"persisted execution task is invalid: {index}"
-            ) from exc
-        tasks.append(task)
     try:
-        plan = ExecutionPlan(
-            configuration_hash=str(raw["configuration_hash"]),
-            scientific_configuration_hash=str(
-                raw["scientific_configuration_hash"]
-            ),
-            through=str(raw["through"]),
-            tasks=tuple(tasks),
-        )
-    except (TypeError, ValueError) as exc:
-        raise PerformanceMatrixHarnessError(
-            "persisted execution plan is invalid"
-        ) from exc
-    if _plain(plan) != dict(raw):
-        raise PerformanceMatrixHarnessError(
-            "persisted execution plan does not round-trip exactly"
-        )
-    return plan
+        return execution_plan_from_payload(raw)
+    except PlanningError as exc:
+        raise PerformanceMatrixHarnessError(str(exc)) from exc
 
 
 def _combined_extension_slice_plan(
@@ -2282,6 +1985,7 @@ def _completed_task_ids(root: Path) -> set[str]:
             and path.name == f"{task_id}.json"
             and document.get("status") == "completed"
             and isinstance(document.get("result"), Mapping)
+            and (tasks_root / task_id / "complete.json").is_file()
         ):
             completed.add(task_id)
     return completed
@@ -2307,10 +2011,7 @@ def _slice_descriptor(
             if (
                 dependency_task is not None
                 and dependency_task.service_id
-                in {
-                    "establish_oss_axis_equivalence",
-                    "prepare_oss_omega_max_rows",
-                }
+                == "prepare_oss_omega_max_rows"
                 and dependency in oss_completed
             ):
                 oss_imports.add(dependency)
@@ -2466,11 +2167,6 @@ def _row_contract(
         character not in "0123456789abcdef" for character in slice_id
     ):
         raise PerformanceMatrixHarnessError("benchmark row slice ID differs")
-    maximum_rss = resolved_plan.get("maximum_task_tree_rss_bytes")
-    if type(maximum_rss) is not int or maximum_rss < 1:
-        raise PerformanceMatrixHarnessError(
-            "resolved benchmark RSS ceiling differs"
-        )
     cache_state = str(row["cache_state"])
     seed_key = (
         f"{row['benchmark_class']}:{row['connectome_id']}:{row['solver_mode']}"
@@ -2484,7 +2180,6 @@ def _row_contract(
         "key": _row_key_payload(row),
         "slice_id": slice_id,
         "cache_seed_key": seed_key,
-        "maximum_task_tree_rss_bytes": maximum_rss,
         "planned_status": row["planned_status"],
         "expected_evidence": {
             "run_manifest": "run/run_manifest.json",
@@ -3369,7 +3064,7 @@ def _prepare_document(
         oss_root,
         oss_manifest,
     )
-    oss_gate_records = _accepted_oss_gate_records(oss_root)
+    oss_group_records = _accepted_oss_group_records(oss_root)
     input_sources = _validate_input_bundle(parent_root, request)
     snapshot = _resolved_snapshot(parent_root)
     workflow_request = _workflow_request(request, snapshot)
@@ -3382,15 +3077,14 @@ def _prepare_document(
     if (
         bundle.validated.configuration.scientific_configuration_hash
         != parent_manifest.get("scientific_configuration_hash")
-        or plan_hash(bundle.plan) != parent_manifest.get("plan_hash")
     ):
         raise PerformanceMatrixHarnessError(
-            "compiled parent scientific configuration or plan differs"
+            "compiled parent scientific configuration differs"
         )
     configuration = bundle.validated.configuration
     cache_root = configuration.workflow.storage.cache_root.expanduser().resolve()
     accepted_oss_cache = _accepted_oss_cache_closure(
-        oss_gate_records,
+        oss_group_records,
         cache_root=cache_root,
     )
     output_root = configuration.direct_voxel.output.root.expanduser().resolve()
@@ -3401,7 +3095,6 @@ def _prepare_document(
             parent_root,
             oss_root,
             cache_root,
-            output_root,
             run_root,
         ),
     )
@@ -3410,6 +3103,7 @@ def _prepare_document(
             parent_root,
             cache_root=cache_root,
             output_root=output_root,
+            require_omega_max=True,
         )
     except SensitivityCheckpointError as exc:
         raise PerformanceMatrixHarnessError(
@@ -3615,15 +3309,15 @@ def _prepare_document(
             "accepted_oss_cache_closure_sha256": accepted_oss_cache[
                 "closure_sha256"
             ],
+            "configuration_hash": (
+                bundle.validated.configuration.configuration_hash
+            ),
             "scientific_configuration_hash": (
                 bundle.validated.configuration.scientific_configuration_hash
             ),
             "full_plan_hash": plan_hash(bundle.plan),
             "configured_connectomes": list(connectomes),
             "workers": list(_WORKERS),
-            "maximum_task_tree_rss_bytes": request[
-                "maximum_task_tree_rss_bytes"
-            ],
             "real_cold_solver_authorization": authorization,
             "burden_selections": burden_selections,
             "slices": [slices[key] for key in sorted(slices)],
@@ -3674,15 +3368,15 @@ def _prepare_document(
                 .resolve()
             ),
         },
+        "configuration_hash": (
+            bundle.validated.configuration.configuration_hash
+        ),
         "scientific_configuration_hash": (
             bundle.validated.configuration.scientific_configuration_hash
         ),
         "full_plan_hash": plan_hash(bundle.plan),
         "configured_connectomes": list(connectomes),
         "workers": list(_WORKERS),
-        "maximum_task_tree_rss_bytes": request[
-            "maximum_task_tree_rss_bytes"
-        ],
         "real_cold_solver_authorization": authorization,
         "burden_selections": burden_selections,
         "slices": [slices[key] for key in sorted(slices)],
@@ -3888,15 +3582,15 @@ def _workflow_bundle_from_resolved(
         raw = sources[role]
         if (
             not isinstance(raw, Mapping)
-            or set(raw) != {"path", "sha256"}
+            or set(raw) != {"path"}
         ):
             raise PerformanceMatrixHarnessError(
                 "resolved workflow source descriptor is invalid"
             )
         path = Path(str(raw["path"])).expanduser().resolve()
-        if not path.is_file() or _sha256_file(path) != raw["sha256"]:
+        if not path.is_file():
             raise PerformanceMatrixHarnessError(
-                "resolved workflow source SHA differs"
+                "resolved workflow source is missing"
             )
         request[role] = path
     parent_root = Path(str(parent.get("root", ""))).expanduser().resolve()
@@ -3910,7 +3604,9 @@ def _workflow_bundle_from_resolved(
             "benchmark child cannot compile the production workflow"
         ) from exc
     if (
-        bundle.validated.configuration.scientific_configuration_hash
+        bundle.validated.configuration.configuration_hash
+        != resolved.get("configuration_hash")
+        or bundle.validated.configuration.scientific_configuration_hash
         != resolved.get("scientific_configuration_hash")
         or plan_hash(bundle.plan) != resolved.get("full_plan_hash")
     ):
@@ -4032,6 +3728,34 @@ def _execute_unmeasured_warm_seed(
             cache_root=cache_root,
             slice_id=slice_id,
         )
+    attempts_root = root / "attempts"
+    for attempt_root in sorted(
+        attempts_root.glob("attempt_*"),
+        reverse=True,
+    ):
+        result_path = attempt_root / "seed_attempt_result.json"
+        complete_path = attempt_root / "run" / "complete.json"
+        if not result_path.is_file() or not complete_path.is_file():
+            continue
+        result = _read_json(
+            result_path,
+            "completed benchmark warm-seed attempt",
+        )
+        if (
+            result.get("schema_version")
+            != "dual_frequency_task17_warm_seed_result_v1"
+            or result.get("slice_id") != slice_id
+            or result.get("run_root")
+            != str((attempt_root / "run").resolve())
+        ):
+            raise PerformanceMatrixHarnessError(
+                "completed benchmark warm-seed attempt differs"
+            )
+        return _publish_warm_seed_manifest(
+            manifest_path,
+            cache_root=attempt_root / "scientific_cache",
+            slice_id=slice_id,
+        )
     descriptor, execution_plan = _resolved_slice(resolved, row)
     parent = resolved.get("accepted_parent")
     oss = resolved.get("accepted_independent_oss")
@@ -4093,7 +3817,7 @@ def _execute_unmeasured_warm_seed(
         study_id=validated.study.study_id,
         run_id=run_id,
         study_base_sha256=validated.study.source_sha256,
-        code_identity=service._code_identity(),
+        code_identity="not_recorded",
         configuration_hash=configuration.configuration_hash,
         scientific_configuration_hash=(
             configuration.scientific_configuration_hash
@@ -4286,7 +4010,7 @@ def _execute_row_child(
         study_id=validated.study.study_id,
         run_id=run_id,
         study_base_sha256=validated.study.source_sha256,
-        code_identity=service._code_identity(),
+        code_identity="not_recorded",
         configuration_hash=configuration.configuration_hash,
         scientific_configuration_hash=(
             configuration.scientific_configuration_hash
@@ -5083,12 +4807,10 @@ def _publish_matrix_manifest(
     root = benchmark_root.expanduser().resolve()
     raw_rows = resolved.get("rows")
     connectomes = resolved.get("configured_connectomes")
-    maximum_rss = resolved.get("maximum_task_tree_rss_bytes")
     if (
         not isinstance(raw_rows, list)
         or len(raw_rows) != 72
         or not isinstance(connectomes, list)
-        or type(maximum_rss) is not int
     ):
         raise PerformanceMatrixHarnessError(
             "resolved performance matrix closure differs"
@@ -5109,7 +4831,6 @@ def _publish_matrix_manifest(
         "schema_version": "dual_frequency_task17_performance_matrix_v1",
         "configured_connectomes": list(connectomes),
         "chosen_default_workers": 3,
-        "max_rss_bytes": maximum_rss,
         "rows": rows,
     }
     manifest_path = root / "performance_matrix.json"

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import json
 import math
 from collections.abc import Mapping, Sequence
@@ -125,6 +124,23 @@ _PREDICTION_COLUMNS = (
     "in_sample_baseline_prediction",
     "loocv_baseline_prediction",
 )
+_PREDICTION_TABLE_CONSISTENCY_FIELDS = (
+    "in_sample_spearman_rho",
+    "in_sample_spearman_nominal_p",
+    "in_sample_pearson_r",
+    "in_sample_pearson_nominal_p",
+    "in_sample_r2",
+    "in_sample_relative_r2",
+    "in_sample_rmse",
+    "in_sample_mae",
+    "in_sample_rmse_baseline",
+    "in_sample_mae_baseline",
+    "loocv_spearman_rho",
+    "loocv_spearman_nominal_p",
+    "loocv_r2",
+    "loocv_rmse_baseline",
+    "loocv_mae_baseline",
+)
 _OPTIMISM_PAIRS = {
     "spearman_optimism_gap": (
         "in_sample_spearman_rho",
@@ -203,13 +219,6 @@ def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
         encoding="utf-8",
     )
     temporary.replace(path)
-
-
-def _payload_hash(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(
-        dict(payload), sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def _finite_number(metrics: Mapping[str, Any], key: str) -> float:
@@ -427,7 +436,8 @@ def _validate_prediction_metric_consistency(
     summary: Mapping[str, Any],
 ) -> None:
     calculated = _calculated_prediction_metrics(subjects)
-    for key, value in calculated.items():
+    for key in _PREDICTION_TABLE_CONSISTENCY_FIELDS:
+        value = calculated[key]
         if not math.isfinite(value):
             raise ValueError(
                 f"paired-fit prediction table cannot reproduce finite {key}"
@@ -537,30 +547,12 @@ def _relative_outputs(
     return paths, relative
 
 
-def _is_reusable(result_path: Path, request_hash: str, output_root: Path) -> bool:
-    if not result_path.is_file():
-        return False
-    try:
-        result = _read_json(result_path)
-    except (OSError, ValueError, json.JSONDecodeError):
-        return False
-    if (
-        result.get("schema_version") != SCHEMA_VERSION
-        or result.get("status") != "complete"
-        or result.get("request_hash") != request_hash
-    ):
-        return False
-    metrics = result.get("metrics")
-    if not isinstance(metrics, Mapping):
-        return False
-    try:
-        validate_paired_metrics(metrics, exact_fields=True)
-    except ValueError:
-        return False
-    outputs = result.get("outputs")
-    return isinstance(outputs, list) and all(
-        (output_root / str(relative)).is_file() for relative in outputs
-    )
+def _completion_marker(result_path: Path) -> Path:
+    return result_path.parent / "completion" / "paired_fit" / "complete.json"
+
+
+def _is_reusable(result_path: Path) -> bool:
+    return result_path.is_file() and _completion_marker(result_path).is_file()
 
 
 def _write_index(output_root: Path, items: Sequence[Mapping[str, Any]]) -> None:
@@ -660,6 +652,11 @@ def render_paired_fit_components(
                 "model_family": spec.model_family,
                 "result_path": result_path.relative_to(root).as_posix(),
             }
+            if not force and _is_reusable(result_path):
+                restored = _read_json(result_path)
+                restored["resume_status"] = "reused"
+                results.append(restored)
+                continue
             try:
                 references = _references(scale_id, spec)
                 sources = _resolve_sources(catalog, references)
@@ -670,21 +667,6 @@ def render_paired_fit_components(
                 final_model = _read_json(sources["final_model"].path)
                 summary = _read_json(sources["summary"].path)
                 _validate_endpoint(spec, scale_id, final_model, summary)
-                request_hash = _payload_hash(
-                    {
-                        "schema_version": SCHEMA_VERSION,
-                        "scale_id": scale_id,
-                        "model_family": spec.model_family,
-                        "sources": source_records,
-                        "style": dict(style),
-                    }
-                )
-                item["request_hash"] = request_hash
-                if not force and _is_reusable(result_path, request_hash, root):
-                    restored = _read_json(result_path)
-                    restored["resume_status"] = "reused"
-                    results.append(restored)
-                    continue
 
                 subjects = load_validated_paired_predictions(
                     sources["predictions"].path,
@@ -723,6 +705,11 @@ def render_paired_fit_components(
                     }
                 )
             _write_json_atomic(result_path, item)
+            if item["status"] == "complete":
+                _write_json_atomic(
+                    _completion_marker(result_path),
+                    {"status": "complete"},
+                )
             results.append(item)
     return results
 

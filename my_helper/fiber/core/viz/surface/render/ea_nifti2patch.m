@@ -84,7 +84,7 @@ function patchObj = ea_nifti2patch(niftiInput, varargin)
 %                            surface sample is missing.
 %   'OnSurfaceFallbackRadiusVox' : nonnegative integer search radius for the
 %                            nearest-finite fallback. Default: 1.
-%   'SampleDepthMm'        : scalar >= 0. Default: 0.25
+%   'SampleDepthMm'        : scalar >= 0. Default: 1.0
 %   'SampleDepthVox'       : scalar >= 0. If provided, overrides SampleDepthMm.
 %
 %   Rendering / misc
@@ -129,7 +129,7 @@ function patchObj = ea_nifti2patch(niftiInput, varargin)
     addParameter(ip, 'ColorSampling', 'insideOnly', @(s) ischar(s) || (isstring(s) && isscalar(s)));
     addParameter(ip, 'OnSurfaceMissingFallback', 'nearestFinite', @(s) ischar(s) || (isstring(s) && isscalar(s)));
     addParameter(ip, 'OnSurfaceFallbackRadiusVox', 1, @(x) isnumeric(x) && isscalar(x) && x >= 0 && mod(x,1)==0);
-    addParameter(ip, 'SampleDepthMm', 0.25, @(x) isnumeric(x) && isscalar(x) && x >= 0);
+    addParameter(ip, 'SampleDepthMm', 1.0, @(x) isnumeric(x) && isscalar(x) && x >= 0);
     addParameter(ip, 'SampleDepthVox', [], @(x) isempty(x) || (isnumeric(x) && isscalar(x) && x >= 0));
 
     addParameter(ip, 'Alpha', 0.6, @(x) isnumeric(x) && isscalar(x) && x >= 0 && x <= 1);

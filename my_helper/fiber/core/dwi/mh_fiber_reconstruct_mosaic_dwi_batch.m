@@ -5,6 +5,7 @@ parser = inputParser;
 parser.FunctionName = 'mh_fiber_reconstruct_mosaic_dwi_batch';
 parser.addRequired('inputs', @(x) istable(x) || isstruct(x));
 parser.addParameter('TileOrder', 'row_major_right_to_left', @(x) ischar(x) || isstring(x));
+parser.addParameter('SkipPaddingTiles', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('Parallel', false, @(x) islogical(x) || isnumeric(x));
 parser.addParameter('ParallelWorkers', 4, @(x) isnumeric(x) && isscalar(x) && x >= 1);
 parser.addParameter('Force', false, @(x) islogical(x) || isnumeric(x));
@@ -12,8 +13,10 @@ parser.addParameter('DryRun', false, @(x) islogical(x) || isnumeric(x));
 parser.parse(inputs, varargin{:});
 opts = parser.Results;
 opts.TileOrder = validatestring(char(string(opts.TileOrder)), ...
-    {'row_major_right_to_left', 'row_major_left_to_right'}, ...
+    {'row_major_right_to_left', 'row_major_left_to_right', ...
+    'bottom_to_top_left_to_right'}, ...
     'mh_fiber_reconstruct_mosaic_dwi_batch', 'TileOrder');
+opts.SkipPaddingTiles = logical(opts.SkipPaddingTiles);
 opts.Parallel = logical(opts.Parallel);
 opts.ParallelWorkers = max(1, round(double(opts.ParallelWorkers)));
 opts.Force = logical(opts.Force);
@@ -63,6 +66,8 @@ row.ReferenceNifti = optional_row_value(inputTable, rowIndex, 'ReferenceNifti');
 row.OutputDir = row_value(inputTable, rowIndex, 'OutputDir');
 row.OutputBase = row_value(inputTable, rowIndex, 'OutputBase');
 row.TileOrder = optional_row_value(inputTable, rowIndex, 'TileOrder', opts.TileOrder);
+row.SkipPaddingTiles = optional_logical_row_value(inputTable, rowIndex, ...
+    'SkipPaddingTiles', opts.SkipPaddingTiles);
 row.Status = 'started';
 
 try
@@ -79,6 +84,7 @@ try
         'TileGrid', optional_numeric_row_value(inputTable, rowIndex, 'TileGrid'), ...
         'SliceCount', optional_numeric_row_value(inputTable, rowIndex, 'SliceCount'), ...
         'TileOrder', row.TileOrder, ...
+        'SkipPaddingTiles', row.SkipPaddingTiles, ...
         'Parallel', useVolumeParallel, ...
         'ParallelWorkers', opts.ParallelWorkers, ...
         'Force', opts.Force, ...
@@ -91,9 +97,11 @@ try
     row.OutputBvec = result.OutputBvec;
     row.QcJson = result.QcJson;
     row.GeometrySource = result.GeometrySource;
+    row.SliceCountSource = result.SliceCountSource;
     row.TileSize = result.TileSize;
     row.TileGrid = result.TileGrid;
     row.TileOrder = result.TileOrder;
+    row.SkipPaddingTiles = result.SkipPaddingTiles;
     row.SliceCount = result.SliceCount;
     row.VolumeCount = result.VolumeCount;
     row.OutputImageSize = result.OutputImageSize;
@@ -121,12 +129,14 @@ row.ReferenceNifti = '';
 row.OutputDir = '';
 row.OutputBase = '';
 row.TileOrder = '';
+row.SkipPaddingTiles = false;
 row.OutputNifti = '';
 row.OutputJson = '';
 row.OutputBval = '';
 row.OutputBvec = '';
 row.QcJson = '';
 row.GeometrySource = '';
+row.SliceCountSource = '';
 row.TileSize = '';
 row.TileGrid = '';
 row.SliceCount = NaN;
@@ -176,4 +186,19 @@ if isnumeric(raw)
 else
     value = str2num(char(string(raw))); %#ok<ST2NM>
 end
+end
+
+function value = optional_logical_row_value(inputTable, rowIndex, column, defaultValue)
+value = defaultValue;
+if ~ismember(column, inputTable.Properties.VariableNames)
+    return;
+end
+raw = inputTable.(column)(rowIndex);
+if iscell(raw)
+    raw = raw{1};
+end
+if isempty(raw)
+    return;
+end
+value = logical(raw);
 end

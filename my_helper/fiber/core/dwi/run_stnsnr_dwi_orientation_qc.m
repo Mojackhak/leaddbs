@@ -6,7 +6,9 @@ p.FunctionName = 'run_stnsnr_dwi_orientation_qc';
 p.addParameter('RepoDir', '', @(x) ischar(x) || isstring(x));
 p.addParameter('SourceRoot', '/Volumes/VAL/STNSNrdwi', @(x) ischar(x) || isstring(x));
 p.addParameter('SubjectIds', {}, @(x) iscell(x) || isstring(x) || ischar(x));
-p.addParameter('TransformCandidates', {'identity', 'flipY', 'flipZ', 'rotX180'}, @(x) iscell(x) || isstring(x) || ischar(x));
+p.addParameter('TransformCandidates', ...
+    {'identity', 'flipY', 'flipZ', 'rotX180', 'rotZ180'}, ...
+    @(x) iscell(x) || isstring(x) || ischar(x));
 p.addParameter('OutputRoot', '', @(x) ischar(x) || isstring(x));
 p.addParameter('GenerateColorFa', true, @(x) islogical(x) || isnumeric(x));
 p.addParameter('AllowIncrementalCorrection', false, @(x) islogical(x) || isnumeric(x));
@@ -90,7 +92,7 @@ opts.AllowIncrementalCorrection = logical(opts.AllowIncrementalCorrection);
 opts.Force = logical(opts.Force);
 for i = 1:numel(opts.TransformCandidates)
     opts.TransformCandidates{i} = validatestring(opts.TransformCandidates{i}, ...
-        {'identity', 'flipY', 'flipZ', 'rotX180'}, ...
+        {'identity', 'flipY', 'flipZ', 'rotX180', 'rotZ180'}, ...
         'run_stnsnr_dwi_orientation_qc', 'TransformCandidates');
 end
 end

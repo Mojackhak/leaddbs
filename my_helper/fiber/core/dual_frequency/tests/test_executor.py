@@ -46,6 +46,7 @@ from dual_frequency.workflow.run_store import (
     RunIdentity,
     RunStore,
     RunStoreError,
+    migrate_completion_markers,
 )
 from dual_frequency.runtime.formal_operator_workspace import (
     cleanup_formal_operator_scratch_record,
@@ -205,7 +206,7 @@ class _InjectedProcessPool:
 
 
 class ExecutorTest(unittest.TestCase):
-    def test_prepare_exposure_grant_covers_bilateral_sampler_working_set(self) -> None:
+    def test_prepare_exposure_grant_owns_connectome_io(self) -> None:
         fiber_endpoint = EndpointKey(
             "study",
             "scale",
@@ -219,7 +220,6 @@ class ExecutorTest(unittest.TestCase):
             "prepare_reference_fiber_sidecar",
         )
         fiber_grant = _ResourceLedger.request(fiber_task)
-        self.assertEqual(fiber_grant.memory_bytes, 32 * 1024**3)
         self.assertEqual(fiber_grant.connectome_io, 1)
 
         voxel_endpoint = EndpointKey(
@@ -235,7 +235,6 @@ class ExecutorTest(unittest.TestCase):
             "prepare_reference_voxel_sidecar",
         )
         voxel_grant = _ResourceLedger.request(voxel_task)
-        self.assertEqual(voxel_grant.memory_bytes, 16 * 1024**3)
         self.assertEqual(voxel_grant.connectome_io, 1)
 
     def test_ppam_resource_grants_isolate_solver_from_blocks_and_aggregate(
@@ -277,22 +276,22 @@ class ExecutorTest(unittest.TestCase):
             )
         )
         self.assertEqual(
-            (observed.memory_bytes, observed.connectome_io, observed.solver),
-            (48 * 1024**3, 1, 1),
+            (observed.connectome_io, observed.solver),
+            (1, 1),
         )
         for grant in (schedule, block, aggregate):
             self.assertEqual(
-                (grant.memory_bytes, grant.connectome_io, grant.solver),
-                (2 * 1024**3, 0, 0),
+                (grant.connectome_io, grant.solver),
+                (0, 0),
             )
 
-    def test_jitter_block_grants_charge_model_specific_working_sets(self) -> None:
+    def test_jitter_block_grants_charge_model_specific_io(self) -> None:
         cases = (
-            ("reference_voxel", "none", 12 * 1024**3, 0),
-            ("addon_voxel", "none", 12 * 1024**3, 0),
-            ("reference_fiber", "formal_connectome", 12 * 1024**3, 1),
+            ("reference_voxel", "none", 0),
+            ("addon_voxel", "none", 0),
+            ("reference_fiber", "formal_connectome", 1),
         )
-        for model_family, connectome_id, memory_bytes, connectome_io in cases:
+        for model_family, connectome_id, connectome_io in cases:
             with self.subTest(model_family=model_family):
                 endpoint = EndpointKey(
                     "study",
@@ -303,10 +302,9 @@ class ExecutorTest(unittest.TestCase):
                 )
                 task = _task(endpoint, "jitter_block_0000_0025", "jitter_block")
                 grant = _ResourceLedger.request(task)
-                self.assertEqual(grant.memory_bytes, memory_bytes)
                 self.assertEqual(grant.connectome_io, connectome_io)
 
-    def test_oss_axis_gate_owns_the_single_solver_token(self) -> None:
+    def test_oss_omega_group_owns_the_single_solver_token(self) -> None:
         endpoint = EndpointKey(
             "study",
             "scale",
@@ -316,18 +314,18 @@ class ExecutorTest(unittest.TestCase):
         )
         gate = _task(
             endpoint,
-            "oss_axis_equivalence_synthetic",
-            "establish_oss_axis_equivalence",
+            "oss_omega_max_synthetic",
+            "prepare_oss_omega_max_rows",
         )
         grant = _ResourceLedger.request(gate)
         self.assertEqual(
-            (grant.memory_bytes, grant.connectome_io, grant.solver),
-            (48 * 1024**3, 1, 1),
+            (grant.connectome_io, grant.solver),
+            (1, 1),
         )
         cache_only_gate = _task(
             endpoint,
-            "oss_axis_equivalence_synthetic",
-            "establish_oss_axis_equivalence",
+            "oss_omega_max_synthetic",
+            "prepare_oss_omega_max_rows",
             expensive=True,
             cache_first_expensive=True,
         )
@@ -337,14 +335,13 @@ class ExecutorTest(unittest.TestCase):
         )
         self.assertEqual(
             (
-                cache_only_grant.memory_bytes,
                 cache_only_grant.connectome_io,
                 cache_only_grant.solver,
             ),
-            (512 * 1024**2, 0, 0),
+            (0, 0),
         )
 
-    def test_structurally_impossible_memory_grant_is_detected(self) -> None:
+    def test_resource_grant_has_no_memory_budget(self) -> None:
         endpoint = EndpointKey(
             "study",
             "scale",
@@ -352,101 +349,15 @@ class ExecutorTest(unittest.TestCase):
             "reference_fiber",
             "formal_connectome",
         )
-        with patch.object(
-            _ResourceLedger,
-            "_memory_state",
-            return_value=(64 * 1024**3, 64 * 1024**3),
-        ):
-            ledger = _ResourceLedger(workers=1)
+        ledger = _ResourceLedger(workers=1)
         grant = ledger.request(
             _task(
                 endpoint,
-                "oss_axis_equivalence_synthetic",
-                "establish_oss_axis_equivalence",
+                "oss_omega_max_synthetic",
+                "prepare_oss_omega_max_rows",
             )
         )
-        self.assertIn(
-            "managed_memory",
-            ledger.structural_blocking_reasons(grant),
-        )
-
-    def test_solver_grant_cannot_bypass_the_managed_memory_ceiling(self) -> None:
-        ledger = _ResourceLedger(workers=12)
-        ledger.available_memory = 128 * 1024**3
-        ledger.reserve = 16 * 1024**3
-        ledger.managed = 16 * 1024**3
-        endpoint = EndpointKey(
-            "study",
-            "scale",
-            "reference",
-            "reference_fiber",
-            "formal_connectome",
-        )
-        grant = ledger.request(
-            _task(
-                endpoint,
-                "oss_axis_equivalence_synthetic",
-                "establish_oss_axis_equivalence",
-            )
-        )
-        self.assertFalse(ledger.can_acquire(grant, 0))
-
-    def test_jitter_block_admission_enforces_cumulative_managed_memory(self) -> None:
-        ledger = _ResourceLedger(workers=12)
-        ledger.available_memory = 128 * 1024**3
-        ledger.reserve = 16 * 1024**3
-        ledger.managed = 64 * 1024**3
-        endpoint = EndpointKey(
-            "study",
-            "scale",
-            "reference",
-            "reference_voxel",
-        )
-        grant = ledger.request(
-            _task(endpoint, "jitter_block_0000_0025", "jitter_block")
-        )
-        for running_count in range(5):
-            self.assertTrue(ledger.can_acquire(grant, running_count))
-            ledger.acquire(grant)
-        self.assertFalse(ledger.can_acquire(grant, 5))
-
-    def test_addon_and_fiber_jitter_admission_use_stricter_limits(self) -> None:
-        addon_ledger = _ResourceLedger(workers=12)
-        addon_ledger.available_memory = 128 * 1024**3
-        addon_ledger.reserve = 16 * 1024**3
-        addon_ledger.managed = 64 * 1024**3
-        addon_endpoint = EndpointKey(
-            "study",
-            "scale",
-            "addon",
-            "addon_voxel",
-        )
-        addon_grant = addon_ledger.request(
-            _task(addon_endpoint, "jitter_block_0000_0025", "jitter_block")
-        )
-        for running_count in range(5):
-            self.assertTrue(addon_ledger.can_acquire(addon_grant, running_count))
-            addon_ledger.acquire(addon_grant)
-        self.assertFalse(addon_ledger.can_acquire(addon_grant, 5))
-
-        fiber_ledger = _ResourceLedger(workers=12)
-        fiber_ledger.available_memory = 128 * 1024**3
-        fiber_ledger.reserve = 16 * 1024**3
-        fiber_ledger.managed = 64 * 1024**3
-        fiber_endpoint = EndpointKey(
-            "study",
-            "scale",
-            "reference",
-            "reference_fiber",
-            "formal_connectome",
-        )
-        fiber_grant = fiber_ledger.request(
-            _task(fiber_endpoint, "jitter_block_0000_0025", "jitter_block")
-        )
-        for running_count in range(2):
-            self.assertTrue(fiber_ledger.can_acquire(fiber_grant, running_count))
-            fiber_ledger.acquire(fiber_grant)
-        self.assertFalse(fiber_ledger.can_acquire(fiber_grant, 2))
+        self.assertFalse(hasattr(grant, "memory_bytes"))
 
     def _store(self, root: Path, plan: ExecutionPlan, *, resume: bool = False) -> RunStore:
         identity = RunIdentity(
@@ -474,6 +385,128 @@ class ExecutorTest(unittest.TestCase):
             through="observed",
             tasks=tasks,
         )
+
+    def test_force_replaces_the_requested_run_root(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        plan = self._plan((_task(endpoint, "single", "count"),))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            root = temporary_root / "run"
+            initial = self._store(root, plan)
+            (initial.root / "obsolete.txt").write_text("old\n", encoding="utf-8")
+            trashed = temporary_root / "trashed-run"
+
+            def move_to_trash(command: tuple[str, str], **_: object) -> None:
+                Path(command[1]).rename(trashed)
+
+            with patch(
+                "dual_frequency.workflow.run_store.subprocess.run",
+                side_effect=move_to_trash,
+            ) as trash:
+                replacement = RunStore.open(
+                    root,
+                    initial.identity,
+                    resolved_configuration={"profile": "synthetic"},
+                    configuration_sources=(),
+                    force=True,
+                )
+            self.assertEqual(replacement.root, root.resolve())
+            self.assertFalse((replacement.root / "obsolete.txt").exists())
+            self.assertEqual(
+                (trashed / "obsolete.txt").read_text(encoding="utf-8"),
+                "old\n",
+            )
+            self.assertEqual(replacement.read_manifest()["run_id"], "run-001")
+            trash.assert_called_once_with(
+                ("/usr/bin/trash", str(root.resolve())),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+    def test_force_preserves_existing_root_when_trash_fails(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        plan = self._plan((_task(endpoint, "single", "count"),))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            initial = self._store(root, plan)
+            obsolete = initial.root / "obsolete.txt"
+            obsolete.write_text("old\n", encoding="utf-8")
+            with (
+                patch(
+                    "dual_frequency.workflow.run_store.subprocess.run",
+                    side_effect=OSError("Trash unavailable"),
+                ),
+                self.assertRaisesRegex(
+                    RunStoreError,
+                    "cannot move existing run root to Trash",
+                ),
+            ):
+                RunStore.open(
+                    root,
+                    initial.identity,
+                    resolved_configuration={"profile": "synthetic"},
+                    configuration_sources=(),
+                    force=True,
+                )
+            self.assertEqual(obsolete.read_text(encoding="utf-8"), "old\n")
+
+    def test_finalize_writes_complete_json_only_for_success_and_recovery(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        plan = self._plan((_task(endpoint, "single", "count"),))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            successful = self._store(
+                Path(temporary_directory) / "successful",
+                plan,
+            )
+            failed = self._store(
+                Path(temporary_directory) / "failed",
+                plan,
+            )
+            successful.finalize("completed")
+            failed.finalize("failed")
+            self.assertTrue((successful.root / "complete.json").is_file())
+            self.assertFalse((failed.root / "complete.json").is_file())
+            failed.finalize("completed")
+            self.assertEqual(failed.read_manifest()["final_status"], "completed")
+            self.assertTrue((failed.root / "complete.json").is_file())
+
+    def test_explicit_legacy_marker_migration_is_idempotent(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        task = _task(endpoint, "single", "count")
+        plan = self._plan((task,))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            store = self._store(root, plan)
+            store.write_task_state(
+                task.task_id,
+                {
+                    "endpoint_id": task.endpoint_id,
+                    "service_id": task.service_id,
+                    "status": "completed",
+                    "reason": "none",
+                    "result": None,
+                    "started_at": None,
+                    "finished_at": None,
+                },
+            )
+            task_marker = root / "tasks" / task.task_id / "complete.json"
+            task_marker.unlink()
+            (root / "tasks" / "._ignored.json").write_bytes(b"appledouble")
+            store.finalize("completed")
+            (root / "complete.json").unlink()
+
+            first = migrate_completion_markers(root)
+            second = migrate_completion_markers(root)
+
+        self.assertEqual(first["task_states"], 1)
+        self.assertEqual(first["completed_states"], 1)
+        self.assertEqual(first["task_markers_created"], 1)
+        self.assertTrue(first["run_marker_created"])
+        self.assertEqual(second["task_markers_created"], 0)
+        self.assertEqual(second["task_markers_existing"], 1)
+        self.assertFalse(second["run_marker_created"])
+        self.assertTrue(second["run_complete"])
 
     def test_checkpoint_only_root_cannot_invoke_its_service(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
@@ -596,6 +629,72 @@ class ExecutorTest(unittest.TestCase):
         self.assertTrue(by_id[a_second.task_id].reason.startswith("dependency_failure"))
         self.assertEqual(by_id[b_first.task_id].status, "completed")
 
+    def test_resume_re_evaluates_dependency_skips_after_upstream_repair(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        upstream = _task(endpoint, "upstream", "upstream")
+        downstream = _task(
+            endpoint,
+            "downstream",
+            "downstream",
+            dependencies=(upstream.task_id,),
+        )
+        plan = self._plan((upstream, downstream))
+
+        def fail(_request):
+            raise RuntimeError("synthetic upstream failure")
+
+        calls: list[str] = []
+
+        def complete(request):
+            calls.append(request.task.task_id)
+            return _result(request)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            first = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=self._store(root, plan),
+                    registry=ServiceRegistry(
+                        (
+                            RegisteredService("upstream", fail),
+                            RegisteredService("downstream", complete),
+                        )
+                    ),
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                ),
+            )
+            resumed = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=self._store(root, plan, resume=True),
+                    registry=ServiceRegistry(
+                        (
+                            RegisteredService("upstream", complete),
+                            RegisteredService("downstream", complete),
+                        )
+                    ),
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    resume=True,
+                ),
+            )
+
+        first_by_id = {outcome.task_id: outcome for outcome in first.outcomes}
+        self.assertEqual(first.exit_code, 1)
+        self.assertEqual(first_by_id[upstream.task_id].status, "failed")
+        self.assertEqual(first_by_id[downstream.task_id].status, "skipped")
+        self.assertEqual(resumed.exit_code, 0)
+        self.assertEqual(calls, [upstream.task_id, downstream.task_id])
+        self.assertTrue(all(outcome.status == "completed" for outcome in resumed.outcomes))
+
     def test_fault_free_execution_records_one_closed_pool_generation(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
         first = _task(endpoint, "first", "ok")
@@ -649,29 +748,20 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["peak_task_tree_rss_bytes"], 0)
         self.assertEqual(document["minimum_available_memory_bytes"], 0)
         self.assertEqual(document["peak_swap_delta_bytes"], 0)
-        self.assertLessEqual(
-            document["minimum_managed_memory_bytes"],
-            document["managed_memory_bytes"],
-        )
-        self.assertLessEqual(
-            document["managed_memory_bytes"],
-            document["maximum_managed_memory_bytes"],
-        )
-        self.assertLessEqual(
-            document["minimum_managed_memory_bytes"],
-            document["final_managed_memory_bytes"],
-        )
-        self.assertLessEqual(
-            document["final_managed_memory_bytes"],
-            document["maximum_managed_memory_bytes"],
-        )
+        for field in (
+            "managed_memory_bytes",
+            "minimum_managed_memory_bytes",
+            "maximum_managed_memory_bytes",
+            "final_managed_memory_bytes",
+            "required_memory_reserve_bytes",
+            "peak_reserved_memory_bytes",
+            "peak_estimated_task_memory_bytes",
+        ):
+            self.assertNotIn(field, document)
         self.assertEqual(document["scheduler_window_count"], 1)
         self.assertEqual(scheduler["segment_id"], document["segment_id"])
         self.assertEqual(len(scheduler["rows"]), 1)
-        self.assertEqual(
-            scheduler["rows"][0]["managed_memory_bytes"],
-            document["final_managed_memory_bytes"],
-        )
+        self.assertNotIn("estimated_task_memory_bytes", scheduler["rows"][0])
         self.assertEqual(
             scheduler_sha,
             document["scheduler_windows_sha256"],
@@ -681,8 +771,6 @@ class ExecutorTest(unittest.TestCase):
             {
                 "worker_slots",
                 "cpu",
-                "managed_memory",
-                "memory_reserve",
                 "connectome_io",
                 "external_solver",
             },
@@ -851,54 +939,7 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["quarantined_attempt_count"], 1)
         self.assertEqual(len(_InjectedProcessPool.instances), 1)
 
-    def test_live_memory_reconciliation_pauses_and_recovers_admission(self) -> None:
-        endpoint = EndpointKey(
-            "study",
-            "scale",
-            "reference",
-            "reference_fiber",
-            "formal_connectome",
-        )
-        solver_grant = _ResourceLedger.request(
-            _task(
-                endpoint,
-                "oss_axis_equivalence_synthetic",
-                "establish_oss_axis_equivalence",
-            )
-        )
-        small_grant = _ResourceLedger.request(
-            _task(endpoint, "small", "small")
-        )
-        with patch.object(
-            _ResourceLedger,
-            "_memory_state",
-            return_value=(128 * 1024**3, 128 * 1024**3),
-        ):
-            ledger = _ResourceLedger(workers=2)
-        initial_managed = ledger.managed
-        ledger.acquire(solver_grant)
-
-        ledger.reconcile_available(20 * 1024**3)
-        minimum_managed = ledger.managed
-        self.assertFalse(ledger.can_acquire(small_grant, 1))
-        self.assertIn("managed_memory", ledger.blocking_reasons(small_grant))
-        self.assertIn("memory_reserve", ledger.blocking_reasons(small_grant))
-
-        ledger.reconcile_available(80 * 1024**3)
-        self.assertEqual(ledger.available_memory, 128 * 1024**3)
-        self.assertTrue(ledger.can_acquire(small_grant, 1))
-        peaks = ledger.peak_reservations()
-        self.assertEqual(peaks["minimum_managed_memory_bytes"], minimum_managed)
-        self.assertEqual(peaks["maximum_managed_memory_bytes"], initial_managed)
-        self.assertEqual(peaks["final_managed_memory_bytes"], ledger.managed)
-
     def test_live_resource_monitor_records_production_samples(self) -> None:
-        with patch.object(
-            _ResourceLedger,
-            "_memory_state",
-            return_value=(128 * 1024**3, 128 * 1024**3),
-        ):
-            ledger = _ResourceLedger(workers=2)
         with (
             patch(
                 "dual_frequency.workflow.executor._swap_used_bytes",
@@ -916,7 +957,7 @@ class ExecutorTest(unittest.TestCase):
             ),
         ):
             monitor = _LiveResourceMonitor(enabled=True)
-            monitor.sample_if_due(ledger, force=True)
+            monitor.sample_if_due(force=True)
         document = monitor.as_dict()
 
         self.assertEqual(document["resource_sample_count"], 1)
@@ -924,7 +965,7 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["minimum_available_memory_bytes"], 72 * 1024**3)
         self.assertEqual(document["peak_swap_delta_bytes"], 5)
 
-    def test_production_idle_memory_wait_recovers_without_deadlock(self) -> None:
+    def test_low_available_memory_observation_does_not_delay_dispatch(self) -> None:
         endpoint = EndpointKey(
             "study",
             "scale",
@@ -934,7 +975,7 @@ class ExecutorTest(unittest.TestCase):
         )
         task = _task(
             endpoint,
-            "oss_axis_equivalence_synthetic",
+            "oss_omega_max_synthetic",
             "unused",
             expensive=True,
         )
@@ -946,11 +987,6 @@ class ExecutorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "run"
             with (
-                patch.object(
-                    _ResourceLedger,
-                    "_memory_state",
-                    return_value=(128 * 1024**3, 70 * 1024**3),
-                ),
                 patch(
                     "dual_frequency.workflow.executor.ProcessPoolExecutor",
                     _InjectedProcessPool,
@@ -958,11 +994,7 @@ class ExecutorTest(unittest.TestCase):
                 patch.object(
                     _LiveResourceMonitor,
                     "_available_memory_bytes",
-                    side_effect=(
-                        70 * 1024**3,
-                        90 * 1024**3,
-                        90 * 1024**3,
-                    ),
+                    return_value=1,
                 ),
                 patch.object(
                     _LiveResourceMonitor,
@@ -995,22 +1027,10 @@ class ExecutorTest(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(document["scheduled_task_count"], 1)
-        self.assertGreater(document["resource_sample_count"], 1)
+        self.assertEqual(document["minimum_available_memory_bytes"], 1)
         self.assertEqual(
-            document["admission_blocked_task_count_by_reason"][
-                "managed_memory"
-            ],
-            1,
-        )
-        self.assertEqual(
-            document["admission_blocked_task_count_by_reason"][
-                "memory_reserve"
-            ],
-            1,
-        )
-        self.assertGreater(
-            document["admission_wait_seconds_by_reason"]["managed_memory"],
-            0.9,
+            set(document["admission_blocked_task_count_by_reason"]),
+            {"worker_slots", "cpu", "connectome_io", "external_solver"},
         )
 
     def test_segment_records_worker_slot_admission_wait(self) -> None:
@@ -1068,12 +1088,12 @@ class ExecutorTest(unittest.TestCase):
         )
         first = _task(
             endpoint,
-            "oss_axis_equivalence_first",
+            "oss_omega_max_first",
             "slow",
         )
         second = _task(
             endpoint,
-            "oss_axis_equivalence_second",
+            "oss_omega_max_second",
             "ok",
         )
         plan = self._plan((first, second))
@@ -1084,28 +1104,23 @@ class ExecutorTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "run"
-            with patch.object(
-                _ResourceLedger,
-                "_memory_state",
-                return_value=(128 * 1024**3, 128 * 1024**3),
-            ):
-                result = execute_plan(
-                    plan,
-                    ExecutionContext(
-                        run_store=self._store(root, plan),
-                        registry=ServiceRegistry(
-                            (
-                                RegisteredService("slow", slow),
-                                RegisteredService("ok", _result),
-                            )
-                        ),
-                        provider=_Provider(endpoint),
-                        endpoint_facts={},
-                        allow_expensive_producers=False,
-                        continue_on_endpoint_failure=True,
-                        workers=2,
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=self._store(root, plan),
+                    registry=ServiceRegistry(
+                        (
+                            RegisteredService("slow", slow),
+                            RegisteredService("ok", _result),
+                        )
                     ),
-                )
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=2,
+                ),
+            )
             segment = next((root / "execution_segments").glob("segment_*.json"))
             document = json.loads(segment.read_text(encoding="utf-8"))
 
@@ -1116,12 +1131,11 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(document["terminal_task_count"], 2)
         self.assertEqual(document["peak_running_task_count"], 1)
         self.assertEqual(document["peak_reserved_cpu_slots"], 1)
-        self.assertEqual(document["peak_reserved_memory_bytes"], 48 * 1024**3)
+        self.assertNotIn("peak_estimated_task_memory_bytes", document)
         self.assertEqual(document["peak_reserved_connectome_io_slots"], 1)
         self.assertEqual(document["peak_reserved_external_solver_slots"], 1)
-        for reason in ("managed_memory", "external_solver"):
-            self.assertEqual(blocked[reason], 1)
-            self.assertGreater(waited[reason], 0.0)
+        self.assertEqual(blocked["external_solver"], 1)
+        self.assertGreater(waited["external_solver"], 0.0)
         self.assertEqual(blocked["connectome_io"], 0)
         self.assertEqual(waited["connectome_io"], 0.0)
 
@@ -1652,7 +1666,7 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(len(artifact_index["artifacts"]), 1)
         self.assertEqual(final_status, "running")
 
-    def test_resume_reruns_completed_json_with_undecodable_result(self) -> None:
+    def test_resume_reports_undecodable_completed_state_without_rerun(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
         task = _task(endpoint, "single", "count")
         plan = self._plan((task,))
@@ -1695,19 +1709,23 @@ class ExecutorTest(unittest.TestCase):
             payload["result"]["record_id"] = "source_tampered"
             store.write_task_state(task.task_id, payload)
             resumed_store = self._store(root, plan, resume=True)
-            resumed = execute_plan(
-                plan,
-                ExecutionContext(
-                    run_store=resumed_store,
-                    registry=registry,
-                    provider=_Provider(endpoint),
-                    endpoint_facts={},
-                    allow_expensive_producers=False,
-                    continue_on_endpoint_failure=True,
-                    workers=1,
-                    resume=True,
-                ),
-            )
+            with self.assertRaisesRegex(
+                ExecutionError,
+                "record codec rejected persisted service output",
+            ):
+                execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=resumed_store,
+                        registry=registry,
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=False,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        resume=True,
+                    ),
+                )
             resumed_attempts = tuple(sorted(task_root.glob("attempt-*")))
             retained_attempt_snapshot = {
                 path.relative_to(first_attempts[0]).as_posix(): path.read_bytes()
@@ -1715,13 +1733,12 @@ class ExecutorTest(unittest.TestCase):
                 if path.is_file()
             }
         self.assertEqual(first.exit_code, 0)
-        self.assertEqual(resumed.exit_code, 0)
-        self.assertEqual(calls, [task.task_id, task.task_id])
+        self.assertEqual(calls, [task.task_id])
         self.assertEqual(len(first_attempts), 1)
-        self.assertEqual(len(resumed_attempts), 2)
+        self.assertEqual(len(resumed_attempts), 1)
         self.assertEqual(first_attempt_snapshot, retained_attempt_snapshot)
 
-    def test_resume_reruns_completed_json_with_incomplete_result(self) -> None:
+    def test_resume_reports_incomplete_completed_state_without_rerun(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
         task = _task(
             endpoint,
@@ -1760,22 +1777,25 @@ class ExecutorTest(unittest.TestCase):
             payload["result"]["artifacts"] = []
             store.write_task_state(task.task_id, payload)
             resumed_store = self._store(root, plan, resume=True)
-            resumed = execute_plan(
-                plan,
-                ExecutionContext(
-                    run_store=resumed_store,
-                    registry=registry,
-                    provider=_Provider(endpoint),
-                    endpoint_facts={},
-                    allow_expensive_producers=False,
-                    continue_on_endpoint_failure=True,
-                    workers=1,
-                    resume=True,
-                ),
-            )
+            with self.assertRaisesRegex(
+                ExecutionError,
+                "artifact closure mismatch",
+            ):
+                execute_plan(
+                    plan,
+                    ExecutionContext(
+                        run_store=resumed_store,
+                        registry=registry,
+                        provider=_Provider(endpoint),
+                        endpoint_facts={},
+                        allow_expensive_producers=False,
+                        continue_on_endpoint_failure=True,
+                        workers=1,
+                        resume=True,
+                    ),
+                )
         self.assertEqual(first.exit_code, 0)
-        self.assertEqual(resumed.exit_code, 0)
-        self.assertEqual(calls, [task.task_id, task.task_id])
+        self.assertEqual(calls, [task.task_id])
 
     def test_exact_resume_restores_completed_result_without_reinvocation(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
@@ -1859,9 +1879,53 @@ class ExecutorTest(unittest.TestCase):
             changed_audit_resume.outcomes[0].reason,
             "restored_completed_result",
         )
-        self.assertEqual(calls, [task.task_id])
 
-    def test_resume_replays_historical_accepted_oss_gate_cache_only(self) -> None:
+    def test_resume_runs_task_when_complete_json_is_missing(self) -> None:
+        endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
+        task = _task(endpoint, "single", "count")
+        plan = self._plan((task,))
+        calls: list[str] = []
+
+        def count(request):
+            calls.append(request.task.task_id)
+            return _result(request)
+
+        registry = ServiceRegistry((RegisteredService("count", count),))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "run"
+            first_store = self._store(root, plan)
+            execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=first_store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                ),
+            )
+            complete_path = root / "tasks" / task.task_id / "complete.json"
+            self.assertTrue(complete_path.is_file())
+            complete_path.unlink()
+            resumed_store = self._store(root, plan, resume=True)
+            execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=resumed_store,
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=1,
+                    resume=True,
+                ),
+            )
+        self.assertEqual(calls, [task.task_id, task.task_id])
+
+    def test_resume_restores_historical_oss_gate_without_cache_revalidation(self) -> None:
         endpoint = EndpointKey(
             "study",
             "scale",
@@ -1914,14 +1978,7 @@ class ExecutorTest(unittest.TestCase):
                 RegisteredService("child", child_service),
             )
         )
-        with (
-            patch.object(
-                _ResourceLedger,
-                "_memory_state",
-                return_value=(128 * 1024**3, 128 * 1024**3),
-            ),
-            tempfile.TemporaryDirectory() as temporary_directory,
-        ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "run"
             first = execute_plan(
                 plan,
@@ -1984,10 +2041,10 @@ class ExecutorTest(unittest.TestCase):
             )
         )
         self.assertEqual(resumed.exit_code, 0)
-        self.assertEqual(gate_authorizations, [True, False])
-        self.assertEqual(child_calls, 2)
+        self.assertEqual(gate_authorizations, [True])
+        self.assertEqual(child_calls, 1)
 
-    def test_resume_validates_shared_omega_row_closure_before_restore(self) -> None:
+    def test_resume_restores_shared_omega_without_cache_revalidation(self) -> None:
         endpoint = EndpointKey(
             "study",
             "scale",
@@ -2024,14 +2081,7 @@ class ExecutorTest(unittest.TestCase):
             return ServiceResult.from_record(record)
 
         registry = ServiceRegistry((RegisteredService("prepare", prepare),))
-        with (
-            patch.object(
-                _ResourceLedger,
-                "_memory_state",
-                return_value=(128 * 1024**3, 128 * 1024**3),
-            ),
-            tempfile.TemporaryDirectory() as temporary_directory,
-        ):
+        with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "run"
             first = execute_plan(
                 plan,
@@ -2089,9 +2139,9 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(stable.exit_code, 0)
         self.assertEqual(stable.outcomes[0].reason, "restored_completed_result")
         self.assertEqual(repaired.exit_code, 0)
-        self.assertEqual(calls, 2)
+        self.assertEqual(calls, 1)
 
-    def test_resume_reruns_only_missing_operator_scratch_workspace(self) -> None:
+    def test_resume_uses_completion_marker_after_scratch_cleanup(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
         task = _task(
             endpoint,
@@ -2196,8 +2246,8 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(first.exit_code, 0)
         self.assertEqual(retained.exit_code, 0)
         self.assertEqual(rerun.exit_code, 0)
-        self.assertEqual(calls, [task.task_id, task.task_id])
-        self.assertEqual(rerun.outcomes[0].reason, "none")
+        self.assertEqual(calls, [task.task_id])
+        self.assertEqual(rerun.outcomes[0].reason, "restored_completed_result")
 
     def test_resume_runs_only_missing_jitter_blocks_and_their_consumer(self) -> None:
         endpoint = EndpointKey("study", "scale", "reference", "reference_voxel")
@@ -2309,26 +2359,21 @@ class ExecutorTest(unittest.TestCase):
             )
         )
         with tempfile.TemporaryDirectory() as temporary_directory:
-            with patch.object(
-                _ResourceLedger,
-                "_memory_state",
-                return_value=(128 * 1024**3, 128 * 1024**3),
-            ):
-                result = execute_plan(
-                    plan,
-                    ExecutionContext(
-                        run_store=self._store(
-                            Path(temporary_directory) / "run",
-                            plan,
-                        ),
-                        registry=registry,
-                        provider=_Provider(endpoint),
-                        endpoint_facts={},
-                        allow_expensive_producers=False,
-                        continue_on_endpoint_failure=True,
-                        workers=2,
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=self._store(
+                        Path(temporary_directory) / "run",
+                        plan,
                     ),
-                )
+                    registry=registry,
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=2,
+                ),
+            )
         outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(calls, [observed.task_id, aggregate.task_id])
@@ -2415,26 +2460,21 @@ class ExecutorTest(unittest.TestCase):
                         result=service_result,
                     ).as_dict(),
                 )
-            with patch.object(
-                _ResourceLedger,
-                "_memory_state",
-                return_value=(128 * 1024**3, 128 * 1024**3),
-            ):
-                result = execute_plan(
-                    plan,
-                    ExecutionContext(
-                        run_store=store,
-                        registry=ServiceRegistry(
-                            (RegisteredService("count", count),)
-                        ),
-                        provider=_Provider(endpoint),
-                        endpoint_facts={},
-                        allow_expensive_producers=False,
-                        continue_on_endpoint_failure=True,
-                        workers=2,
-                        resume=True,
+            result = execute_plan(
+                plan,
+                ExecutionContext(
+                    run_store=store,
+                    registry=ServiceRegistry(
+                        (RegisteredService("count", count),)
                     ),
-                )
+                    provider=_Provider(endpoint),
+                    endpoint_facts={},
+                    allow_expensive_producers=False,
+                    continue_on_endpoint_failure=True,
+                    workers=2,
+                    resume=True,
+                ),
+            )
         outcomes = {outcome.task_id: outcome for outcome in result.outcomes}
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(calls, [second_block.task_id, aggregate.task_id])
@@ -2444,7 +2484,7 @@ class ExecutorTest(unittest.TestCase):
                 "restored_completed_result",
             )
 
-    def test_resume_uses_only_json_yaml_and_completed_result_gates(self) -> None:
+    def test_resume_does_not_compare_input_or_audit_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "run"
             initial_identity = RunIdentity(
@@ -2500,28 +2540,26 @@ class ExecutorTest(unittest.TestCase):
                 replace(copied_sources[0], sha256="7" * 64),
                 *copied_sources[1:],
             )
-            with self.assertRaisesRegex(RunStoreError, "input JSON content"):
-                RunStore.open(
-                    root,
-                    changed_json_identity,
-                    resolved_configuration={},
-                    configuration_sources=changed_json_sources,
-                    resume=True,
-                )
+            RunStore.open(
+                root,
+                changed_json_identity,
+                resolved_configuration={},
+                configuration_sources=changed_json_sources,
+                resume=True,
+            )
 
             changed_yaml_sources = (
                 copied_sources[0],
                 replace(copied_sources[1], sha256="8" * 64),
                 *copied_sources[2:],
             )
-            with self.assertRaisesRegex(RunStoreError, "input YAML content"):
-                RunStore.open(
-                    root,
-                    changed_audit_identity,
-                    resolved_configuration={},
-                    configuration_sources=changed_yaml_sources,
-                    resume=True,
-                )
+            RunStore.open(
+                root,
+                changed_audit_identity,
+                resolved_configuration={},
+                configuration_sources=changed_yaml_sources,
+                resume=True,
+            )
 
 
 if __name__ == "__main__":

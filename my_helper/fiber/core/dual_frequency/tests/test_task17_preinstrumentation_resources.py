@@ -326,7 +326,6 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
             self.guard,
             self.windows,
             workers=14,
-            max_rss_bytes=64 * 1024**3,
         )
 
     def test_valid_terminal_closure_and_window_pass(self) -> None:
@@ -344,7 +343,6 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
             self.root,
             self.cache,
             self.guard,
-            max_rss_bytes=64 * 1024**3,
         )
         window = document["windows"][0]
         self.assertEqual(window["decision_id"], "1" * 64)
@@ -376,7 +374,6 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
                 self.root,
                 self.cache,
                 self.guard,
-                max_rss_bytes=64 * 1024**3,
             )
 
     def test_nonmaximum_row_window_fails(self) -> None:
@@ -452,7 +449,6 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
                 self.root,
                 self.cache,
                 self.guard,
-                max_rss_bytes=64 * 1024**3,
             )
 
     def test_current_guard_runner_exit_spelling_passes(self) -> None:
@@ -486,7 +482,7 @@ class Task17PreinstrumentationResourceTest(unittest.TestCase):
     def test_guard_stop_event_remains_rejected(self) -> None:
         rows = self.guard.read_text(encoding="utf-8").replace(
             ",sample\n",
-            ",rss_limit_sigterm\n",
+            ",unsupported_sigterm\n",
             1,
         )
         self.guard.write_text(rows, encoding="utf-8")
