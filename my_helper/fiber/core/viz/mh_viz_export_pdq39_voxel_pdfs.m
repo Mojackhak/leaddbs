@@ -51,7 +51,7 @@ for roleIndex = 1:numel(roles)
     spec.VoxelColorbarLabel = sprintf( ...
         'Benefit-oriented partial Spearman ρ with %s', ...
         prepared.scale_display_name);
-    spec.VoxelSampleDepthMm = 1.0;
+    spec.VoxelSampleDepthMm = 0.5;
     spec.AtlasName = 'Custom_STNSNr';
     spec.ShowAtlasWireframe = true;
     spec.AtlasRoiIndices = atlasRoiIndices(roleIndex);

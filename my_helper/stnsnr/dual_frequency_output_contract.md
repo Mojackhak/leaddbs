@@ -525,6 +525,10 @@ Visualization does not publish a duplicate copy. The two FWHM-smoothed NIfTI
 files are display-only derivatives and cannot be used for model selection,
 prediction, permutation, bootstrap, or sensitivity computation.
 
+The three-dimensional direct-voxel exporter samples the integrated 1 mm FWHM
+display map 0.5 mm inward from its finite-support surface. This is a rendering
+parameter only and does not alter the scientific map or model result.
+
 ## Normative-Fiber Result Tree
 
 ```text

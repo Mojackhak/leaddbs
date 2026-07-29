@@ -1489,7 +1489,11 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
         viz_root / "examples" / "open_pdq39_reference_voxel_scene.m"
     )
     voxel_example = voxel_example_path.read_text(encoding="utf-8")
+    voxel_exporter = (
+        viz_root / "mh_viz_export_pdq39_voxel_pdfs.m"
+    ).read_text(encoding="utf-8")
     assert "spec.VoxelSampleDepthMm = 0.5;" in voxel_example
+    assert "spec.VoxelSampleDepthMm = 0.5;" in voxel_exporter
     prepare_scene_helper = (
         viz_root / "mh_viz_prepare_scene_example_input.m"
     ).read_text(encoding="utf-8")
