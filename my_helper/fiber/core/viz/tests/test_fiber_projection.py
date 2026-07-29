@@ -516,24 +516,23 @@ def test_selected_target_scores_and_all_connectome_composition_are_separate(
         np.testing.assert_array_equal(observed.pattern_counts, expected.pattern_counts)
 
 
-def test_projection_rejects_selected_fiber_outside_seed(tmp_path: Path) -> None:
+def test_projection_retains_selected_fiber_outside_seed(tmp_path: Path) -> None:
     seed = load_binary_projection_mask(
         _write_mask(tmp_path / "seed.nii.gz", [(0, 0, 0)]),
         roi_id="seed",
         role="seed",
     )
-    try:
-        compute_selected_direct_projection(
-            fiber_ids=[1],
-            scores=[1.0],
-            is_sweet=[True],
-            streamlines=[np.asarray([[3.0, 3.0, 3.0], [4.0, 4.0, 4.0]])],
-            seed=seed,
-        )
-    except ValueError as error:
-        assert "configured role seed" in str(error)
-    else:  # pragma: no cover - assertion guard
-        raise AssertionError("projection accepted a selected fiber outside the seed")
+    result = compute_selected_direct_projection(
+        fiber_ids=[1],
+        scores=[1.0],
+        is_sweet=[True],
+        streamlines=[np.asarray([[3.0, 3.0, 3.0], [4.0, 4.0, 4.0]])],
+        seed=seed,
+    )
+
+    np.testing.assert_array_equal(result.fiber_ids, [1])
+    np.testing.assert_array_equal(result.seed_hits, [False])
+    assert result.direct_support_count.sum() > 0
 
 
 def test_fiber_display_smoothing_preserves_exact_sparse_support() -> None:

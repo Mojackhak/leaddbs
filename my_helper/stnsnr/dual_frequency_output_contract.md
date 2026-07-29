@@ -788,6 +788,12 @@ Visualization is a consumer of scientific files in the same scale and model
 role. It never supplies inputs to model selection, prediction, formal
 resampling, spatial jitter, or OSS-pPAM.
 
+The direct-streamline fiber view projects the complete paths of all selected
+sweet and sour fibers. Intersection with the configured anatomical role seed
+is recorded as visualization coverage information, not used as an additional
+fiber-eligibility gate. A selected fiber outside that display seed therefore
+remains in the direct projection and does not invalidate the endpoint.
+
 Visualization figures are published only as PNG and PDF files. SVG output is
 not part of the formal result contract.
 

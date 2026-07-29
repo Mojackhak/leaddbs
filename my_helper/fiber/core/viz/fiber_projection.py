@@ -300,12 +300,6 @@ def compute_selected_direct_projection(
     chunk = _fiber_chunk(selected_ids, streamlines)
     lookup = build_sparse_lookup((seed,))
     seed_hits = np.asarray(optimized_membership(chunk, lookup)[:, 0], dtype=np.bool_)
-    if not np.all(seed_hits):
-        missing = selected_ids[~seed_hits]
-        raise ValueError(
-            "selected fibers do not all intersect the configured role seed: "
-            + ", ".join(str(int(value)) for value in missing[:10])
-        )
     voxel_lists = tuple(
         streamline_flat_voxels(
             streamline,
