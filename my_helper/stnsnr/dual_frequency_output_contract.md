@@ -825,6 +825,14 @@ Coefficient-colored fiber PDFs use:
 The view index identifies a configured camera view and is not a version
 identifier.
 
+All-scale 3-D export is scheduled at scale granularity. Independent
+`MATLAB -nodisplay -batch` processes receive disjoint scale IDs, and the
+default process count is half of the host logical CPU count, rounded down with
+a minimum of one. This is an execution-only default and is not stored in the
+scientific YAML or JSON. Existing complete deterministic component paths are
+reused, so interruption or a worker-local failure does not invalidate or
+rebuild other scales.
+
 ## Runtime And Cache Tree
 
 ```text

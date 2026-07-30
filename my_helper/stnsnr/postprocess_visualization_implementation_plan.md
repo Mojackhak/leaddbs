@@ -787,6 +787,16 @@ must invoke MATLAB with `-nodisplay -batch`; `-batch` without `-nodisplay`
 does not meet the publication requirement that no graphics window becomes
 visible.
 
+All-scale 3-D publication is parallel across scale IDs. The launcher starts
+independent `MATLAB -nodisplay -batch` processes, assigns one scale to each
+process, and keeps scale assignments disjoint. Its default concurrency is half
+of the host logical CPU count, rounded down with a minimum of one process.
+This execution default is derived locally and is not exposed as a model or
+workflow parameter because it cannot change a scientific result. Each scale
+retains deterministic output paths, so a resumed launch skips complete scale
+components by path and reruns only a missing or explicitly replaced
+component.
+
 The frozen medium-contrast lighting preset uses Cam intensity `0.98`, Left
 intensity `0.14`, Ceiling intensity `0.08`, ambient strength `0.78`, diffuse
 strength `0.22`, specular strength `0.12`, specular exponent `24`, and
