@@ -33,7 +33,8 @@ reference and add-on final models from the Task 17 main run:
 - `open_pdq39_reference_voxel_scene.m` opens the benefit-oriented direct-voxel
   1 mm FWHM display derivative with symmetric `vik` colors and grayscale
   anatomy slices. It keeps the migrated `insideOnly` color-sampling contract
-  at the repository surface default depth of 1 mm. It also enables the configurable
+  at the repository surface default depth of 1 mm. The add-on voxel example
+  and formal reference/add-on PDF exporter use the same 1 mm depth. It also enables the configurable
   `Custom_STNSNr` atlas by default and draws only ROI 2, the STN, as a
   50%-reduced atlas-colored wireframe with edge alpha 0.15. The interactive figure applies
   the configurable scene background immediately after creation and defaults to

@@ -1975,7 +1975,7 @@ density maps; these remain display derivatives of fiber-axis results.
 Spatial panels use the repository MNI152NLin2009bAsym T1 image as anatomy and
 right-hemisphere STN and SNr masks from the configured 0.05 custom atlas as
 outline-only rendering resources. The request retains Boxsize layout, the
-explicit sweet/sour color distinction, 0.5 mm display sampling, 300 dpi output,
+explicit sweet/sour color distinction, 1 mm display sampling, 300 dpi output,
 and both PNG and PDF formats. It writes only below:
 
 ```text
@@ -2095,7 +2095,7 @@ A read-only source re-audit on 2026-07-21 reconfirmed the interactive 3D
 contract without launching MATLAB during the formal OSS run. Both PDQ-39
 examples resolve their scientific inputs through canonical publication roots,
 create no FIG, image, PDF, or spin output, and never inspect `.runs`. The voxel
-example explicitly requests 0.5 mm inward surface sampling. The scene defaults
+example explicitly requests 1 mm inward surface sampling. The scene defaults
 retain the reference arrow geometry while applying R, A, and S colors
 `#F2000E`, `#0E6AAF`, and `#0CA228`. Voxel surfaces and scored fibers use
 separate symmetric `vik` mappings and right-side colorbars; anatomy surfaces
@@ -2108,7 +2108,7 @@ The same visual contract was re-audited on the current worktree on 2026-07-22.
 The RAS color matrix is exactly `[242, 0, 14; 14, 106, 175; 12, 162, 40] / 255`,
 while location, axes padding, line width 5, head size 1, font size 27, and Arial
 font are loaded from the byte-matching migrated MyLFP plot defaults. The voxel
-path retains signed `vik`, the reference right-side colorbar, and 0.5 mm inward
+path retains signed `vik`, the reference right-side colorbar, and 1 mm inward
 sampling; the fiber path colors every streamline from its score on an
 independent symmetric `vik` scale. Anatomy CData is frozen as grayscale RGB
 truecolor before either statistical colormap is installed. Both PDQ-39 scripts
@@ -2359,8 +2359,8 @@ consumes the existing completed publication versions.
 - Scene-example resume and replacement remain governed by paths,
   `complete.json`, and explicit `force`. Publication or study JSON SHA values
   do not gate reuse.
-- The PDQ-39 reference voxel example retains the previously requested
-  `VoxelSampleDepthMm` value of `0.5`.
+- The PDQ-39 reference and add-on voxel examples use the repository default
+  `VoxelSampleDepthMm` value of `1.0`.
 
 Additional visualization-specific acceptance evidence was collected on
 2026-07-21 as part of the historical PDQ-39 rendering line.

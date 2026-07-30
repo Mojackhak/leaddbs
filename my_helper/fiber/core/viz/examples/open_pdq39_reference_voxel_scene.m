@@ -16,7 +16,7 @@ spec.VoxelSignedNifti = pdq39VoxelInput.input_path;
 spec.VoxelColorbarLabel = sprintf( ...
     'Benefit-oriented partial Spearman ρ with %s', ...
     pdq39VoxelInput.scale_display_name);
-spec.VoxelSampleDepthMm = 0.5;
+spec.VoxelSampleDepthMm = 1.0;
 spec.AtlasName = 'Custom_STNSNr';
 spec.ShowAtlasWireframe = true;
 spec.AtlasRoiIndices = 2;
