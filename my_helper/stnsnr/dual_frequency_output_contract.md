@@ -12,8 +12,9 @@ artifact-hash lookup contracts, and model-set wrapper directories retained in
 other design or implementation documents. Those documents remain authoritative
 for scientific definitions and algorithms that are not changed here.
 
-This document fixes the target contract. The existing code and previously
-published data have not yet been migrated to it.
+This document fixes the target contract. The completed publication was
+migrated to this structure and reached the final completion gate on
+2026-07-30.
 
 ## Required Principles
 
@@ -65,20 +66,19 @@ the following paths without additional configuration:
 | Normative-fiber results | `{output.root}/normative_fiber` |
 | Incomplete runtime state | `{output.root}/.cache/runs` |
 
-The configured output root contains:
+The completed configured output root contains:
 
 ```text
 /Volumes/VAL/STNSNr/summary/spot/
 ├── README.md
 ├── shared/
 ├── direct_voxel/
-├── normative_fiber/
-└── .cache/
-    └── runs/
+└── normative_fiber/
 ```
 
-The formal publication excludes the hidden `.cache/` directory. Neither the
-formal publication nor the hidden cache contains:
+An incomplete execution may additionally create `.cache/runs/`. The completed
+publication excludes that hidden runtime directory when no incomplete state
+remains. Neither the formal publication nor the hidden cache contains:
 
 ```text
 postprocess/
@@ -1055,13 +1055,13 @@ are then moved to the operating-system Trash rather than permanently deleted.
 Only an actively incomplete run that still needs subtask-level recovery may be
 copied into `spot/.cache/runs/`; completed run wrappers are not migrated.
 
-## Final Closeout Plan
+## Final Closeout Execution
 
-This section freezes the remaining implementation and publication work. The
-goal is to reuse the completed scientific results, reorganize them into this
-contract, generate the missing presentation outputs, and stop. Performance
-benchmarking, fault-injection acceptance, and plan-by-plan audits are outside
-the remaining scope.
+This section records the frozen implementation and publication work that
+completed the contract. The closeout reused the completed scientific results,
+reorganized them into this contract, generated the missing presentation
+outputs, and stopped. Performance benchmarking, fault-injection acceptance,
+and plan-by-plan audits were outside the closeout scope.
 
 ### Final Scope
 
@@ -1089,7 +1089,9 @@ are not figure formats. No SVG file is generated.
 
 ### Authoritative Migration Sources
 
-The following existing locations are migration inputs:
+The following historical locations were the one-time migration inputs. They
+were moved to the operating-system Trash after all three root completion
+markers were written and validated:
 
 | Destination content | Existing source |
 |---|---|
@@ -1195,7 +1197,7 @@ scope are moved to the operating-system Trash before replacement.
 
 ### Implementation Sequence
 
-The remaining work is performed in this order:
+The closeout was performed in this order:
 
 1. Treat this document as the only output and resume contract.
 2. Change workflow path resolution so `output.root` is the only configurable
@@ -1255,3 +1257,29 @@ Closeout is complete when:
 The hidden runtime cache is not part of this completion gate. Once the three
 root markers exist, the final scientific publication remains usable and
 portable without `.cache/`.
+
+### Completion Evidence
+
+The real publication satisfied the gate with the following destination-only
+evidence:
+
+- the result root contains only `README.md`, `shared/`, `direct_voxel/`, and
+  `normative_fiber/`;
+- the shared root and both model roots contain the exact minimal
+  `{"status":"complete"}` marker;
+- both model roots contain all 28 configured scales, for 112 model-role
+  endpoints in total;
+- the declared scientific closure contains 12214 files with no missing path;
+- all 112 reader-facing endpoint summaries and all 56 scale completion markers
+  are present;
+- all-scale 3-D rendering used eight disjoint-scale headless MATLAB workers on
+  the 16-logical-core host and completed 224 single-page Arial PDFs;
+- the formal 3-D publication contains those 224 PDFs plus 168 relative,
+  sanitized export manifests;
+- visualization and final publication validation found no missing file,
+  prohibited metadata field, AppleDouble sidecar, SVG file, versioned
+  destination, historical wrapper, standalone postprocess root, or prohibited
+  index; and
+- after historical sources and caches were moved to Trash, an identical
+  finalizer resume wrote no file, and all 20372 formal file paths, sizes, and
+  modification times remained unchanged.
