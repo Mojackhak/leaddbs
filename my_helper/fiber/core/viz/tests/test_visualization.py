@@ -1678,6 +1678,8 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
     )
     assert "'Tag', 'mh_viz_fiber_legend_matte'" in mixed_pdf_exporter
     assert "'Color', spec.TextColor" in mixed_pdf_exporter
+    assert "maxLabelLength = 0.90;" in mixed_pdf_exporter
+    assert "labelFontSize = max(12" in mixed_pdf_exporter
     silent_exporter = (
         viz_root / "mh_viz_export_pdq39_voxel_pdfs.m"
     ).read_text(encoding="utf-8")

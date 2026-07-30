@@ -1122,6 +1122,7 @@ function local_draw_standard_colorbar_label(parentFig, spec, orientation)
 
     overlayAx = local_create_page_overlay_axes(parentFig);
     pos = double(spec.Position(:))';
+    labelFontSize = double(spec.LabelFontSize);
     if strcmpi(orientation, 'horizontal')
         point = [pos(1) + pos(3) / 2, max(0.03, pos(2) - 0.12)];
         rotation = 0;
@@ -1131,10 +1132,18 @@ function local_draw_standard_colorbar_label(parentFig, spec, orientation)
         point = [min(0.94, pos(1) + pos(3) + tickLen + 0.13), pos(2) + pos(4) / 2];
         rotation = 90;
         horizontalAlignment = 'center';
+        maxLabelLength = 0.90;
+        labelLength = local_measure_mixed_text_length(overlayAx, ...
+            spec.LabelString, spec.LabelFontName, 'Symbol', ...
+            labelFontSize, rotation, spec.UseSymbolForGreek);
+        if labelLength > maxLabelLength
+            labelFontSize = max(12, ...
+                labelFontSize * maxLabelLength / labelLength);
+        end
     end
 
     handles = local_draw_mixed_font_text(overlayAx, point, spec.LabelString, ...
-        spec.LabelFontName, 'Symbol', spec.LabelFontSize, spec.LabelColor, ...
+        spec.LabelFontName, 'Symbol', labelFontSize, spec.LabelColor, ...
         rotation, horizontalAlignment, 'middle', spec.UseSymbolForGreek);
     local_shift_label_handles_into_page(handles);
 end

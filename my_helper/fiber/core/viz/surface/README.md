@@ -135,7 +135,9 @@ model. This view performs no fiber or point sampling. It omits the
 Candidate/Sweet/Sour count legend and instead displays the publication-resolved
 right-side coefficient colorbar with white ticks and a white Arial label on
 the black scene background. Anatomy remains grayscale truecolor and is not
-affected by the fiber colormap.
+affected by the fiber colormap. During PDF composition, a long vertical
+colorbar label keeps its full semantic text and is reduced only as needed,
+with a 12-point lower bound, so the label remains inside the page.
 
 ```matlab
 exports = mh_viz_export_pdq39_fiber_coefficient_pdfs(outputDirectory);
