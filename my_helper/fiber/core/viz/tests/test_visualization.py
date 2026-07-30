@@ -1591,6 +1591,7 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
     assert "mh_viz_make_sweet_sour_scene:StrictHeadlessVisibleFigure" in (
         scene_source
     )
+    assert "clear visibilityCleanup;" not in scene_source
     assert "defaults.RASShowLabels = true;" in scene_source
     assert "fiberDefaults = mh_viz_default_fiber_scene_spec();" in scene_source
     assert "local_add_explicit_anatomy_slice(hFig, hAx, spec)" in scene_source
@@ -1690,6 +1691,13 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
     assert "spec.FigureVisible = 'off';" in silent_exporter
     assert "spec.FigureBackend = 'matlab';" in silent_exporter
     assert "spec.StrictHeadless = true;" in silent_exporter
+    assert "oldDefaultFigureVisible = get(groot, 'DefaultFigureVisible');" in (
+        silent_exporter
+    )
+    assert "groot, 'DefaultFigureVisible', oldDefaultFigureVisible" in (
+        silent_exporter
+    )
+    assert silent_exporter.count("local_assert_hidden(newFigures);") == 2
     assert "spec.AtlasEdgeAlpha = 0.15;" in silent_exporter
     assert "mh_viz_export_pdq39_voxel_pdfs:VisibleFigure" in silent_exporter
     assert "numel(exports) ~= 4" in silent_exporter
@@ -1718,6 +1726,13 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
     assert "spec.FigureVisible = 'off';" in fiber_exporter
     assert "spec.FigureBackend = 'matlab';" in fiber_exporter
     assert "spec.StrictHeadless = true;" in fiber_exporter
+    assert "oldDefaultFigureVisible = get(groot, 'DefaultFigureVisible');" in (
+        fiber_exporter
+    )
+    assert "groot, 'DefaultFigureVisible', oldDefaultFigureVisible" in (
+        fiber_exporter
+    )
+    assert fiber_exporter.count("local_assert_hidden(newFigures);") == 2
     assert "spec.AddToolbarToggles = false;" in fiber_exporter
     assert "'BackgroundColor', fiberStyle.BackgroundColor" in fiber_exporter
     assert "'IncludeAnatomySlices', true" in fiber_exporter
@@ -1774,6 +1789,13 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
         coefficient_exporter
     )
     assert "spec.ShowFiberLegend = false;" in coefficient_exporter
+    assert "oldDefaultFigureVisible = get(groot, 'DefaultFigureVisible');" in (
+        coefficient_exporter
+    )
+    assert "groot, 'DefaultFigureVisible', oldDefaultFigureVisible" in (
+        coefficient_exporter
+    )
+    assert coefficient_exporter.count("local_assert_hidden(newFigures);") == 2
     assert "'colormap', 'vik'" in coefficient_exporter
     assert "'colormap_samples', 256" in coefficient_exporter
     assert "'fiber_sampling', 'none'" in coefficient_exporter

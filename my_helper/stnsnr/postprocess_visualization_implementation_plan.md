@@ -780,6 +780,13 @@ each role, and closes every internal figure on success or failure. The
 existing `open_pdq39_*_voxel_scene.m` examples remain interactive and are not
 used by the silent exporter.
 
+Strict headless applies to the complete scene-build and export interval, not
+only to the final figure state. The root hidden-figure default must remain
+active until all role views have been exported. Formal detached macOS jobs
+must invoke MATLAB with `-nodisplay -batch`; `-batch` without `-nodisplay`
+does not meet the publication requirement that no graphics window becomes
+visible.
+
 The frozen medium-contrast lighting preset uses Cam intensity `0.98`, Left
 intensity `0.14`, Ceiling intensity `0.08`, ambient strength `0.78`, diffuse
 strength `0.22`, specular strength `0.12`, specular exponent `24`, and

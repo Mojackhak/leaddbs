@@ -45,6 +45,10 @@ scaleId = char(string(parser.Results.ScaleId));
 views = parser.Results.Views;
 filePrefix = char(string(parser.Results.FilePrefix));
 resolution = double(parser.Results.Resolution);
+oldDefaultFigureVisible = get(groot, 'DefaultFigureVisible');
+set(groot, 'DefaultFigureVisible', 'off');
+visibilityCleanup = onCleanup(@() set( ...
+    groot, 'DefaultFigureVisible', oldDefaultFigureVisible)); %#ok<NASGU>
 roles = {'reference', 'addon'};
 modelFamilies = {'reference_fiber', 'addon_fiber'};
 atlasRoiIndices = [2, 1];
@@ -122,6 +126,7 @@ for roleIndex = 1:numel(roles)
         'IncludeAnatomySlices', true, ...
         'RequireRASLabels', false);
     exports = [exports; roleExports(:)]; %#ok<AGROW>
+    local_assert_hidden(newFigures);
 
     metadata = scene.objects.fiberCoefficientMetadata;
     roleRecords(roleIndex).role = role;

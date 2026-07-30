@@ -95,7 +95,6 @@ if strcmpi(spec.FigureVisible, 'off')
     if spec.StrictHeadless
         local_assert_figures_hidden([hFig; newFigures(:)]);
     end
-    clear visibilityCleanup;
 elseif strcmpi(spec.FigureVisible, 'on')
     set(hFig, 'Visible', 'on');
 end

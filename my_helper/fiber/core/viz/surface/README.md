@@ -98,9 +98,13 @@ exports = mh_viz_export_pdq39_voxel_pdfs(outputDirectory);
 The silent entry point creates the reference and add-on scenes with
 the same strict-headless settings as MyLFP `surface_med.m`:
 `FigureVisible='off'`, `FigureBackend='matlab'`, and
-`StrictHeadless=true`. It creates no Elvis viewer window, verifies that each
-native MATLAB figure remains hidden, exports two views per role, and closes
-every internal figure on success or failure. The
+`StrictHeadless=true`. The hidden-figure default remains active for the full
+scene-build and export operation so an implicit graphics call cannot create a
+visible intermediate window. Formal detached batch export must also start
+MATLAB with `-nodisplay`; `-batch` alone does not satisfy the no-window
+operational contract on macOS. The entry point creates no Elvis viewer window,
+verifies that each native MATLAB figure remains hidden, exports two views per
+role, and closes every internal figure on success or failure. The
 `open_pdq39_*_voxel_scene.m` examples remain intentionally interactive.
 
 The corresponding PDQ-39 categorical fiber export uses every published

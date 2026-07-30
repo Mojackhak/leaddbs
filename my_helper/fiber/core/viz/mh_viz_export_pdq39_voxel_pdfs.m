@@ -35,6 +35,11 @@ views = parser.Results.Views;
 filePrefix = char(string(parser.Results.FilePrefix));
 resolution = double(parser.Results.Resolution);
 
+oldDefaultFigureVisible = get(groot, 'DefaultFigureVisible');
+set(groot, 'DefaultFigureVisible', 'off');
+visibilityCleanup = onCleanup(@() set( ...
+    groot, 'DefaultFigureVisible', oldDefaultFigureVisible)); %#ok<NASGU>
+
 roles = {'reference', 'addon'};
 modelFamilies = {'reference_voxel', 'addon_voxel'};
 atlasRoiIndices = [2, 1];
@@ -78,6 +83,7 @@ for roleIndex = 1:numel(roles)
         'FilePrefix', filePrefix, ...
         'Resolution', resolution);
     exports = [exports; roleExports(:)]; %#ok<AGROW>
+    local_assert_hidden(newFigures);
 
     local_delete_figures(newFigures);
     clear figureCleanup;
