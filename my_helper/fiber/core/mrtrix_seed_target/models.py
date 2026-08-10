@@ -80,6 +80,15 @@ class ExecutionConfig:
 
 
 @dataclass(frozen=True)
+class VisualizationConfig:
+    """Display-only target-space tractography settings."""
+
+    target_fiber_display_budget: int
+    target_colormap: str
+    seed_wireframe_color: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
 class AtlasConfig:
     """Shared atlas and ordered seed definitions."""
 
@@ -98,6 +107,7 @@ class BatchConfig:
     subjects: tuple[SubjectSpec, ...]
     tracking: TrackingConfig
     execution: ExecutionConfig
+    visualization: VisualizationConfig
     source_path: Path
     resolved_mapping: Mapping[str, Any]
     configuration_hash: str
@@ -116,12 +126,18 @@ class ResolvedSubjectInputs:
     brain_mask: Path
     tracking_mask: Path
     anchor_native_reference: Path
-    mni_to_anchor_transform: Path
-    anchor_to_dwi_transform: Path
+    b0_to_anchor_transform: Path
+    anchor_to_b0_transform: Path
+    target_to_anchor_image_deformation: Path
+    anchor_to_target_image_deformation: Path
     coregistration_method_log: Path
     coregistration_method: str
     coregistration_method_token: str
     coregistration_approved: bool
+    normalization_method_log: Path
+    normalization_method: str
+    normalization_approval: float
+    target_space: str
 
     @property
     def output_root(self) -> Path:
@@ -157,6 +173,8 @@ class ValidationBundle:
     preparation_code_hash: str
     tracking_code_hash: str
     publication_code_hash: str
+    space_conversion_code_hash: str
+    visualization_code_hash: str
     warnings: tuple[str, ...]
 
     def as_mapping(self) -> dict[str, Any]:
@@ -171,6 +189,8 @@ class ValidationBundle:
                 "preparation": self.preparation_code_hash,
                 "tracking": self.tracking_code_hash,
                 "publication": self.publication_code_hash,
+                "space_conversion": self.space_conversion_code_hash,
+                "visualization": self.visualization_code_hash,
             },
             "atlas": {
                 "name": self.config.atlas.name,
@@ -186,9 +206,17 @@ class ValidationBundle:
                     "id": subject.subject_id,
                     "subject_dir": str(subject.subject_dir),
                     "b0_coregistration_method": subject.coregistration_method,
-                    "anchor_to_dwi_transform": str(
-                        subject.anchor_to_dwi_transform
+                    "b0_to_anchor_transform": str(subject.b0_to_anchor_transform),
+                    "anchor_to_b0_transform": str(subject.anchor_to_b0_transform),
+                    "target_to_anchor_image_deformation": str(
+                        subject.target_to_anchor_image_deformation
                     ),
+                    "anchor_to_target_image_deformation": str(
+                        subject.anchor_to_target_image_deformation
+                    ),
+                    "normalization_method": subject.normalization_method,
+                    "normalization_approval": subject.normalization_approval,
+                    "target_space": subject.target_space,
                     "output_root": str(subject.output_root),
                 }
                 for subject in self.subjects

@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator
+from matplotlib import colormaps, colors as mpl_colors
 import yaml
 
 from .errors import ConfigurationError
@@ -20,6 +21,7 @@ from .models import (
     SeedSpec,
     SubjectSpec,
     TrackingConfig,
+    VisualizationConfig,
 )
 
 
@@ -74,6 +76,33 @@ def _freeze(value: Any) -> Any:
     if isinstance(value, list):
         return tuple(_freeze(item) for item in value)
     return value
+
+
+def _resolve_visualization(document: Mapping[str, Any]) -> tuple[VisualizationConfig, dict[str, Any]]:
+    name = str(document["target_colormap"])
+    try:
+        colormaps[name]
+    except KeyError as exc:
+        raise ConfigurationError(
+            f"visualization.target_colormap is not registered by Matplotlib: {name!r}"
+        ) from exc
+    color_text = str(document["seed_wireframe_color"]).upper()
+    try:
+        color = tuple(float(value) for value in mpl_colors.to_rgb(color_text))
+    except ValueError as exc:
+        raise ConfigurationError(
+            "visualization.seed_wireframe_color is not a valid RGB color"
+        ) from exc
+    config = VisualizationConfig(
+        target_fiber_display_budget=int(document["target_fiber_display_budget"]),
+        target_colormap=name,
+        seed_wireframe_color=(color[0], color[1], color[2]),
+    )
+    return config, {
+        "target_fiber_display_budget": config.target_fiber_display_budget,
+        "target_colormap": config.target_colormap,
+        "seed_wireframe_color": color_text,
+    }
 
 
 def _validate_document(document: Any) -> dict[str, Any]:
@@ -163,6 +192,9 @@ def resolve_config(
 
     tracking_document = dict(materialized["tracking"])
     execution_document = dict(materialized["execution"])
+    visualization, visualization_mapping = _resolve_visualization(
+        dict(materialized["visualization"])
+    )
     mrtrix_prefix_value = str(execution_document["mrtrix_path_prefix"])
     mrtrix_prefix = (
         _resolve_path(mrtrix_prefix_value, base_dir)
@@ -253,6 +285,7 @@ def resolve_config(
             ),
             "mrtrix_path_prefix": str(mrtrix_prefix) if mrtrix_prefix else "",
         },
+        "visualization": visualization_mapping,
     }
 
     tracking = TrackingConfig(
@@ -357,6 +390,7 @@ def resolve_config(
         subjects=tuple(subjects),
         tracking=tracking,
         execution=execution,
+        visualization=visualization,
         source_path=source,
         resolved_mapping=_freeze(resolved),
         configuration_hash=_canonical_hash(resolved),

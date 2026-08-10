@@ -672,6 +672,8 @@ def build_endpoint_summary(
                 "representation": (
                     "direct_voxel"
                     if endpoint.key.model_family.endswith("voxel")
+                    else "individualized_seed_target"
+                    if endpoint.key.model_family.endswith("individualized")
                     else "normative_fiber"
                 ),
                 "scale_label": endpoint.scale_label,

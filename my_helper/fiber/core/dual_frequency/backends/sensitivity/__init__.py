@@ -32,6 +32,13 @@ from .spatial_jitter import (
     SpatialJitterStrategy,
     jitter_rebuild_identity,
 )
+from .individualized_target_jitter import (
+    IndividualizedTargetJitterError,
+    IndividualizedTargetJitterRequest,
+    IndividualizedTargetSpatialJitterBackend,
+    TargetJitterReplicateEvidence,
+    TargetJitterReplicateProvider,
+)
 from .tau_neighborhood import TauNeighborhoodRequest, TauNeighborhoodStrategy
 
 __all__ = [
@@ -47,6 +54,9 @@ __all__ = [
     "FixedCellEvidence",
     "JitterReplicateProvider",
     "JitterReplicateEvidence",
+    "IndividualizedTargetJitterError",
+    "IndividualizedTargetJitterRequest",
+    "IndividualizedTargetSpatialJitterBackend",
     "ObservedFiberControlRequest",
     "ObservedFiberControlStrategy",
     "ScientificArrayProvider",
@@ -54,6 +64,8 @@ __all__ = [
     "SpatialJitterRequest",
     "SpatialJitterSettings",
     "SpatialJitterStrategy",
+    "TargetJitterReplicateEvidence",
+    "TargetJitterReplicateProvider",
     "SupportDiagnosticInput",
     "TauNeighborhoodRequest",
     "TauNeighborhoodStrategy",

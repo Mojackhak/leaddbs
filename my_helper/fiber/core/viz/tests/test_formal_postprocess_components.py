@@ -982,10 +982,7 @@ def test_formal_postprocess_keeps_all_three_component_families_for_two_scales(
     config = json.loads(config_path.read_text(encoding="utf-8"))
     config["components"] = ["paired_fit", "voxel_2d", "fiber_2d"]
     config["resources"] = {
-        "background": "background.nii.gz",
-        "reference_mask": "reference.nii.gz",
-        "addon_mask": "addon.nii.gz",
-        "fiber_spatial_config": "fiber.yaml",
+        "spatial_visualization_config": "spatial.yaml",
     }
     config_path.write_text(json.dumps(config), encoding="utf-8")
 
@@ -1032,6 +1029,26 @@ def test_formal_postprocess_keeps_all_three_component_families_for_two_scales(
     )
     monkeypatch.setattr(
         formal_postprocess,
+        "load_spatial_result_config",
+        lambda path: {
+            "background": {"path": "background.nii.gz"},
+            "display_map": {
+                "fwhm_mm": 1.0,
+                "voxel_size_mm": 0.1,
+                "support_weight_threshold": 0.5,
+            },
+            "outline": {"continuous_isovalue": 0.05},
+            "voxel": {
+                "masks": {
+                    "reference": "reference.nii.gz",
+                    "addon": "addon.nii.gz",
+                }
+            },
+            "fiber": {},
+        },
+    )
+    monkeypatch.setattr(
+        formal_postprocess,
         "_resource_record",
         lambda path, kind: {"path": str(path), "kind": kind},
     )
@@ -1048,7 +1065,7 @@ def test_formal_postprocess_keeps_all_three_component_families_for_two_scales(
             }
             for scale_id in ("scale_a", "scale_b")
             for role in ("reference", "addon")
-            for index in range(3)
+            for index in range(1)
         ],
     )
     monkeypatch.setattr(
@@ -1080,13 +1097,13 @@ def test_formal_postprocess_keeps_all_three_component_families_for_two_scales(
         "fiber_2d",
     }
     assert {item["model_unit"]: item["output_count"] for item in result["endpoint_results"]} == {
-        "voxel": 4,
+        "voxel": 2,
         "fiber": 2,
     }
     assert {
         item["model_unit"]: item["component_manifest_count"]
         for item in result["endpoint_results"]
-    } == {"voxel": 4, "fiber": 2}
+    } == {"voxel": 2, "fiber": 2}
 
 
 def test_output_validator_allows_zero_components_for_inapplicable_model_unit(
@@ -1095,7 +1112,7 @@ def test_output_validator_allows_zero_components_for_inapplicable_model_unit(
     output_root = tmp_path / "voxel_only_output"
     output_root.mkdir()
     voxel_rows = []
-    for index in range(3):
+    for index in range(1):
         voxel_output = (
             f"scales/scale_a/reference/voxel/benefit_map_{index}_data.json"
         )
@@ -1161,7 +1178,7 @@ def test_output_validator_allows_zero_components_for_inapplicable_model_unit(
     assert {
         item["model_unit"]: item["component_manifest_count"]
         for item in endpoint_results
-    } == {"voxel": 3, "fiber": 0}
+    } == {"voxel": 1, "fiber": 0}
     formal_postprocess._write_json_atomic(
         output_root / "request.json",
         {"schema_version": formal_postprocess.SCHEMA_VERSION},
@@ -1203,8 +1220,8 @@ def test_output_validator_allows_zero_components_for_inapplicable_model_unit(
 
     assert terminal["status"] == "valid"
     assert terminal["endpoint_count"] == 2
-    assert terminal["declared_output_count"] == 3
-    assert terminal["component_manifest_count"] == 3
+    assert terminal["declared_output_count"] == 1
+    assert terminal["component_manifest_count"] == 1
 
 
 def test_declared_pdf_requires_successful_poppler_parse_and_arial(

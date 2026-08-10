@@ -387,12 +387,12 @@ function local_export_mixed_pdf(hFig, outFile, bg, resolution, rendererName, use
         local_draw_vector_fiber_legend(compFig, fiberLegendSpecs(i));
     end
 
-    for i = 1:numel(colorbarSpecs)
-        local_draw_vector_colorbar(compFig, colorbarSpecs(i));
-    end
-
     for i = triadIdx(:)'
         local_draw_raster_layer(compFig, rasterSpecs(i));
+    end
+
+    for i = 1:numel(colorbarSpecs)
+        local_draw_vector_colorbar(compFig, colorbarSpecs(i));
     end
 
     try

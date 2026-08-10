@@ -38,7 +38,7 @@ class Task17ExtensionPublicationTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.source = self.root / "source-child"
-        self.parent = self.root / "model-set"
+        self.parent = self.root / "normative_fiber"
         self.extension = self.parent / "extensions" / "extension-v2"
         self.source.mkdir()
         self.parent.mkdir()
@@ -71,7 +71,6 @@ class Task17ExtensionPublicationTest(unittest.TestCase):
         parent_manifest = {
             "final_status": "completed",
             "source_run_id": parent_run_id,
-            "model_set_id": "synthetic",
         }
         _write_json(self.parent / "model_manifest.json", parent_manifest)
         base = "adl/reference/sensitivity/spatial_jitter"
@@ -217,8 +216,7 @@ class Task17ExtensionPublicationTest(unittest.TestCase):
             self.parent / "model_manifest.json",
             {
                 "final_status": "completed",
-                "source_run_id": "parent-run",
-                "model_set_id": "changed",
+                "source_run_id": "changed",
             },
         )
         with self.assertRaisesRegex(

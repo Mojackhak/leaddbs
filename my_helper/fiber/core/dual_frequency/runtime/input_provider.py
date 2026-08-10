@@ -45,6 +45,7 @@ from ..cache.identity import ScientificCacheKey, sha256_file
 from ..catalog import EndpointRecord
 from ..config import (
     DirectVoxelModelProfile,
+    IndividualizedSeedTargetModelProfile,
     NormativeFiberModelProfile,
     ResolvedWorkflow,
 )
@@ -63,12 +64,15 @@ from ..contracts import (
     NormativeFiberScoreSettings,
     ObservedRequest,
     PreparedExposureRecord,
+    PreparedTargetExposureRecord,
     ReferenceDependencyRecord,
     SensitiveRecord,
     SourceGrid,
     SourceRecord,
     StudyBaseRecord,
     SubjectExclusionRecord,
+    TargetObservedRequest,
+    TargetScoreSettings,
 )
 from ..contracts.identity import canonical_hash
 from ..contracts.records import ACCEPTED_SOURCE_STATUSES, FinalModelRecord
@@ -238,6 +242,31 @@ class _BilateralSamplingPlan:
     right_translation_mm: np.ndarray | None
     reason_code: str | None
     inactive: bool = False
+
+
+@dataclass(frozen=True)
+class _TargetBurdenArrays:
+    """Tau-indexed side and patient target burden arrays."""
+
+    side_total_counts: np.ndarray
+    side_burdens: np.ndarray
+    side_activated_counts: np.ndarray
+    side_activated_fractions: np.ndarray
+    patient_burdens: np.ndarray
+    patient_support: np.ndarray
+
+
+@dataclass(frozen=True)
+class TargetJitterBurdenBlock:
+    """Replicate-indexed target burdens shared across endpoint statistics."""
+
+    replicate_indices: np.ndarray
+    replicate_seeds: np.ndarray
+    patient_burdens: np.ndarray
+    patient_support: np.ndarray
+    reference_condition_patient_burdens: np.ndarray | None
+    addon_reference_component_patient_burdens: np.ndarray | None
+    addon_reference_component_patient_support: np.ndarray | None
 
 
 @dataclass(frozen=True)
@@ -471,16 +500,16 @@ class RuntimeInputProvider(Protocol):
         endpoint_input: EndpointInputRecord,
         reference_dependency: ReferenceDependencyRecord | None,
         publisher: ArtifactPublisher,
-    ) -> PreparedExposureRecord: ...
+    ) -> PreparedExposureRecord | PreparedTargetExposureRecord: ...
 
     def observed_request(
         self,
         endpoint_input: EndpointInputRecord,
-        prepared: PreparedExposureRecord,
+        prepared: PreparedExposureRecord | PreparedTargetExposureRecord,
         *,
         branch: str,
         delta_reference: DeltaReferenceBundle | None = None,
-    ) -> ObservedRequest: ...
+    ) -> ObservedRequest | TargetObservedRequest: ...
 
 
 class StudyRuntimeInputProvider:
@@ -751,11 +780,19 @@ class StudyRuntimeInputProvider:
     def _profile(
         self,
         endpoint: EndpointRecord,
-    ) -> DirectVoxelModelProfile | NormativeFiberModelProfile:
-        return (
-            self.configuration.direct_voxel
-            if endpoint.key.model_family.endswith("voxel")
-            else self.configuration.normative_fiber
+    ) -> (
+        DirectVoxelModelProfile
+        | NormativeFiberModelProfile
+        | IndividualizedSeedTargetModelProfile
+    ):
+        if endpoint.key.model_family.endswith("voxel"):
+            return self.configuration.direct_voxel
+        if endpoint.key.model_family.endswith("fiber"):
+            return self.configuration.normative_fiber
+        if endpoint.key.model_family.endswith("individualized"):
+            return self.configuration.individualized_seed_target
+        raise RuntimeInputProviderError(
+            f"unsupported model family {endpoint.key.model_family!r}"
         )
 
     def _bindings(
@@ -3386,12 +3423,32 @@ class StudyRuntimeInputProvider:
             )
         return record
 
+    @staticmethod
+    def _selected_tau_coverage(
+        record: SourceRecord | SensitiveRecord,
+    ) -> tuple[float, int]:
+        if isinstance(record, SourceRecord):
+            if record.selected_tau is None or record.selected_coverage is None:
+                raise RuntimeInputProviderError(
+                    "ready reference source has no selected tau or Coverage"
+                )
+            return float(record.selected_tau), int(record.selected_coverage)
+        return float(record.evaluated_tau), int(record.evaluated_coverage)
+
     def publish_prepared_exposure(
         self,
         endpoint_input: EndpointInputRecord,
         reference_dependency: ReferenceDependencyRecord | None,
         publisher: ArtifactPublisher,
-    ) -> PreparedExposureRecord:
+    ) -> PreparedExposureRecord | PreparedTargetExposureRecord:
+        endpoint = self.endpoint(endpoint_input.endpoint.identifier)
+        if endpoint.key.model_family.endswith("individualized"):
+            return self._publish_prepared_target_exposure(
+                endpoint_input,
+                reference_dependency,
+                publisher,
+                jitter_context=None,
+            )
         with self._capture_input_hashes() as input_hashes:
             return self._publish_prepared_exposure_impl(
                 endpoint_input,
@@ -3401,17 +3458,868 @@ class StudyRuntimeInputProvider:
                 jitter_context=None,
             )
 
+    def _target_tck_path(
+        self,
+        subject_id: str,
+        side: str,
+        target_id: str,
+    ) -> Path:
+        profile = self.configuration.individualized_seed_target
+        root = Path(
+            profile.tractography.subject_root_pattern.format(
+                subject_id=subject_id,
+            )
+        )
+        return (
+            root
+            / "tractograms"
+            / profile.tractography.space
+            / side
+            / profile.tractography.seed_id
+            / "targets"
+            / side
+            / f"{target_id}.tck"
+        )
+
+    def _target_axes(
+        self,
+        subject_axis: AxisRef,
+    ) -> tuple[AxisRef, AxisRef, AxisRef, np.ndarray]:
+        profile = self.configuration.individualized_seed_target
+        target_ids = np.asarray(
+            profile.tractography.target_ids,
+            dtype=f"<U{max(map(len, profile.tractography.target_ids))}",
+        )
+        target_axis = AxisRef(
+            axis_id=f"{self.study.study_id}:individualized-targets",
+            count=int(target_ids.size),
+            sha256=canonical_hash({"ordered_target_ids": target_ids.tolist()}),
+        )
+        side_axis = AxisRef(
+            axis_id=f"{self.study.study_id}:individualized-sides",
+            count=2,
+            sha256=canonical_hash({"ordered_sides": ["lh", "rh"]}),
+        )
+        tau_values = profile.source.tau_values
+        tau_axis = AxisRef(
+            axis_id=f"{self.study.study_id}:individualized-source-tau",
+            count=len(tau_values),
+            sha256=canonical_hash({"ordered_tau_v_per_m": list(tau_values)}),
+        )
+        if subject_axis.count < 1:
+            raise RuntimeInputProviderError("target subject axis is empty")
+        return target_axis, side_axis, tau_axis, target_ids
+
+    @staticmethod
+    def _atomic_json(path: Path, payload: dict[str, object]) -> None:
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        temporary.write_text(
+            json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=True)
+            + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+
+    def _sample_target_tck(
+        self,
+        path: Path,
+        samplers: tuple[_NiftiSampler, ...],
+        *,
+        translation_mm: np.ndarray | None = None,
+    ) -> np.ndarray:
+        if not path.is_file():
+            raise RuntimeInputProviderError(
+                f"individualized target tractogram is missing: {path}"
+            )
+        try:
+            tractogram = nib.streamlines.load(str(path), lazy_load=True)
+        except (OSError, ValueError) as exc:
+            raise RuntimeInputProviderError(
+                f"failed to open target tractogram {path}: {exc}"
+            ) from exc
+        try:
+            expected_count = int(tractogram.header["count"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeInputProviderError(
+                f"target tractogram lacks a valid streamline count: {path}"
+            ) from exc
+        peaks = np.empty(expected_count, dtype=np.float32)
+        written = 0
+        chunk: list[np.ndarray] = []
+        point_count = 0
+
+        def flush() -> None:
+            nonlocal written, point_count
+            if not chunk:
+                return
+            lengths = np.asarray(
+                [streamline.shape[0] for streamline in chunk],
+                dtype=np.int64,
+            )
+            if np.any(lengths < 1):
+                raise RuntimeInputProviderError(
+                    f"target tractogram contains an empty streamline: {path}"
+                )
+            offsets = np.empty(lengths.size + 1, dtype=np.int64)
+            offsets[0] = 0
+            np.cumsum(lengths, out=offsets[1:])
+            points = np.ascontiguousarray(np.concatenate(chunk, axis=0))
+            local = np.zeros(lengths.size, dtype=np.float32)
+            for sampler in samplers:
+                sampled = sampler.sample(
+                    points,
+                    translation_mm=translation_mm,
+                )
+                local = np.maximum(
+                    local,
+                    np.maximum.reduceat(sampled, offsets[:-1]),
+                )
+            stop = written + lengths.size
+            peaks[written:stop] = local
+            written = stop
+            chunk.clear()
+            point_count = 0
+
+        for streamline in tractogram.tractogram.streamlines:
+            value = np.asarray(streamline, dtype=np.float32)
+            chunk.append(value)
+            point_count += int(value.shape[0])
+            if point_count >= 500_000:
+                flush()
+        flush()
+        if written != expected_count:
+            raise RuntimeInputProviderError(
+                f"target tractogram count differs from its header: {path}"
+            )
+        return peaks
+
+    def _sample_target_tck_block(
+        self,
+        path: Path,
+        samplers: tuple[_NiftiSampler, ...],
+        translations_mm: tuple[np.ndarray, ...],
+    ) -> np.ndarray:
+        """Sample all translations while streaming one target tractogram once."""
+
+        if not path.is_file():
+            raise RuntimeInputProviderError(
+                f"individualized target tractogram is missing: {path}"
+            )
+        if not translations_mm:
+            raise RuntimeInputProviderError(
+                "target jitter block requires at least one translation"
+            )
+        try:
+            tractogram = nib.streamlines.load(str(path), lazy_load=True)
+        except (OSError, ValueError) as exc:
+            raise RuntimeInputProviderError(
+                f"failed to open target tractogram {path}: {exc}"
+            ) from exc
+        try:
+            expected_count = int(tractogram.header["count"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeInputProviderError(
+                f"target tractogram lacks a valid streamline count: {path}"
+            ) from exc
+        peaks = np.empty(
+            (len(translations_mm), expected_count),
+            dtype=np.float32,
+        )
+        written = 0
+        chunk: list[np.ndarray] = []
+        point_count = 0
+
+        def flush() -> None:
+            nonlocal written, point_count
+            if not chunk:
+                return
+            lengths = np.asarray(
+                [streamline.shape[0] for streamline in chunk],
+                dtype=np.int64,
+            )
+            if np.any(lengths < 1):
+                raise RuntimeInputProviderError(
+                    f"target tractogram contains an empty streamline: {path}"
+                )
+            offsets = np.empty(lengths.size + 1, dtype=np.int64)
+            offsets[0] = 0
+            np.cumsum(lengths, out=offsets[1:])
+            points = np.ascontiguousarray(np.concatenate(chunk, axis=0))
+            stop = written + lengths.size
+            for replicate_offset, translation in enumerate(translations_mm):
+                local = np.zeros(lengths.size, dtype=np.float32)
+                for sampler in samplers:
+                    sampled = sampler.sample(
+                        points,
+                        translation_mm=translation,
+                    )
+                    local = np.maximum(
+                        local,
+                        np.maximum.reduceat(sampled, offsets[:-1]),
+                    )
+                peaks[replicate_offset, written:stop] = local
+            written = stop
+            chunk.clear()
+            point_count = 0
+
+        for streamline in tractogram.tractogram.streamlines:
+            value = np.asarray(streamline, dtype=np.float32)
+            chunk.append(value)
+            point_count += int(value.shape[0])
+            if point_count >= 500_000:
+                flush()
+        flush()
+        if written != expected_count:
+            raise RuntimeInputProviderError(
+                f"target tractogram count differs from its header: {path}"
+            )
+        peaks.flags.writeable = False
+        return peaks
+
+    def _target_block_metrics(
+        self,
+        peaks: np.ndarray,
+        *,
+        reference_peaks: np.ndarray | None,
+        reference_tau: float | None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return burden and support for one target across one jitter block."""
+
+        values = np.asarray(peaks, dtype=np.float32)
+        if values.ndim != 2 or values.shape[1] < 1:
+            raise RuntimeInputProviderError(
+                "target jitter peak block must contain at least one fiber"
+            )
+        reference = (
+            None
+            if reference_peaks is None
+            else np.asarray(reference_peaks, dtype=np.float32)
+        )
+        if reference is not None and reference.shape != values.shape:
+            raise RuntimeInputProviderError(
+                "target jitter primary and reference-component fibers differ"
+            )
+        if reference is not None and reference_tau is None:
+            raise RuntimeInputProviderError(
+                "add-on target jitter block requires a reference tau"
+            )
+        profile = self.configuration.individualized_seed_target
+        taus = profile.source.tau_values
+        burdens = np.zeros((values.shape[0], len(taus)), dtype=np.float32)
+        support = np.zeros((values.shape[0], len(taus)), dtype=bool)
+        denominator = values.shape[1]
+        for tau_index, tau in enumerate(taus):
+            activated = values >= tau
+            if reference is not None:
+                activated &= reference < float(reference_tau)
+            counts = np.count_nonzero(activated, axis=1)
+            fractions = counts / denominator
+            burdens[:, tau_index] = (
+                np.sum(
+                    np.where(activated, values, 0.0),
+                    axis=1,
+                    dtype=np.float64,
+                )
+                / denominator
+            )
+            support[:, tau_index] = (
+                counts
+                >= profile.target_exposure.activated_fiber_count_min
+            ) & (
+                fractions
+                >= profile.target_exposure.activated_fiber_fraction_min
+            )
+        burdens.flags.writeable = False
+        support.flags.writeable = False
+        return burdens, support
+
+    def _shared_target_peak_values(
+        self,
+        *,
+        subject_id: str,
+        condition: str,
+        side: str,
+        target_id: str,
+        samplers: tuple[_NiftiSampler, ...],
+        inactive_reason: str | None,
+        translation_mm: np.ndarray | None = None,
+    ) -> np.ndarray:
+        if translation_mm is not None:
+            tck_path = self._target_tck_path(subject_id, side, target_id)
+            if inactive_reason is None:
+                return self._sample_target_tck(
+                    tck_path,
+                    samplers,
+                    translation_mm=translation_mm,
+                )
+            try:
+                tractogram = nib.streamlines.load(
+                    str(tck_path),
+                    lazy_load=True,
+                )
+                count = int(tractogram.header["count"])
+            except (OSError, KeyError, TypeError, ValueError) as exc:
+                raise RuntimeInputProviderError(
+                    f"failed to read target tractogram count {tck_path}: {exc}"
+                ) from exc
+            return np.zeros(count, dtype=np.float32)
+        output_root = self.configuration.workflow.output.root
+        leaf = (
+            output_root
+            / "shared"
+            / "individualized_target_exposures"
+            / subject_id
+            / condition
+            / side
+            / target_id
+        )
+        payload = leaf / "peak_e.npy"
+        complete = leaf / "complete.json"
+        if payload.is_file() and complete.is_file():
+            return np.asarray(np.load(payload, allow_pickle=False), dtype=np.float32)
+
+        lock_root = self._work_root / "individualized_target_locks"
+        lock_root.mkdir(parents=True, exist_ok=True)
+        lock_name = canonical_hash(
+            {
+                "subject_id": subject_id,
+                "condition": condition,
+                "side": side,
+                "target_id": target_id,
+            },
+            length=32,
+        )
+        lock_path = lock_root / f"{lock_name}.lock"
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            if payload.is_file() and complete.is_file():
+                return np.asarray(
+                    np.load(payload, allow_pickle=False),
+                    dtype=np.float32,
+                )
+            tck_path = self._target_tck_path(subject_id, side, target_id)
+            if inactive_reason is None:
+                values = self._sample_target_tck(tck_path, samplers)
+            else:
+                try:
+                    tractogram = nib.streamlines.load(
+                        str(tck_path),
+                        lazy_load=True,
+                    )
+                    count = int(tractogram.header["count"])
+                except (OSError, KeyError, TypeError, ValueError) as exc:
+                    raise RuntimeInputProviderError(
+                        f"failed to read target tractogram count {tck_path}: {exc}"
+                    ) from exc
+                values = np.zeros(count, dtype=np.float32)
+            leaf.mkdir(parents=True, exist_ok=True)
+            temporary = leaf / f".peak_e.{uuid.uuid4().hex}.tmp"
+            with temporary.open("wb") as stream:
+                np.save(stream, values, allow_pickle=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, payload)
+            self._atomic_json(
+                leaf / "metadata.json",
+                {
+                    "subject_id": subject_id,
+                    "condition": condition,
+                    "side": side,
+                    "target_id": target_id,
+                    "streamline_count": int(values.size),
+                    "units": "V/m",
+                    "space": self.study.spatial.canonical_space,
+                    "inactive_reason": inactive_reason,
+                },
+            )
+            self._atomic_json(complete, {"status": "complete"})
+            return values
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
+    def _condition_samplers(
+        self,
+        endpoint: EndpointRecord,
+        subject: SubjectRecord,
+        binding: EndpointBinding,
+        frequency_class: str,
+        *,
+        absent_is_inactive: bool,
+    ) -> tuple[dict[str, tuple[_NiftiSampler, ...]] | None, str | None]:
+        resolution = self._resolve_groups(
+            endpoint,
+            subject,
+            binding,
+            frequency_class,
+            require_bilateral=not absent_is_inactive,
+        )
+        if resolution.reason_code is not None and not absent_is_inactive:
+            return None, resolution.reason_code
+        if resolution.reason_code == "missing_efield_artifact":
+            return None, resolution.reason_code
+        samplers = {
+            side: tuple(
+                self._sampler(item.efield_path)
+                for item in resolution.groups
+                if item.hemisphere == hemisphere
+            )
+            for side, hemisphere in (("lh", "L"), ("rh", "R"))
+        }
+        if not absent_is_inactive and any(not values for values in samplers.values()):
+            return None, "missing_required_hemisphere"
+        return samplers, resolution.reason_code
+
+    def _target_burden_arrays(
+        self,
+        *,
+        primary_peaks: list[list[list[np.ndarray]]],
+        reference_component_peaks: list[list[list[np.ndarray]]] | None,
+        reference_tau: float | None,
+    ) -> _TargetBurdenArrays:
+        profile = self.configuration.individualized_seed_target
+        tau_values = profile.source.tau_values
+        subject_count = len(primary_peaks)
+        side_count = 2
+        target_count = len(profile.tractography.target_ids)
+        shape = (len(tau_values), subject_count, side_count, target_count)
+        totals = np.zeros((subject_count, side_count, target_count), dtype=np.int64)
+        burdens = np.full(shape, np.nan, dtype=np.float32)
+        counts = np.zeros(shape, dtype=np.int64)
+        fractions = np.full(shape, np.nan, dtype=np.float32)
+        for subject_index in range(subject_count):
+            for side_index in range(side_count):
+                for target_index in range(target_count):
+                    peaks = np.asarray(
+                        primary_peaks[subject_index][side_index][target_index],
+                        dtype=np.float32,
+                    )
+                    totals[subject_index, side_index, target_index] = peaks.size
+                    if peaks.size == 0:
+                        continue
+                    reference_peaks = (
+                        None
+                        if reference_component_peaks is None
+                        else np.asarray(
+                            reference_component_peaks[subject_index][side_index][
+                                target_index
+                            ],
+                            dtype=np.float32,
+                        )
+                    )
+                    if reference_peaks is not None and reference_peaks.shape != peaks.shape:
+                        raise RuntimeInputProviderError(
+                            "add-on and reference-component target fibers differ"
+                        )
+                    for tau_index, tau in enumerate(tau_values):
+                        activated = peaks >= tau
+                        if reference_peaks is not None:
+                            if reference_tau is None:
+                                raise RuntimeInputProviderError(
+                                    "add-on target burden requires reference tau"
+                                )
+                            activated &= reference_peaks < reference_tau
+                        count = int(np.count_nonzero(activated))
+                        fraction = count / peaks.size
+                        counts[
+                            tau_index,
+                            subject_index,
+                            side_index,
+                            target_index,
+                        ] = count
+                        fractions[
+                            tau_index,
+                            subject_index,
+                            side_index,
+                            target_index,
+                        ] = fraction
+                        burdens[
+                            tau_index,
+                            subject_index,
+                            side_index,
+                            target_index,
+                        ] = (
+                            float(np.sum(peaks[activated], dtype=np.float64))
+                            / peaks.size
+                        )
+        side_support = (
+            (counts >= profile.target_exposure.activated_fiber_count_min)
+            & (
+                fractions
+                >= profile.target_exposure.activated_fiber_fraction_min
+            )
+        )
+        patient_burdens = np.mean(burdens, axis=2)
+        both_finite = np.all(np.isfinite(burdens), axis=2)
+        patient_burdens[~both_finite] = np.nan
+        patient_support = np.any(side_support, axis=2) & both_finite
+        return _TargetBurdenArrays(
+            side_total_counts=totals,
+            side_burdens=burdens,
+            side_activated_counts=counts,
+            side_activated_fractions=fractions,
+            patient_burdens=patient_burdens,
+            patient_support=patient_support,
+        )
+
+    def _publish_prepared_target_exposure(
+        self,
+        endpoint_input: EndpointInputRecord,
+        reference_dependency: ReferenceDependencyRecord | None,
+        publisher: ArtifactPublisher,
+        *,
+        jitter_context: JitterTranslationContext | None,
+    ) -> PreparedTargetExposureRecord:
+        if (
+            endpoint_input.readiness_status != "ready"
+            or endpoint_input.subject_axis is None
+        ):
+            raise RuntimeInputProviderError(
+                "prepared target exposure requires ready endpoint input"
+            )
+        endpoint = self.endpoint(endpoint_input.endpoint.identifier)
+        if not endpoint.key.model_family.endswith("individualized"):
+            raise RuntimeInputProviderError(
+                "target exposure preparation requires an individualized endpoint"
+            )
+        profile = self.configuration.individualized_seed_target
+        pair = profile.endpoint_pair
+        is_reference = endpoint.key.model_family.startswith("reference_")
+        reference_tau: float | None = None
+        if not is_reference:
+            if reference_dependency is None:
+                raise RuntimeInputProviderError(
+                    "add-on target exposure requires reference dependency"
+                )
+            reference_record = self._validate_reference_dependency(
+                endpoint,
+                reference_dependency,
+            )
+            reference_tau, _coverage = self._selected_tau_coverage(
+                reference_record
+            )
+
+        subject_axis = endpoint_input.subject_axis
+        target_axis, side_axis, tau_axis, target_ids = self._target_axes(
+            subject_axis
+        )
+        subject_ids = endpoint_input.included_subject_ids
+        primary: list[list[list[np.ndarray]]] = []
+        component: list[list[list[np.ndarray]]] | None = (
+            None if is_reference else []
+        )
+        reference_condition: list[list[list[np.ndarray]]] | None = (
+            None if is_reference else []
+        )
+        auxiliary_reasons: list[str] = []
+        for subject_id in subject_ids:
+            subject = self._subjects[subject_id]
+            primary_binding = pair.reference if is_reference else pair.addon
+            primary_class = "reference" if is_reference else "addon"
+            primary_samplers, primary_reason = self._condition_samplers(
+                endpoint,
+                subject,
+                primary_binding,
+                primary_class,
+                absent_is_inactive=False,
+            )
+            if primary_samplers is None:
+                raise RuntimeInputProviderError(
+                    f"primary individualized target E-field is unavailable for "
+                    f"{subject_id}: {primary_reason}"
+                )
+            component_samplers: dict[
+                str, tuple[_NiftiSampler, ...]
+            ] | None = None
+            component_reason: str | None = None
+            reference_samplers: dict[
+                str, tuple[_NiftiSampler, ...]
+            ] | None = None
+            if not is_reference:
+                component_samplers, component_reason = self._condition_samplers(
+                    endpoint,
+                    subject,
+                    pair.addon,
+                    "reference",
+                    absent_is_inactive=True,
+                )
+                reference_samplers, reference_reason = self._condition_samplers(
+                    endpoint,
+                    subject,
+                    pair.reference,
+                    "reference",
+                    absent_is_inactive=False,
+                )
+                if reference_samplers is None:
+                    auxiliary_reasons.append(
+                        f"{subject_id}:{reference_reason}"
+                    )
+
+            subject_primary: list[list[np.ndarray]] = []
+            subject_component: list[list[np.ndarray]] = []
+            subject_reference: list[list[np.ndarray]] = []
+            for side in profile.tractography.sides:
+                hemisphere = "L" if side == "lh" else "R"
+                primary_translation = (
+                    None
+                    if jitter_context is None
+                    else jitter_context.vector(
+                        binding_id=primary_binding.identifier,
+                        frequency_class=primary_class,
+                        subject_id=subject_id,
+                        hemisphere=hemisphere,
+                    )
+                )
+                side_primary: list[np.ndarray] = []
+                side_component: list[np.ndarray] = []
+                side_reference: list[np.ndarray] = []
+                for target_id in profile.tractography.target_ids:
+                    side_primary.append(
+                        self._shared_target_peak_values(
+                            subject_id=subject_id,
+                            condition="reference" if is_reference else "addon",
+                            side=side,
+                            target_id=target_id,
+                            samplers=primary_samplers[side],
+                            inactive_reason=None,
+                            translation_mm=primary_translation,
+                        )
+                    )
+                    if not is_reference:
+                        inactive_reason = (
+                            component_reason
+                            if component_samplers is not None
+                            and not component_samplers[side]
+                            else None
+                        )
+                        if component_samplers is None:
+                            inactive_reason = component_reason
+                            component_side_samplers: tuple[_NiftiSampler, ...] = ()
+                        else:
+                            component_side_samplers = component_samplers[side]
+                        side_component.append(
+                            self._shared_target_peak_values(
+                                subject_id=subject_id,
+                                condition="addon_reference_component",
+                                side=side,
+                                target_id=target_id,
+                                samplers=component_side_samplers,
+                                inactive_reason=inactive_reason,
+                                translation_mm=(
+                                    None
+                                    if jitter_context is None
+                                    else jitter_context.vector(
+                                        binding_id=pair.addon.identifier,
+                                        frequency_class="reference",
+                                        subject_id=subject_id,
+                                        hemisphere=hemisphere,
+                                    )
+                                ),
+                            )
+                        )
+                        if reference_samplers is not None:
+                            side_reference.append(
+                                self._shared_target_peak_values(
+                                    subject_id=subject_id,
+                                    condition="reference",
+                                    side=side,
+                                    target_id=target_id,
+                                    samplers=reference_samplers[side],
+                                    inactive_reason=None,
+                                    translation_mm=(
+                                        None
+                                        if jitter_context is None
+                                        else jitter_context.vector(
+                                            binding_id=pair.reference.identifier,
+                                            frequency_class="reference",
+                                            subject_id=subject_id,
+                                            hemisphere=hemisphere,
+                                        )
+                                    ),
+                                )
+                            )
+                subject_primary.append(side_primary)
+                if not is_reference:
+                    subject_component.append(side_component)
+                    subject_reference.append(side_reference)
+            primary.append(subject_primary)
+            if not is_reference:
+                assert component is not None and reference_condition is not None
+                component.append(subject_component)
+                reference_condition.append(subject_reference)
+
+        primary_arrays = self._target_burden_arrays(
+            primary_peaks=primary,
+            reference_component_peaks=component,
+            reference_tau=reference_tau,
+        )
+        patient_axes = (tau_axis, subject_axis, target_axis)
+        side_tau_axes = (tau_axis, subject_axis, side_axis, target_axis)
+        target_artifact = publisher.array(
+            "target_ids.npy",
+            target_ids,
+            kind="individualized_target_ids",
+            axes=(target_axis,),
+            units="target_id",
+            space=None,
+        )
+        published = {
+            "side_total_counts": publisher.array(
+                "side_total_counts.npy",
+                primary_arrays.side_total_counts,
+                kind="individualized_side_total_fiber_counts",
+                axes=(subject_axis, side_axis, target_axis),
+                units="count",
+                space=None,
+            ),
+            "side_burdens": publisher.array(
+                "side_burdens.npy",
+                primary_arrays.side_burdens,
+                kind="individualized_side_target_burdens",
+                axes=side_tau_axes,
+                units="V/m",
+                space=None,
+            ),
+            "side_activated_counts": publisher.array(
+                "side_activated_counts.npy",
+                primary_arrays.side_activated_counts,
+                kind="individualized_side_activated_fiber_counts",
+                axes=side_tau_axes,
+                units="count",
+                space=None,
+            ),
+            "side_activated_fractions": publisher.array(
+                "side_activated_fractions.npy",
+                primary_arrays.side_activated_fractions,
+                kind="individualized_side_activated_fiber_fractions",
+                axes=side_tau_axes,
+                units="fraction",
+                space=None,
+            ),
+            "patient_burdens": publisher.array(
+                "patient_burdens.npy",
+                primary_arrays.patient_burdens,
+                kind="individualized_patient_target_burdens",
+                axes=patient_axes,
+                units="V/m",
+                space=None,
+            ),
+            "patient_support": publisher.array(
+                "patient_support.npy",
+                primary_arrays.patient_support,
+                kind="individualized_patient_target_support",
+                axes=patient_axes,
+                units="binary",
+                space=None,
+            ),
+        }
+        auxiliary_readiness: ArtifactRef | None = None
+        reference_burdens: ArtifactRef | None = None
+        reference_support: ArtifactRef | None = None
+        component_burdens: ArtifactRef | None = None
+        component_support: ArtifactRef | None = None
+        delta_status = "not_applicable"
+        delta_reason = "reference_model"
+        if not is_reference:
+            auxiliary_readiness = publisher.document(
+                "auxiliary_readiness.json",
+                {
+                    "status": "ready" if not auxiliary_reasons else "input_failure",
+                    "reasons": auxiliary_reasons,
+                },
+                kind="individualized_auxiliary_readiness",
+            )
+            if auxiliary_reasons:
+                delta_status = "input_failure"
+                delta_reason = "reference_condition_unavailable"
+            else:
+                assert reference_condition is not None and component is not None
+                reference_arrays = self._target_burden_arrays(
+                    primary_peaks=reference_condition,
+                    reference_component_peaks=None,
+                    reference_tau=None,
+                )
+                component_arrays = self._target_burden_arrays(
+                    primary_peaks=component,
+                    reference_component_peaks=None,
+                    reference_tau=None,
+                )
+                reference_burdens = publisher.array(
+                    "reference_condition_patient_burdens.npy",
+                    reference_arrays.patient_burdens,
+                    kind="individualized_reference_condition_patient_burdens",
+                    axes=patient_axes,
+                    units="V/m",
+                    space=None,
+                )
+                reference_support = publisher.array(
+                    "reference_condition_patient_support.npy",
+                    reference_arrays.patient_support,
+                    kind="individualized_reference_condition_patient_support",
+                    axes=patient_axes,
+                    units="binary",
+                    space=None,
+                )
+                component_burdens = publisher.array(
+                    "addon_reference_component_patient_burdens.npy",
+                    component_arrays.patient_burdens,
+                    kind="individualized_addon_reference_component_patient_burdens",
+                    axes=patient_axes,
+                    units="V/m",
+                    space=None,
+                )
+                component_support = publisher.array(
+                    "addon_reference_component_patient_support.npy",
+                    component_arrays.patient_support,
+                    kind="individualized_addon_reference_component_patient_support",
+                    axes=patient_axes,
+                    units="binary",
+                    space=None,
+                )
+                delta_status = "ready"
+                delta_reason = "ready"
+        return PreparedTargetExposureRecord(
+            endpoint=endpoint.key,
+            subject_axis=subject_axis,
+            target_axis=target_axis,
+            side_axis=side_axis,
+            tau_axis=tau_axis,
+            target_ids=target_artifact,
+            side_total_counts=published["side_total_counts"],
+            side_burdens=published["side_burdens"],
+            side_activated_counts=published["side_activated_counts"],
+            side_activated_fractions=published["side_activated_fractions"],
+            patient_burdens=published["patient_burdens"],
+            patient_support=published["patient_support"],
+            delta_reference_input_status=delta_status,
+            delta_reference_reason_code=delta_reason,
+            auxiliary_readiness=auxiliary_readiness,
+            reference_condition_patient_burdens=reference_burdens,
+            reference_condition_patient_support=reference_support,
+            addon_reference_component_patient_burdens=component_burdens,
+            addon_reference_component_patient_support=component_support,
+        )
+
     def publish_jitter_prepared_exposure(
         self,
         endpoint_input: EndpointInputRecord,
         reference_dependency: ReferenceDependencyRecord | None,
         publisher: ArtifactPublisher,
         jitter_context: JitterTranslationContext,
-    ) -> PreparedExposureRecord:
+    ) -> PreparedExposureRecord | PreparedTargetExposureRecord:
         """Rebuild one endpoint exposure after deterministic spatial translation."""
 
         if not isinstance(jitter_context, JitterTranslationContext):
             raise TypeError("jitter_context must be a JitterTranslationContext")
+        endpoint = self.endpoint(endpoint_input.endpoint.identifier)
+        if endpoint.key.model_family.endswith("individualized"):
+            return self._publish_prepared_target_exposure(
+                endpoint_input,
+                reference_dependency,
+                publisher,
+                jitter_context=jitter_context,
+            )
         with self._capture_input_hashes() as input_hashes:
             return self._publish_prepared_exposure_impl(
                 endpoint_input,
@@ -3420,6 +4328,367 @@ class StudyRuntimeInputProvider:
                 input_hashes,
                 jitter_context=jitter_context,
             )
+
+    def build_target_jitter_burden_block(
+        self,
+        *,
+        endpoint_input: EndpointInputRecord,
+        reference_dependency: ReferenceDependencyRecord | None,
+        replicate_start: int,
+        replicate_stop: int,
+        root_seed: int,
+        translation_fwhm_mm: float,
+    ) -> TargetJitterBurdenBlock:
+        """Build one shared individualized-target jitter burden block."""
+
+        if (
+            endpoint_input.readiness_status != "ready"
+            or endpoint_input.subject_axis is None
+        ):
+            raise RuntimeInputProviderError(
+                "target jitter block requires a ready endpoint input"
+            )
+        endpoint = self.endpoint(endpoint_input.endpoint.identifier)
+        if not endpoint.key.model_family.endswith("individualized"):
+            raise RuntimeInputProviderError(
+                "target jitter block requires an individualized endpoint"
+            )
+        if (
+            type(replicate_start) is not int
+            or type(replicate_stop) is not int
+            or replicate_start < 0
+            or replicate_stop <= replicate_start
+        ):
+            raise RuntimeInputProviderError(
+                "target jitter block range must be a nonempty half-open interval"
+            )
+        if type(root_seed) is not int or root_seed < 0:
+            raise RuntimeInputProviderError(
+                "target jitter block seed must be nonnegative"
+            )
+        fwhm = float(translation_fwhm_mm)
+        if not math.isfinite(fwhm) or fwhm <= 0.0:
+            raise RuntimeInputProviderError(
+                "target jitter block FWHM must be finite and positive"
+            )
+
+        profile = self.configuration.individualized_seed_target
+        pair = profile.endpoint_pair
+        is_reference = endpoint.key.model_family.startswith("reference_")
+        reference_tau: float | None = None
+        if not is_reference:
+            if reference_dependency is None:
+                raise RuntimeInputProviderError(
+                    "add-on target jitter block requires a reference dependency"
+                )
+            reference_record = self._validate_reference_dependency(
+                endpoint,
+                reference_dependency,
+            )
+            reference_tau, _coverage = self._selected_tau_coverage(
+                reference_record
+            )
+
+        indices = np.arange(
+            replicate_start,
+            replicate_stop,
+            dtype=np.int64,
+        )
+        seeds = np.asarray(
+            [
+                np.random.SeedSequence([root_seed, int(index)]).generate_state(
+                    1,
+                    dtype=np.uint64,
+                )[0]
+                for index in indices
+            ],
+            dtype=np.uint64,
+        )
+        contexts = tuple(
+            JitterTranslationContext(
+                replicate_index=int(index),
+                replicate_seed=int(seed),
+                translation_sigma_mm=fwhm / 2.354820045,
+            )
+            for index, seed in zip(indices, seeds, strict=True)
+        )
+        subject_ids = endpoint_input.included_subject_ids
+        shape = (
+            indices.size,
+            len(profile.source.tau_values),
+            len(subject_ids),
+            2,
+            len(profile.tractography.target_ids),
+        )
+        primary_burdens = np.full(shape, np.nan, dtype=np.float32)
+        primary_support = np.zeros(shape, dtype=bool)
+        reference_burdens = (
+            None
+            if is_reference
+            else np.full(shape, np.nan, dtype=np.float32)
+        )
+        reference_support = (
+            None if is_reference else np.zeros(shape, dtype=bool)
+        )
+        component_burdens = (
+            None
+            if is_reference
+            else np.full(shape, np.nan, dtype=np.float32)
+        )
+        component_support = (
+            None if is_reference else np.zeros(shape, dtype=bool)
+        )
+
+        def translations(
+            *,
+            binding: EndpointBinding,
+            frequency_class: str,
+            subject_id: str,
+            hemisphere: str,
+        ) -> tuple[np.ndarray, ...]:
+            return tuple(
+                context.vector(
+                    binding_id=binding.identifier,
+                    frequency_class=frequency_class,
+                    subject_id=subject_id,
+                    hemisphere=hemisphere,
+                )
+                for context in contexts
+            )
+
+        for subject_index, subject_id in enumerate(subject_ids):
+            subject = self._subjects[subject_id]
+            primary_binding = pair.reference if is_reference else pair.addon
+            primary_class = "reference" if is_reference else "addon"
+            primary_samplers, primary_reason = self._condition_samplers(
+                endpoint,
+                subject,
+                primary_binding,
+                primary_class,
+                absent_is_inactive=False,
+            )
+            if primary_samplers is None:
+                raise RuntimeInputProviderError(
+                    f"primary individualized target E-field is unavailable for "
+                    f"{subject_id}: {primary_reason}"
+                )
+
+            component_samplers: dict[
+                str, tuple[_NiftiSampler, ...]
+            ] | None = None
+            reference_samplers: dict[
+                str, tuple[_NiftiSampler, ...]
+            ] | None = None
+            if not is_reference:
+                component_samplers, _component_reason = (
+                    self._condition_samplers(
+                        endpoint,
+                        subject,
+                        pair.addon,
+                        "reference",
+                        absent_is_inactive=True,
+                    )
+                )
+                reference_samplers, reference_reason = (
+                    self._condition_samplers(
+                        endpoint,
+                        subject,
+                        pair.reference,
+                        "reference",
+                        absent_is_inactive=False,
+                    )
+                )
+                if reference_samplers is None:
+                    raise RuntimeInputProviderError(
+                        f"reference individualized target E-field is unavailable "
+                        f"for {subject_id}: {reference_reason}"
+                    )
+
+            for side_index, side in enumerate(
+                profile.tractography.sides
+            ):
+                hemisphere = "L" if side == "lh" else "R"
+                primary_translations = translations(
+                    binding=primary_binding,
+                    frequency_class=primary_class,
+                    subject_id=subject_id,
+                    hemisphere=hemisphere,
+                )
+                component_translations = (
+                    None
+                    if is_reference
+                    else translations(
+                        binding=pair.addon,
+                        frequency_class="reference",
+                        subject_id=subject_id,
+                        hemisphere=hemisphere,
+                    )
+                )
+                reference_translations = (
+                    None
+                    if is_reference
+                    else translations(
+                        binding=pair.reference,
+                        frequency_class="reference",
+                        subject_id=subject_id,
+                        hemisphere=hemisphere,
+                    )
+                )
+                for target_index, target_id in enumerate(
+                    profile.tractography.target_ids
+                ):
+                    path = self._target_tck_path(
+                        subject_id,
+                        side,
+                        target_id,
+                    )
+                    primary_peaks = self._sample_target_tck_block(
+                        path,
+                        primary_samplers[side],
+                        primary_translations,
+                    )
+                    component_peaks = None
+                    reference_peaks = None
+                    if not is_reference:
+                        assert (
+                            component_translations is not None
+                            and reference_translations is not None
+                            and reference_samplers is not None
+                        )
+                        component_peaks = (
+                            np.zeros_like(primary_peaks)
+                            if component_samplers is None
+                            or not component_samplers[side]
+                            else self._sample_target_tck_block(
+                                path,
+                                component_samplers[side],
+                                component_translations,
+                            )
+                        )
+                        reference_peaks = self._sample_target_tck_block(
+                            path,
+                            reference_samplers[side],
+                            reference_translations,
+                        )
+                    burden, support = self._target_block_metrics(
+                        primary_peaks,
+                        reference_peaks=component_peaks,
+                        reference_tau=reference_tau,
+                    )
+                    primary_burdens[
+                        :,
+                        :,
+                        subject_index,
+                        side_index,
+                        target_index,
+                    ] = burden
+                    primary_support[
+                        :,
+                        :,
+                        subject_index,
+                        side_index,
+                        target_index,
+                    ] = support
+                    if not is_reference:
+                        assert (
+                            reference_peaks is not None
+                            and component_peaks is not None
+                            and reference_burdens is not None
+                            and reference_support is not None
+                            and component_burdens is not None
+                            and component_support is not None
+                        )
+                        burden, support = self._target_block_metrics(
+                            reference_peaks,
+                            reference_peaks=None,
+                            reference_tau=None,
+                        )
+                        reference_burdens[
+                            :,
+                            :,
+                            subject_index,
+                            side_index,
+                            target_index,
+                        ] = burden
+                        reference_support[
+                            :,
+                            :,
+                            subject_index,
+                            side_index,
+                            target_index,
+                        ] = support
+                        burden, support = self._target_block_metrics(
+                            component_peaks,
+                            reference_peaks=None,
+                            reference_tau=None,
+                        )
+                        component_burdens[
+                            :,
+                            :,
+                            subject_index,
+                            side_index,
+                            target_index,
+                        ] = burden
+                        component_support[
+                            :,
+                            :,
+                            subject_index,
+                            side_index,
+                            target_index,
+                        ] = support
+
+        def bilateral(
+            burdens: np.ndarray,
+            support: np.ndarray,
+        ) -> tuple[np.ndarray, np.ndarray]:
+            patient_burdens = np.mean(burdens, axis=3)
+            finite = np.all(np.isfinite(burdens), axis=3)
+            patient_burdens[~finite] = np.nan
+            patient_support = np.any(support, axis=3) & finite
+            patient_burdens.flags.writeable = False
+            patient_support.flags.writeable = False
+            return patient_burdens, patient_support
+
+        patient_burdens, patient_support = bilateral(
+            primary_burdens,
+            primary_support,
+        )
+        reference_patient_burdens = None
+        component_patient_burdens = None
+        component_patient_support = None
+        if not is_reference:
+            assert (
+                reference_burdens is not None
+                and reference_support is not None
+                and component_burdens is not None
+                and component_support is not None
+            )
+            reference_patient_burdens, _reference_patient_support = bilateral(
+                reference_burdens,
+                reference_support,
+            )
+            (
+                component_patient_burdens,
+                component_patient_support,
+            ) = bilateral(
+                component_burdens,
+                component_support,
+            )
+        indices.flags.writeable = False
+        seeds.flags.writeable = False
+        return TargetJitterBurdenBlock(
+            replicate_indices=indices,
+            replicate_seeds=seeds,
+            patient_burdens=patient_burdens,
+            patient_support=patient_support,
+            reference_condition_patient_burdens=reference_patient_burdens,
+            addon_reference_component_patient_burdens=(
+                component_patient_burdens
+            ),
+            addon_reference_component_patient_support=(
+                component_patient_support
+            ),
+        )
 
     def build_jitter_physical_block(
         self,
@@ -4339,6 +5608,15 @@ class StudyRuntimeInputProvider:
                 profile.n_features_full_min,
                 profile.fold_n_features_min,
             )
+        if endpoint.key.model_family.endswith("individualized"):
+            profile = (
+                self.configuration.individualized_seed_target.hard_computability
+            )
+            return HardComputabilityLimits(
+                profile.n_subjects_min,
+                profile.n_features_full_min,
+                profile.fold_n_features_min,
+            )
         profile = self.configuration.normative_fiber
         connectome = next(
             item for item in profile.connectomes if item.connectome_id == endpoint.key.connectome_id
@@ -4353,7 +5631,7 @@ class StudyRuntimeInputProvider:
         self,
         endpoint: EndpointRecord,
     ) -> NormativeFiberScoreSettings | None:
-        if endpoint.key.model_family.endswith("voxel"):
+        if not endpoint.key.model_family.endswith("fiber"):
             return None
         score = self.configuration.normative_fiber.score
         return NormativeFiberScoreSettings(
@@ -4368,11 +5646,11 @@ class StudyRuntimeInputProvider:
     def observed_request(
         self,
         endpoint_input: EndpointInputRecord,
-        prepared: PreparedExposureRecord,
+        prepared: PreparedExposureRecord | PreparedTargetExposureRecord,
         *,
         branch: str,
         delta_reference: DeltaReferenceBundle | None = None,
-    ) -> ObservedRequest:
+    ) -> ObservedRequest | TargetObservedRequest:
         endpoint = self.endpoint(endpoint_input.endpoint.identifier)
         if endpoint_input.readiness_status != "ready":
             raise RuntimeInputProviderError("observed request requires ready endpoint input")
@@ -4404,6 +5682,30 @@ class StudyRuntimeInputProvider:
             assert delta_reference.full_scores is not None
             assert delta_reference.fold_scores is not None
             nuisance = (delta_reference.full_scores, delta_reference.fold_scores)
+        if isinstance(prepared, PreparedTargetExposureRecord):
+            score = self.configuration.individualized_seed_target.score
+            return TargetObservedRequest(
+                endpoint=endpoint.key,
+                branch=branch,
+                patient_burdens=prepared.patient_burdens,
+                patient_support=prepared.patient_support,
+                outcome=endpoint_input.outcome,
+                baseline=endpoint_input.baseline,
+                nuisance_inputs=nuisance,
+                subject_axis=endpoint_input.subject_axis,
+                target_axis=prepared.target_axis,
+                tau_axis=prepared.tau_axis,
+                target_ids=prepared.target_ids,
+                source_grid=self._source_grid(endpoint),
+                outcome_direction=endpoint.scale_direction,
+                hard_computability=self._hard_limits(endpoint),
+                score_settings=TargetScoreSettings(
+                    exposure_scaling=score.exposure_scaling,
+                    normalization=score.normalization,
+                ),
+            )
+        if not isinstance(prepared, PreparedExposureRecord):
+            raise TypeError("prepared exposure record type is unsupported")
         return ObservedRequest(
             endpoint=endpoint.key,
             branch=branch,
@@ -4691,6 +5993,98 @@ class StudyRuntimeInputProvider:
             self._release_temporary_matrix(selected_temporary)
         return selected_exposure, selected_feature_ids
 
+    def _selected_target_inputs(
+        self,
+        final_model: FinalModelRecord,
+        prepared: PreparedTargetExposureRecord,
+        publisher: ArtifactPublisher,
+    ) -> tuple[ArtifactRef, ArtifactRef, ArtifactRef]:
+        if final_model.endpoint != prepared.endpoint or final_model.final_key is None:
+            raise RuntimeInputProviderError(
+                "final target model and prepared exposure do not match"
+            )
+        source = self._selected_source(final_model)
+        selected_axis = final_model.valid_feature_axis.axis
+        if (
+            source.feature_axis is None
+            or source.feature_axis.axis != selected_axis
+            or source.feature_axis.identity_source
+            != "selected_individualized_target_union"
+        ):
+            raise RuntimeInputProviderError(
+                "selected target source does not carry the final target axis"
+            )
+
+        def source_artifact(kind: str) -> ArtifactRef:
+            matches = tuple(
+                item for item in source.artifacts if item.kind == kind
+            )
+            if len(matches) != 1:
+                raise RuntimeInputProviderError(
+                    f"selected target source requires exactly one {kind!r} artifact"
+                )
+            return matches[0]
+
+        indices = np.asarray(
+            self._materialize(
+                source_artifact("individualized_selected_target_indices")
+            ),
+            dtype=np.int64,
+        )
+        if (
+            indices.shape != (selected_axis.count,)
+            or (
+                indices.size
+                and (
+                    indices[0] < 0
+                    or indices[-1] >= prepared.target_axis.count
+                    or np.any(np.diff(indices) <= 0)
+                )
+            )
+        ):
+            raise RuntimeInputProviderError(
+                "selected target indices are outside the prepared target axis"
+            )
+        tau_values = self.configuration.individualized_seed_target.source.tau_values
+        try:
+            tau_index = tau_values.index(
+                float(final_model.final_key.selected_tau)
+            )
+        except ValueError as exc:
+            raise RuntimeInputProviderError(
+                "selected target tau is outside the prepared grid"
+            ) from exc
+        burdens = np.asarray(
+            self._materialize(prepared.patient_burdens),
+            dtype=np.float32,
+        )[tau_index][:, indices]
+        support = np.asarray(
+            self._materialize(prepared.patient_support),
+            dtype=bool,
+        )[tau_index][:, indices]
+        exposure = publisher.array(
+            "selected_target_burdens.npy",
+            burdens,
+            kind="final_selected_exposure",
+            axes=(prepared.subject_axis, selected_axis),
+            units="V/m",
+            space="individualized_target",
+        )
+        support_artifact = publisher.array(
+            "selected_target_support.npy",
+            support,
+            kind="individualized_final_target_support",
+            axes=(prepared.subject_axis, selected_axis),
+            units="binary",
+            space="individualized_target",
+        )
+        target_ids = source_artifact("individualized_target_ids")
+        if target_ids.axis_refs != (selected_axis,):
+            raise RuntimeInputProviderError(
+                "selected target IDs do not bind the final target axis"
+            )
+        return exposure, support_artifact, target_ids
+
     def activation_runtime_request(
         self,
         final_model: FinalModelRecord,
@@ -4928,7 +6322,7 @@ class StudyRuntimeInputProvider:
         self,
         final_model: FinalModelRecord,
         endpoint_input: EndpointInputRecord,
-        prepared: PreparedExposureRecord,
+        prepared: PreparedExposureRecord | PreparedTargetExposureRecord,
         publisher: ArtifactPublisher,
         *,
         resampling_kind: str,
@@ -4972,7 +6366,29 @@ class StudyRuntimeInputProvider:
                 delta_reference,
                 endpoint_input.subject_axis,
             )
-        exposure, feature_ids = self.selected_exposure(final_model, prepared, publisher)
+        target_support: ArtifactRef | None = None
+        target_ids: ArtifactRef | None = None
+        target_score_settings: TargetScoreSettings | None = None
+        if isinstance(prepared, PreparedTargetExposureRecord):
+            exposure, target_support, target_ids = self._selected_target_inputs(
+                final_model,
+                prepared,
+                publisher,
+            )
+            feature_ids = None
+            exposure_space = "individualized_target"
+            score = self.configuration.individualized_seed_target.score
+            target_score_settings = TargetScoreSettings(
+                exposure_scaling=score.exposure_scaling,
+                normalization=score.normalization,
+            )
+        else:
+            exposure, feature_ids = self.selected_exposure(
+                final_model,
+                prepared,
+                publisher,
+            )
+            exposure_space = self.study.spatial.canonical_space
         profile = self._profile(endpoint).formal_resampling
         resamples = (
             profile.permutation_resamples
@@ -4994,7 +6410,7 @@ class StudyRuntimeInputProvider:
             subject_axis=endpoint_input.subject_axis,
             feature_axis=final_model.valid_feature_axis.axis,
             exposure_units="V/m",
-            exposure_space=self.study.spatial.canonical_space,
+            exposure_space=exposure_space,
             outcome_direction=endpoint.scale_direction,
             hard_computability=self._hard_limits(endpoint),
             connectome_role=endpoint.connectome_role,
@@ -5002,6 +6418,125 @@ class StudyRuntimeInputProvider:
             fiber_score_settings=self._fiber_score_settings(endpoint),
             resamples=resamples,
             seed=profile.seed,
+            target_support=target_support,
+            target_ids=target_ids,
+            target_score_settings=target_score_settings,
+        )
+
+    def target_in_sample_request(
+        self,
+        final_model: FinalModelRecord,
+        endpoint_input: EndpointInputRecord,
+        prepared: PreparedTargetExposureRecord,
+        loocv_formal_result: FormalResult,
+        publisher: ArtifactPublisher,
+        *,
+        delta_reference: DeltaReferenceBundle | None = None,
+    ) -> InSampleRequest:
+        endpoint = self.endpoint(final_model.endpoint.identifier)
+        if (
+            final_model.endpoint != endpoint_input.endpoint
+            or final_model.endpoint != prepared.endpoint
+            or endpoint.key != final_model.endpoint
+            or not endpoint.key.model_family.endswith("individualized")
+        ):
+            raise RuntimeInputProviderError(
+                "target in-sample final, endpoint input, prepared exposure, "
+                "and catalog must match"
+            )
+        if (
+            endpoint_input.readiness_status != "ready"
+            or endpoint_input.subject_axis is None
+            or endpoint_input.baseline is None
+            or endpoint_input.outcome is None
+        ):
+            raise RuntimeInputProviderError(
+                "target in-sample request requires complete ready endpoint input"
+            )
+        if prepared.subject_axis != endpoint_input.subject_axis:
+            raise RuntimeInputProviderError(
+                "target in-sample prepared exposure uses a different subject axis"
+            )
+        if (
+            loocv_formal_result.resampling_kind != "permutation"
+            or loocv_formal_result.final_model_id != final_model.identifier
+        ):
+            raise RuntimeInputProviderError(
+                "target in-sample request requires the matching LOOCV "
+                "permutation result"
+            )
+        selected_source = self._selected_source(final_model)
+
+        def exactly_one_artifact(
+            artifacts: tuple[ArtifactRef, ...],
+            kind: str,
+        ) -> ArtifactRef:
+            matches = tuple(item for item in artifacts if item.kind == kind)
+            if len(matches) != 1:
+                raise RuntimeInputProviderError(
+                    f"target in-sample request requires exactly one {kind!r} artifact"
+                )
+            return matches[0]
+
+        adjusted = (
+            final_model.final_key is not None
+            and final_model.final_key.final_branch == "delta_reference_adjusted"
+        )
+        if adjusted:
+            if delta_reference is None or not delta_reference.valid:
+                raise RuntimeInputProviderError(
+                    "adjusted target in-sample request requires valid "
+                    "DeltaReferenceScore"
+                )
+            self._validate_delta_reference_axes(
+                delta_reference,
+                endpoint_input.subject_axis,
+            )
+        exposure, support, target_ids = self._selected_target_inputs(
+            final_model,
+            prepared,
+            publisher,
+        )
+        profile = self.configuration.individualized_seed_target
+        return InSampleRequest(
+            final_model=final_model,
+            exposure=exposure,
+            outcome=endpoint_input.outcome,
+            baseline=endpoint_input.baseline,
+            delta_reference_full=(
+                delta_reference.full_scores
+                if adjusted and delta_reference is not None
+                else None
+            ),
+            subject_axis=endpoint_input.subject_axis,
+            feature_axis=final_model.valid_feature_axis.axis,
+            feature_ids=None,
+            loocv_predictions=exactly_one_artifact(
+                selected_source.artifacts,
+                "loocv_model_predictions",
+            ),
+            loocv_baseline_predictions=exactly_one_artifact(
+                selected_source.artifacts,
+                "loocv_baseline_predictions",
+            ),
+            loocv_permutation_summary=exactly_one_artifact(
+                loocv_formal_result.artifacts,
+                "formal_permutation_summary",
+            ),
+            exposure_units="V/m",
+            exposure_space="individualized_target",
+            outcome_direction=endpoint.scale_direction,
+            hard_computability=self._hard_limits(endpoint),
+            connectome_role="none",
+            fiber_score_settings=None,
+            resamples=profile.formal_resampling.permutation_resamples,
+            seed=profile.formal_resampling.seed,
+            target_support=support,
+            target_ids=target_ids,
+            target_score_settings=TargetScoreSettings(
+                exposure_scaling=profile.score.exposure_scaling,
+                normalization=profile.score.normalization,
+            ),
         )
 
     def in_sample_request(

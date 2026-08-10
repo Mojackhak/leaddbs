@@ -16,7 +16,7 @@ from my_helper.warpslicer.legacy_contact_compat import (  # noqa: E402
 )
 
 
-SUBJECT_DIR = Path("/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-ZhangMing")
+SUBJECT_DIR = Path("/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr030")
 TRANSFORM_DIR = SUBJECT_DIR / "normalization" / "transformations"
 OUTPUT_DIR = SUBJECT_DIR / "warpdrive" / "legacy_contact_compat"
 
@@ -25,8 +25,8 @@ def main() -> None:
     paths = CompatPaths(
         lead_root=LEAD_ROOT,
         reconstruction_mat=SUBJECT_DIR
-        / "reconstruction"
-        / "sub-ZhangMing_desc-reconstruction.mat",
+        / "bak"
+        / "sub-SNr030_desc-reconstruction-bak.mat",
         cohort_pkl=Path("/Volumes/VAL/STNSNr/summary/cohort/lead/contact_reco_space_locs.pkl"),
         template_reference=LEAD_ROOT
         / "templates"
@@ -36,11 +36,13 @@ def main() -> None:
         native_reference=SUBJECT_DIR
         / "coregistration"
         / "anat"
-        / "sub-ZhangMing_ses-preop_space-anchorNative_desc-preproc_acq-ax_T1w.nii",
-        current_forward=TRANSFORM_DIR
-        / "sub-ZhangMing_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz",
-        current_inverse=TRANSFORM_DIR
-        / "sub-ZhangMing_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants.nii.gz",
+        / "sub-SNr030_ses-preop_space-anchorNative_desc-preproc_acq-ax_T1w.nii",
+        current_forward=SUBJECT_DIR
+        / "bak"
+        / "sub-SNr030_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz",
+        current_inverse=SUBJECT_DIR
+        / "bak"
+        / "sub-SNr030_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz",
         output_dir=OUTPUT_DIR,
         subject_label="Sub-ZhangMing",
         legacy_target_override_csv=None,

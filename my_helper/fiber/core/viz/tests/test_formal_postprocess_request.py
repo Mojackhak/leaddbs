@@ -48,20 +48,9 @@ EXPECTED_PUBLICATIONS = {
     },
 }
 EXPECTED_RESOURCES = {
-    "background": "/Volumes/VAL/STNSNr/config/atlas/7T_100um_Edlow_2019.nii",
-    "reference_mask": (
-        "/Users/mojackhu/Github/leaddbs/templates/space/"
-        "MNI152NLin2009bAsym/atlases/"
-        "Custom_Ewert_Zhang_Middlebrooks0.05/rh/STN.nii.gz"
-    ),
-    "addon_mask": (
-        "/Users/mojackhu/Github/leaddbs/templates/space/"
-        "MNI152NLin2009bAsym/atlases/"
-        "Custom_Ewert_Zhang_Middlebrooks0.05/rh/SNr.nii.gz"
-    ),
-    "fiber_spatial_config": (
+    "spatial_visualization_config": (
         "/Users/mojackhu/Github/leaddbs/my_helper/stnsnr/"
-        "config/four_model_v1/fiber_spatial_projection.yaml"
+        "config/four_model_v1/spatial_result_visualization.yaml"
     ),
 }
 FORBIDDEN_SOURCE_PARTS = frozenset({".runs", "tasks", "work", "runtime_work"})

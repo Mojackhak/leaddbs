@@ -1,5 +1,4 @@
 schema_version: dual_frequency_migration_mapping_v1
-target_model_set_id: dual_frequency_four_model_v1
 
 target_endpoint_pair:
   baseline:

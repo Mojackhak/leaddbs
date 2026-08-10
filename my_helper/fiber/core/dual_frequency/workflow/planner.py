@@ -327,16 +327,22 @@ class _TaskFactory:
         *,
         direct_permutation_resamples: int,
         fiber_permutation_resamples: int,
+        individualized_permutation_resamples: int,
         direct_bootstrap_resamples: int,
         fiber_bootstrap_resamples: int,
+        individualized_bootstrap_resamples: int,
         ppam_permutation_resamples: int,
     ) -> None:
         self.configuration_hash = configuration_hash
         self.through = through
         self.direct_permutation_resamples = direct_permutation_resamples
         self.fiber_permutation_resamples = fiber_permutation_resamples
+        self.individualized_permutation_resamples = (
+            individualized_permutation_resamples
+        )
         self.direct_bootstrap_resamples = direct_bootstrap_resamples
         self.fiber_bootstrap_resamples = fiber_bootstrap_resamples
+        self.individualized_bootstrap_resamples = individualized_bootstrap_resamples
         self.ppam_permutation_resamples = ppam_permutation_resamples
         self.tasks: list[TaskSpec] = []
         self.stage_ids: dict[tuple[str, str], str] = {}
@@ -400,18 +406,18 @@ class _TaskFactory:
             raise PlanningError(f"missing planned stage {endpoint_id}/{stage}") from exc
 
     def permutation_resamples(self, endpoint: EndpointRecord) -> int:
-        return (
-            self.fiber_permutation_resamples
-            if endpoint.key.model_family.endswith("fiber")
-            else self.direct_permutation_resamples
-        )
+        if endpoint.key.model_family.endswith("fiber"):
+            return self.fiber_permutation_resamples
+        if endpoint.key.model_family.endswith("individualized"):
+            return self.individualized_permutation_resamples
+        return self.direct_permutation_resamples
 
     def bootstrap_resamples(self, endpoint: EndpointRecord) -> int:
-        return (
-            self.fiber_bootstrap_resamples
-            if endpoint.key.model_family.endswith("fiber")
-            else self.direct_bootstrap_resamples
-        )
+        if endpoint.key.model_family.endswith("fiber"):
+            return self.fiber_bootstrap_resamples
+        if endpoint.key.model_family.endswith("individualized"):
+            return self.individualized_bootstrap_resamples
+        return self.direct_bootstrap_resamples
 
 
 CATALOG_AVAILABLE = GateRequirement("catalog_data_available", "not_run_catalog_unavailable")
@@ -461,21 +467,30 @@ def _plan_formal_permutation(
         gates=(FINAL_REALIZED,),
         output_record_type="ResamplingScheduleRecord",
     )
-    workspace = factory.add(
-        endpoint,
-        stage="formal_operator_workspace",
-        round_id=round_id,
-        phase="formal",
-        service_id="prepare_formal_operator_workspace",
-        dependencies=dependencies,
-        gates=(FINAL_REALIZED,),
-        output_record_type="FormalOperatorScratchRecord",
+    workspace = (
+        None
+        if endpoint.key.model_family.endswith("individualized")
+        else factory.add(
+            endpoint,
+            stage="formal_operator_workspace",
+            round_id=round_id,
+            phase="formal",
+            service_id="prepare_formal_operator_workspace",
+            dependencies=dependencies,
+            gates=(FINAL_REALIZED,),
+            output_record_type="FormalOperatorScratchRecord",
+        )
     )
     block_count = (
         factory.permutation_resamples(endpoint)
         + RESAMPLING_REPLICATE_BLOCK_SIZE
         - 1
     ) // RESAMPLING_REPLICATE_BLOCK_SIZE
+    block_dependencies = (
+        (*dependencies, schedule)
+        if workspace is None
+        else (*dependencies, schedule, workspace)
+    )
     blocks = tuple(
         factory.add(
             endpoint,
@@ -483,7 +498,7 @@ def _plan_formal_permutation(
             round_id=round_id,
             phase="formal",
             service_id="run_formal_permutation_block",
-            dependencies=(*dependencies, schedule, workspace),
+            dependencies=block_dependencies,
             gates=(FINAL_REALIZED,),
             output_record_type="ResamplingBlockRecord",
             execution_parameters=(("block_index", str(block_index)),),
@@ -494,9 +509,9 @@ def _plan_formal_permutation(
         endpoint,
         stage="formal_permutation",
         round_id=round_id,
-        phase="formal",
-        service_id="aggregate_formal_permutation",
-        dependencies=(*dependencies, schedule, workspace, *blocks),
+            phase="formal",
+            service_id="aggregate_formal_permutation",
+            dependencies=(*block_dependencies, *blocks),
         gates=(FINAL_REALIZED,),
         output_record_type="FormalResult",
     )
@@ -798,16 +813,6 @@ def _plan_reference_fiber_formal(factory: _TaskFactory, endpoint: EndpointRecord
         gates=(ENDPOINT_INPUT_READY,),
         output_record_type="SensitivityResult",
     )
-    factory.add(
-        endpoint,
-        stage="cheap_observed_sensitivity",
-        round_id="round_5",
-        phase="sensitivity",
-        service_id="run_reference_fiber_cheap_sensitivity",
-        dependencies=(readiness, prepare, observed),
-        gates=(ENDPOINT_INPUT_READY,),
-        output_record_type="SensitivityResult",
-    )
     _plan_ppam_activation(
         factory,
         endpoint,
@@ -882,6 +887,92 @@ def _plan_reference_fiber_sensitive(
         dependencies=(readiness, prepare, observed, formal_source),
         gates=(ENDPOINT_INPUT_READY, FORMAL_SOURCE_AVAILABLE),
         output_record_type="SensitiveRecord",
+    )
+
+
+def _plan_reference_individualized(
+    factory: _TaskFactory,
+    endpoint: EndpointRecord,
+) -> None:
+    readiness = factory.add(
+        endpoint,
+        stage="input_readiness",
+        round_id="round_0",
+        phase="observed",
+        service_id="validate_reference_individualized_input",
+        gates=(CATALOG_AVAILABLE,),
+        output_record_type="EndpointInputRecord",
+    )
+    prepare = factory.add(
+        endpoint,
+        stage="prepare_exposure",
+        round_id="round_1",
+        phase="observed",
+        service_id="prepare_reference_individualized_exposure",
+        dependencies=(readiness,),
+        gates=(ENDPOINT_INPUT_READY,),
+        output_record_type="PreparedTargetExposureRecord",
+    )
+    observed = factory.add(
+        endpoint,
+        stage="observed_grid",
+        round_id="round_2",
+        phase="observed",
+        service_id="run_reference_individualized_observed_grid",
+        dependencies=(readiness, prepare),
+        gates=(ENDPOINT_INPUT_READY,),
+        output_record_type="ObservedResult",
+    )
+    resolver = factory.add(
+        endpoint,
+        stage="source_resolver",
+        round_id="round_2",
+        phase="observed",
+        service_id="resolve_reference_individualized_source",
+        dependencies=(observed,),
+        gates=(ENDPOINT_INPUT_READY,),
+        output_record_type="SourceRecord",
+    )
+    final = factory.add(
+        endpoint,
+        stage="final_realization",
+        round_id="round_2",
+        phase="observed",
+        service_id="realize_reference_final",
+        dependencies=(readiness, resolver),
+        output_record_type="FinalSelectionRecord",
+    )
+    formal_permutation = _plan_formal_permutation(
+        factory,
+        endpoint,
+        round_id="round_3",
+        dependencies=(readiness, prepare, final),
+    )
+    factory.add(
+        endpoint,
+        stage="formal_in_sample",
+        round_id="round_3",
+        phase="formal",
+        service_id="run_reference_individualized_formal_in_sample",
+        dependencies=(readiness, prepare, final, formal_permutation),
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalResult",
+    )
+    formal_bootstrap = _plan_formal_bootstrap(
+        factory,
+        endpoint,
+        round_id="round_4",
+        dependencies=(readiness, prepare, final),
+    )
+    factory.add(
+        endpoint,
+        stage="spatial_jitter",
+        round_id="round_5",
+        phase="sensitivity",
+        service_id="run_reference_individualized_jitter",
+        dependencies=(readiness, prepare, final, formal_bootstrap),
+        gates=(FINAL_REALIZED, FORMAL_COMPLETE),
+        output_record_type="SensitivityResult",
     )
 
 
@@ -1246,6 +1337,156 @@ def _plan_addon_fiber_formal(
     )
 
 
+def _plan_addon_individualized(
+    factory: _TaskFactory,
+    endpoint: EndpointRecord,
+    reference_endpoint: EndpointRecord,
+) -> None:
+    reference_source = factory.stage(reference_endpoint.endpoint_id, "source_resolver")
+    reference_readiness = factory.stage(
+        reference_endpoint.endpoint_id,
+        "input_readiness",
+    )
+    reference_prepare = factory.stage(
+        reference_endpoint.endpoint_id,
+        "prepare_exposure",
+    )
+    readiness = factory.add(
+        endpoint,
+        stage="input_readiness",
+        round_id="round_0",
+        phase="observed",
+        service_id="validate_addon_individualized_input",
+        gates=(CATALOG_AVAILABLE,),
+        output_record_type="EndpointInputRecord",
+    )
+    dependency = factory.add(
+        endpoint,
+        stage="reference_dependency",
+        round_id="round_0",
+        phase="observed",
+        service_id="bind_reference_dependency",
+        dependencies=(reference_source,),
+        output_record_type="ReferenceDependencyRecord",
+    )
+    prepare = factory.add(
+        endpoint,
+        stage="prepare_exposure",
+        round_id="round_1",
+        phase="observed",
+        service_id="prepare_addon_individualized_exposure",
+        dependencies=(readiness, dependency),
+        gates=(ENDPOINT_INPUT_READY, REFERENCE_DEPENDENCY_READY),
+        output_record_type="PreparedTargetExposureRecord",
+    )
+    delta = factory.add(
+        endpoint,
+        stage="delta_reference_input",
+        round_id="round_1",
+        phase="observed",
+        service_id="build_individualized_delta_reference_input",
+        dependencies=(
+            readiness,
+            reference_readiness,
+            reference_prepare,
+            dependency,
+            prepare,
+            reference_source,
+        ),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            REFERENCE_SOURCE_ACCEPTED,
+        ),
+        output_record_type="DeltaReferenceBundle",
+    )
+    no_delta = factory.add(
+        endpoint,
+        stage="branch_no_delta_observed",
+        round_id="round_2",
+        phase="observed",
+        service_id="run_addon_individualized_branch",
+        dependencies=(readiness, dependency, prepare),
+        gates=(ENDPOINT_INPUT_READY, REFERENCE_DEPENDENCY_READY),
+        output_record_type="BranchRecord",
+        branch="no_delta_reference",
+    )
+    adjusted = factory.add(
+        endpoint,
+        stage="branch_delta_adjusted_observed",
+        round_id="round_2",
+        phase="observed",
+        service_id="run_addon_individualized_branch",
+        dependencies=(readiness, dependency, prepare, delta),
+        gates=(
+            ENDPOINT_INPUT_READY,
+            REFERENCE_DEPENDENCY_READY,
+            REFERENCE_SOURCE_ACCEPTED,
+            DELTA_INPUTS_VALID,
+        ),
+        output_record_type="BranchRecord",
+        branch="delta_reference_adjusted",
+    )
+    final = factory.add(
+        endpoint,
+        stage="final_realization",
+        round_id="round_2",
+        phase="observed",
+        service_id="realize_addon_final",
+        dependencies=(readiness, dependency, delta, no_delta, adjusted),
+        output_record_type="FinalSelectionRecord",
+    )
+    formal_permutation = _plan_formal_permutation(
+        factory,
+        endpoint,
+        round_id="round_3",
+        dependencies=(readiness, prepare, delta, final),
+    )
+    factory.add(
+        endpoint,
+        stage="formal_in_sample",
+        round_id="round_3",
+        phase="formal",
+        service_id="run_addon_individualized_formal_in_sample",
+        dependencies=(readiness, prepare, delta, final, formal_permutation),
+        gates=(FINAL_REALIZED,),
+        output_record_type="FormalResult",
+    )
+    formal_bootstrap = _plan_formal_bootstrap(
+        factory,
+        endpoint,
+        round_id="round_4",
+        dependencies=(
+            readiness,
+            prepare,
+            delta,
+            final,
+            reference_readiness,
+            reference_prepare,
+            dependency,
+        ),
+    )
+    factory.add(
+        endpoint,
+        stage="spatial_jitter",
+        round_id="round_5",
+        phase="sensitivity",
+        service_id="run_addon_individualized_jitter",
+        dependencies=(
+            readiness,
+            reference_readiness,
+            dependency,
+            prepare,
+            delta,
+            final,
+            formal_permutation,
+            formal_bootstrap,
+        ),
+        gates=(FINAL_REALIZED, FORMAL_COMPLETE),
+        output_record_type="SensitivityResult",
+    )
+
+
 def _plan_addon_fiber_sensitive(
     factory: _TaskFactory,
     endpoint: EndpointRecord,
@@ -1403,11 +1644,17 @@ def compile_execution_plan(
         fiber_permutation_resamples=(
             config.normative_fiber.formal_resampling.permutation_resamples
         ),
+        individualized_permutation_resamples=(
+            config.individualized_seed_target.formal_resampling.permutation_resamples
+        ),
         direct_bootstrap_resamples=(
             config.direct_voxel.formal_resampling.bootstrap_resamples
         ),
         fiber_bootstrap_resamples=(
             config.normative_fiber.formal_resampling.bootstrap_resamples
+        ),
+        individualized_bootstrap_resamples=(
+            config.individualized_seed_target.formal_resampling.bootstrap_resamples
         ),
         ppam_permutation_resamples=(
             config.normative_fiber.oss.permutation_resamples
@@ -1418,14 +1665,26 @@ def compile_execution_plan(
     reference_voxel = tuple(item for item in available if item.key.model_family == "reference_voxel")
     reference_fiber_formal = _records_by_role(available, "reference_fiber", "formal")
     reference_fiber_sensitive = _records_by_role(available, "reference_fiber", "sensitive")
+    reference_individualized = tuple(
+        item
+        for item in available
+        if item.key.model_family == "reference_individualized"
+    )
     addon_voxel = tuple(item for item in available if item.key.model_family == "addon_voxel")
     addon_fiber_formal = _records_by_role(available, "addon_fiber", "formal")
     addon_fiber_sensitive = _records_by_role(available, "addon_fiber", "sensitive")
+    addon_individualized = tuple(
+        item
+        for item in available
+        if item.key.model_family == "addon_individualized"
+    )
 
     for endpoint in reference_voxel:
         _plan_reference_voxel(factory, endpoint)
     for endpoint in reference_fiber_formal:
         _plan_reference_fiber_formal(factory, endpoint)
+    for endpoint in reference_individualized:
+        _plan_reference_individualized(factory, endpoint)
 
     formal_reference_by_scale = _formal_by_scale(catalog, "reference_fiber")
     for endpoint in reference_fiber_sensitive:
@@ -1456,6 +1715,15 @@ def compile_execution_plan(
         if reference_endpoint.status != CatalogStatus.DATA_AVAILABLE:
             continue
         _plan_addon_fiber_formal(factory, endpoint, reference_endpoint)
+
+    for endpoint in addon_individualized:
+        reference_id = endpoint.matched_reference_endpoint_id
+        if reference_id is None or reference_id not in endpoint_index:
+            raise PlanningError(f"missing reference endpoint for {endpoint.endpoint_id}")
+        reference_endpoint = endpoint_index[reference_id]
+        if reference_endpoint.status != CatalogStatus.DATA_AVAILABLE:
+            continue
+        _plan_addon_individualized(factory, endpoint, reference_endpoint)
 
     formal_addon_by_scale = _formal_by_scale(catalog, "addon_fiber")
     for endpoint in addon_fiber_sensitive:

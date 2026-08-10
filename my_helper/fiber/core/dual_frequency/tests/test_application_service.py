@@ -8,12 +8,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 from dual_frequency.application import service as service_module
 from dual_frequency.application.service import (
     WorkflowRequest,
     WorkflowService,
 )
-from dual_frequency.config import WorkflowOverrides
+from dual_frequency.config import WorkflowOverrides, load_workflow
 from dual_frequency.workflow import RunResult, RunStore, ServiceRegistry
 
 try:
@@ -66,6 +68,50 @@ class WorkflowServiceOrchestrationTest(unittest.TestCase):
     def test_production_default_registry_is_constructible(self) -> None:
         registry = WorkflowService._default_registry()
         self.assertTrue(registry.service_ids)
+
+    def test_input_bundle_carries_portable_tracking_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory).resolve()
+            request = _report_request(root)
+            validated = WorkflowService().plan(request).validated
+            run_root = root / "portable-run"
+            run_root.mkdir()
+
+            WorkflowService._publish_input_bundle(run_root, validated)
+
+            bundle_root = run_root / "inputs"
+            manifest = json.loads(
+                (bundle_root / "input_bundle.json").read_text(encoding="utf-8")
+            )
+            bundled_model = yaml.safe_load(
+                (
+                    bundle_root
+                    / manifest["files"]["individualized_seed_target_model"][
+                        "relative_path"
+                    ].split("/")[-1]
+                ).read_text(encoding="utf-8")
+            )
+            tracking_entry = manifest["files"]["mrtrix_seed_target"]
+            tracking_path = run_root / tracking_entry["relative_path"]
+            tracking_is_file = tracking_path.is_file()
+            reloaded = load_workflow(
+                bundle_root / request.workflow_profile.name,
+                request.overrides,
+            )
+
+        self.assertTrue(tracking_is_file)
+        self.assertEqual(
+            bundled_model["tractography"]["tracking_config"],
+            tracking_path.name,
+        )
+        self.assertEqual(
+            reloaded.individualized_seed_target.tractography.space,
+            validated.configuration.individualized_seed_target.tractography.space,
+        )
+        self.assertEqual(
+            reloaded.scientific_configuration_hash,
+            validated.configuration.scientific_configuration_hash,
+        )
 
     def test_exact_run_root_rejects_malformed_manifest_json(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

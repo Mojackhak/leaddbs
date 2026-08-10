@@ -123,10 +123,11 @@ The dTOR and MGH connectomes are large. Implementations must use chunked access 
 
 ### Individualized DWI Tractography
 
-Use the current imported DWI log as the individualized DWI source:
+Use the current patient-specific MRtrix seed-target tractography:
 
 ```text
-/Volumes/VAL/STNSNr/derivatives/leaddbs/import_logs/dwi_import_20260701_013240.csv
+/Volumes/VAL/STNSNr/derivatives/leaddbs/
+└── sub-{subject_id}/connectomics/dMRI/mrtrix_seed_target/
 ```
 
 The DWI registration prerequisites are fixed in:
@@ -135,22 +136,20 @@ The DWI registration prerequisites are fixed in:
 /Users/mojackhu/Github/leaddbs/my_helper/stnsnr/dwi_registration_technical_details.md
 ```
 
-Individualized DWI is incorporated as a target-level seed-target feature source:
+Individualized DWI is incorporated as a 17-target seed-target feature source.
+`preSMA` is excluded from tracking, modeling, and visualization.
 
 ```text
-C_ind(i,h,k) = patient i, side h, target k connectivity
-C_ind_bilat(i,k) = (C_ind(i,L,k) + C_ind(i,R,k)) / 2
+B_ind(i,h,k) = patient i, side h, target k activation burden
+B_ind_bilat(i,k) = mean of the left and right actual burdens
 ```
 
-Main DWI interpretation requires target coverage QC. A target should not enter the main individualized-DWI model if it is missing or unreliably reconstructed in too many patients. The preferred threshold is that a target has usable bilateral streamlines in at least `12/16` patients, with `13/16` as a stricter sensitivity rule.
-
-The three planned data-source models are:
-
-- `Normative-only`: target weights and scores from public connectomes.
-- `Normative-guided individualized DWI`: target selection and weights from normative connectomes, score computed from individualized DWI features.
-- `Individualized-DWI-only`: target selection and weights from individualized DWI features as sensitivity analysis.
-
-The preferred connectivity model after DWI QC is the normative-guided individualized DWI target-level model.
+One side supports a patient-target row when at least 20 target fibers are
+activated and the activated fraction is at least 0.05. Either side passing
+forms patient support, while both actual side burdens remain in the bilateral
+mean. A target enters a source cell when at least five patients support it and
+its partial Spearman coefficient is finite. The individualized model is an
+independent model domain, not a normative-guided sensitivity model.
 
 ### Atlas And ROI Data
 
@@ -308,29 +307,37 @@ C_norm(i,h,k) =
   sum_j A_norm(i,h,j) / (number of streamlines in G_norm(k,h) + lambda)
 ```
 
-For individualized DWI:
+For individualized DWI and source threshold `tau`:
 
 ```text
 G_ind(i,k,h) = patient i streamlines with endpoint in same-side target P(k,h)
 A_ind(i,h,j) = max exposure along patient streamline j from stimulation side h
 
-C_ind(i,h,k) =
-  sum_j A_ind(i,h,j) / (number of streamlines in G_ind(i,k,h) + lambda)
+B_ind(i,h,k) =
+  sum_j A_ind(i,h,j) I[A_ind(i,h,j) at least tau]
+  / number of valid streamlines in G_ind(i,k,h)
 ```
 
-Use equal streamline weights within a target for the main analysis:
+This is target activation burden: the activated-fiber fraction multiplied by
+the mean peak E among activated fibers. Equal streamline weights are used:
 
 ```text
 q_j = 1
 ```
 
-Left and right sides are then averaged to one patient-level feature:
+Either side passing the count and fraction support thresholds forms patient
+support. Left and right actual burdens are then averaged:
 
 ```text
-C_bilat(i,k) = (C(i,L,k) + C(i,R,k)) / 2
+B_bilat(i,k) = mean of B(i,L,k) and B(i,R,k)
 ```
 
-The primary statistical table has one row per patient (`n = 16`). Do not treat left and right hemispheres as independent observations. Left and right stimulation are computed in their own hemispheres against same-side homologous targets; no left-right flip is required for the target-level model.
+The primary statistical table has one row per patient (`n = 16`). Do not treat
+left and right hemispheres as independent observations. A missing target
+denominator is missing data rather than zero burden. The reference model uses
+suprathreshold reference peak E. The add-on model retains all target fibers in
+the denominator and includes only add-on-active, reference-inactive fibers in
+the numerator.
 
 ### Voxel Exposure
 
@@ -346,148 +353,37 @@ The mask should include voxels exposed in at least a prespecified minimum number
 
 ### Target-Derived Seed Voxel Visualization
 
-For target-level individualized DWI models and explicitly labeled target-level
-sensitivities, the voxel-level visualization is a target-derived seed voxel map.
-It back-projects learned target weights into the seed nucleus using streamline
-density from each seed voxel to each same-side target.
-
-This is a visualization and overlap-scoring layer for the target-level model, not a separate voxel-wise discovery model. It is distinct from the executable HF and ULF direct voxel models, which are specified in their model summary files.
-
-For each side `h` in `{L,R}`:
+The final individualized spatial visualization does not pool patient-specific
+tractography. It projects the final 17 benefit-oriented target coefficients
+through one shared PPMI 85 physical projection:
 
 ```text
-Omega_h = same-side seed mask, STN for HF models and SNr for ULF add-on gain models
-P_k,h   = same-side target k
-G_h,k   = streamlines connecting the seed side to target P_k,h
+final target coefficients
+→ right role-seed PPMI fibers
+→ equal mean over finite coefficients of targets hit by each fiber
+→ coefficient-colored fiber display
+→ mean scored-fiber value per role-seed voxel
+→ display.nii.gz
 ```
 
-For HF-only efficacy models:
+Reference uses the configured right STN seed and add-on uses the configured
+right SNr seed. Target intersection uses segment intersection and independent
+binary membership. One fiber may hit multiple targets. A fiber with no finite
+target coefficient is excluded and reported rather than assigned zero.
 
-```text
-w_k = w_HF,k
-S   = S_HF
-Omega_h = same-side STN mask
-```
+The physical PPMI membership and seed-voxel patterns are stored once below
+`shared/target_projections/ppmi_85_ewert_2017/` and reused by every scale. They
+contain no clinical coefficient.
 
-For ULF add-on gain models:
+The all-coverage voxel value is the mean score of all finite scored PPMI fibers
+passing through that voxel. Each fiber contributes once per voxel. The map is
+display-only and cannot enter target fitting, patient scoring, LOOCV,
+permutation, bootstrap, or jitter.
 
-```text
-w_k = w_ULF,k
-S   = S_SNr
-Omega_h = same-side SNr mask
-```
-
-No left-right flip is performed. Left seed voxels use left targets, right seed voxels use right targets, and both sides share the same target weights `w_k`.
-
-For each voxel `v` in `Omega_h`, compute target-specific streamline density:
-
-```text
-D_h,k(v) = sum_{j in G_h,k} a_v,j,h
-```
-
-Main contribution:
-
-```text
-a_v,j,h = 1 if streamline j passes through voxel v, otherwise 0
-```
-
-Display sensitivities:
-
-```text
-length-weighted:   a_v,j,h = length(streamline j inside voxel v)
-distance-weighted: a_v,j,h = exp(-d(v, streamline j)^2 / (2 * sigma^2))
-```
-
-Use binary or length-weighted density as the main display. Distance-weighted density is exploratory only.
-
-Normalize each target density so targets with more streamlines do not dominate only because of tractography density:
-
-```text
-Dnorm_h,k(v) = D_h,k(v) / (sum_{u in Omega_h} D_h,k(u) + lambda)
-```
-
-Given selected target set `S` and candidate target set `K`, compute:
-
-```text
-Coverage_h(v) = sum_{m in K} Dnorm_h,m(v)
-
-Sweet_h(v) =
-  sum_{k in S} max(w_k, 0) * Dnorm_h,k(v) / (Coverage_h(v) + lambda)
-
-Sour_h(v) =
-  sum_{k in S} max(-w_k, 0) * Dnorm_h,k(v) / (Coverage_h(v) + lambda)
-
-Net_h(v) = Sweet_h(v) - Sour_h(v)
-```
-
-The net map is the main target-derived voxel-wise sweet/sour map. It answers whether a seed voxel's target connectivity profile is biased toward beneficial or detrimental targets learned by the target-level model.
-
-For individualized DWI, compute patient-specific maps in native DWI or anchor-native space, transform them to template space, and generate a coverage-weighted group map:
-
-```text
-M_ind_group_h(v) =
-  sum_i Coverage_ind_i,h(v) * M_ind_i,h(v)
-  / (sum_i Coverage_ind_i,h(v) + lambda)
-```
-
-Recommended figure hierarchy:
-
-1. Main figure: normative anatomical target-derived seed voxel map, because coverage is smoother and complete.
-2. Supplementary or consistency figure: individualized-DWI coverage-weighted group map.
-3. Required sidecar: coverage map for every displayed sweet/sour/net map.
-
-Display rules:
-
-```text
-net map: diverging color scale centered at zero
-positive: warm color, sweet-biased connectivity profile
-negative: cool color, sour-biased connectivity profile
-low coverage: transparent or gray
-left/right: displayed separately without flipping
-```
-
-Recommended coverage thresholds:
-
-```text
-Coverage_h(v) above the 20th percentile
-```
-
-or:
-
-```text
-Coverage_h(v) >= 5 streamlines
-```
-
-For individualized DWI group maps, require voxel coverage in at least `4` or `5` patients before strong interpretation.
-
-If voxel maps are converted to patient-level overlap scores for prediction, the voxel maps must be generated inside each training fold:
-
-```text
-VoxelScore_i =
-  sum_h sum_{v in Omega_h} E_i,h(v) * Net_h(v)
-  / (sum_h sum_{v in Omega_h} E_i,h(v) * Coverage_h(v) + lambda)
-```
-
-LOOCV workflow:
-
-1. Learn `w_k` and selected target set `S` from training patients only.
-2. Generate fold-specific `Net_h^{(-t)}(v)`.
-3. Compute the held-out patient's voxel overlap score using the fold-specific map.
-4. Predict the held-out outcome.
-
-Fold-specific maps should be summarized with:
-
-```text
-MeanMap_h(v) = mean_t Net_h^{(-t)}(v)
-Stability_h(v) = number of folds with Net_h^{(-t)}(v) > 0 / number of folds
-```
-
-Interpretation boundary:
-
-```text
-The map is a connectivity-derived candidate sweet/sour seed-zone visualization.
-It is not direct voxel-wise causal evidence.
-```
+Display generation uses masked-normalized 1 mm FWHM smoothing, a 0.1 mm
+isotropic display grid, support weight above 0.5, and 0.25 mm inward surface
+color sampling. Each scale and role uses its own zero-centered symmetric color
+limits. Figures are PNG or PDF only.
 
 ### Direct Voxel-Level Sweet Spot Mapping
 
@@ -1088,83 +984,40 @@ The ULF normative model also writes HF-overlap exclusion summaries, `DeltaHFScor
 
 ### Individualized DWI Target-Level Rank-Based Implementation
 
-For individualized-DWI target-level sensitivity models:
+The individualized model is a production model domain rather than a
+sensitivity model. For each target and each LOOCV training fold:
 
-1. Rank-transform `Y_post`, `C_ULF_only_bilat(k)`, `Y_HF_ref`, and `DeltaHFScore`.
-2. Regress ranked `Y_post` on ranked `Y_HF_ref` and ranked `DeltaHFScore`; keep residuals.
-3. Regress ranked `C_ULF_only_bilat(k)` on ranked `Y_HF_ref` and ranked `DeltaHFScore`; keep residuals.
-4. Correlate the two residual vectors.
-5. Orient the resulting score so positive values mean better clinical outcome.
+1. construct bilateral target activation burden at the fold's source cell;
+2. keep targets that pass fold-local Coverage and have finite burden;
+3. compute partial Spearman rho against the outcome with the branch-specific
+   nuisance design;
+4. orient rho so positive values indicate clinical benefit;
+5. standardize target burdens from training rows only; and
+6. compute the target score as the weighted sum divided by the sum of absolute
+   finite target weights.
 
-For lower-is-better scales:
-
-```text
-H_ULF,k = -theta_ULF,k
-```
-
-For SE-ADL:
-
-```text
-H_ULF,k = theta_ULF,k
-```
-
-Output names:
-
-```text
-ULFTargetScore_k
-```
-
-Positive values indicate sweet targets. Negative values indicate sour targets. Secondary voxel and streamline outputs may be generated to localize or visualize these target-level sensitivity findings.
+All stable finite targets enter the score. Target-level FDR is reported but is
+not a score-selection gate. The add-on adjusted branch trains its matching
+individualized reference model inside the same outer fold before constructing
+the delta reference score.
 
 ## Target-Level Outputs
 
-For each connectome or DWI source, model class, scale, and endpoint, export:
+The authoritative file tree is
+`my_helper/stnsnr/dual_frequency_output_contract.md`. Each individualized
+endpoint publishes:
 
 ```text
-target_label
-target_atlas
-data_source
-scale
-endpoint_class
-model_name
-target_weight
-benefit_score_k
-rho_or_beta
-p_value
-q_value
-coverage
-C_left_summary
-C_right_summary
-C_bilat_summary
-sweet_or_sour
-endpoint_labels
-```
-
-For secondary fiber contribution outputs within selected targets, export:
-
-```text
-fiber_id
-parent_target_label
-connectome_name_or_dwi_subject
-scale
-endpoint_class
-model_name
-parent_target_weight
-fiber_exposure_summary
-coverage
-intersects_custom_stn
-intersects_custom_snr
-intersects_both_stn_snr
-endpoint_labels
-```
-
-Also export secondary visualization products:
-
-```text
-selected-target fiber subsets
-target-weighted streamline density maps
-target coverage maps
-coverage density maps
+target activation and support rows
+full and fold target coefficients
+fold-valid target masks
+patient scores and LOOCV predictions
+permutation and bootstrap inference
+in-sample results
+spatial jitter
+paired-fit figures
+PPMI target-conditioned 2-D and 3-D figures
+target coefficient stability figures and tables
 ```
 
 ## Voxel-Based Outputs
@@ -1181,44 +1034,10 @@ coverage map
 bootstrap stability map
 ```
 
-For target-derived seed voxel visualization, export side-specific NIfTI files:
-
-```text
-<seed>_lh_coverage.nii.gz
-<seed>_lh_sweet.nii.gz
-<seed>_lh_sour.nii.gz
-<seed>_lh_net.nii.gz
-<seed>_lh_stability.nii.gz
-
-<seed>_rh_coverage.nii.gz
-<seed>_rh_sweet.nii.gz
-<seed>_rh_sour.nii.gz
-<seed>_rh_net.nii.gz
-<seed>_rh_stability.nii.gz
-```
-
-where `<seed>` is `STN` for HF models and `SNr` for ULF add-on gain models.
-
-Thus the required target-derived voxel outputs include both HF efficacy maps and ULF add-on gain maps when the corresponding model is run:
-
-```text
-STN_lh_net.nii.gz
-STN_rh_net.nii.gz
-SNr_lh_net.nii.gz
-SNr_rh_net.nii.gz
-```
-
-Also export:
-
-```text
-target_density_by_seed_voxel.mat
-target_density_manifest.csv
-voxel_map_display_thresholds.json
-voxel_overlap_scores.csv
-loocv_fold_voxel_scores.csv
-```
-
-Target-derived voxel maps are secondary localization outputs for target-level model families. They should be interpreted with connected-region STN/SNr outlines and target-atlas overlays, but the primary target-level model itself is not cropped to those ROIs. This statement does not apply to the executable HF and ULF direct voxel models, which are independent local stimulation association models specified in their model-summary files.
+The individualized target-derived display publishes one PPMI-based
+`all_coverage/maps/display.nii.gz` per scale and role. It does not publish
+patient-pooled left/right target-density maps, selected sweet/sour fiber
+subsets, or patient-level voxel overlap scores.
 
 For legacy generic direct voxel-level sweet spot models, export:
 

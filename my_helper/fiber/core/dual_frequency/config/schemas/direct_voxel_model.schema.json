@@ -1,14 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://leaddbs.org/schemas/direct_voxel_model_v1.schema.json",
+  "$id": "https://leaddbs.org/schemas/direct_voxel_model.schema.json",
   "title": "Direct voxel model profile",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version",
     "profile_type",
-    "model_set_id",
-    "output",
     "scales",
     "endpoint_pair",
     "frequency_classes",
@@ -16,10 +13,7 @@
     "addon"
   ],
   "properties": {
-    "schema_version": {"const": "direct_voxel_model_v1"},
     "profile_type": {"const": "direct_voxel_model"},
-    "model_set_id": {"type": "string", "minLength": 1},
-    "output": {"$ref": "#/$defs/output"},
     "scales": {"$ref": "#/$defs/scales"},
     "endpoint_pair": {"$ref": "#/$defs/endpointPair"},
     "frequency_classes": {"$ref": "#/$defs/frequencyClasses"},
@@ -63,14 +57,6 @@
     "addon": {"$ref": "#/$defs/addon"}
   },
   "$defs": {
-    "output": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["root"],
-      "properties": {
-        "root": {"type": "string", "pattern": "^/", "minLength": 2}
-      }
-    },
     "scales": {
       "type": "array",
       "minItems": 1,

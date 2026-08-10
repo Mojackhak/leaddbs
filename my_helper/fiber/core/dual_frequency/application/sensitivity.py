@@ -20,6 +20,7 @@ from ..contracts import (
     FinalSelectionRecord,
     IndexedArrayView,
     PreparedExposureRecord,
+    PreparedTargetExposureRecord,
 )
 from ..contracts.identity import canonical_hash
 from ..reporting.artifact_index import record_artifact_closure
@@ -487,7 +488,6 @@ def publish_sensitivity_checkpoints(
     typed_records: Mapping[str, object],
     run_id: str,
     study_id: str,
-    model_set_ids: Mapping[str, str],
     cache_root: Path,
     output_root: Path,
     source_identities: Sequence[Mapping[str, str]],
@@ -541,7 +541,11 @@ def publish_sensitivity_checkpoints(
                 f"realized final {endpoint_id!r} does not have one preparation task"
             )
         prepared = typed_records.get(prepare_tasks[0].task_id)
-        if not isinstance(prepared, PreparedExposureRecord):
+        if isinstance(prepared, PreparedTargetExposureRecord):
+            prepared_exposure = prepared.patient_burdens
+        elif isinstance(prepared, PreparedExposureRecord):
+            prepared_exposure = prepared.exposure
+        else:
             raise SensitivityCheckpointError(
                 f"realized final {endpoint_id!r} lacks a prepared exposure checkpoint"
             )
@@ -561,7 +565,13 @@ def publish_sensitivity_checkpoints(
                 f"realized final {endpoint_id!r} lacks a subject axis"
             )
         family = final.endpoint.model_family
-        profile_key = "direct_voxel" if family.endswith("voxel") else "normative_fiber"
+        profile_key = (
+            "direct_voxel"
+            if family.endswith("voxel")
+            else "individualized_seed_target"
+            if family.endswith("individualized")
+            else "normative_fiber"
+        )
         rng_profile = dict(rng_profiles[profile_key])
         final_artifacts = tuple(record_artifact_closure(final))
         portable_artifacts = tuple(mapper(artifact) for artifact in final_artifacts)
@@ -580,9 +590,9 @@ def publish_sensitivity_checkpoints(
         )
         shared_exposure_semantic_sha256 = (
             (
-                prepared.exposure.sha256
-                if isinstance(prepared.exposure, ArtifactRef)
-                else prepared.exposure.parent.sha256
+                prepared_exposure.sha256
+                if isinstance(prepared_exposure, ArtifactRef)
+                else prepared_exposure.parent.sha256
             )
             if not shared_exposures
             else shared_exposures[0]["semantic_sha256"]
@@ -597,7 +607,6 @@ def publish_sensitivity_checkpoints(
             "schema_version": BASE_SCHEMA,
             "base_run_id": run_id,
             "study_id": study_id,
-            "model_set_id": model_set_ids[profile_key],
             "endpoint_id": endpoint_id,
             "scale_id": final.endpoint.scale_id,
             "model_family": family,
@@ -619,7 +628,7 @@ def publish_sensitivity_checkpoints(
             "shared_exposure_semantic_sha256": shared_exposure_semantic_sha256,
             "shared_exposure_entries": shared_exposures,
             "shared_exposure_artifact": _scientific_array_payload(
-                prepared.exposure,
+                prepared_exposure,
                 mapper,
             ),
             "final_artifacts": [_artifact_payload(item) for item in portable_artifacts],
@@ -965,6 +974,11 @@ def compile_sensitivity_extension_plan(
         jitter_targets = tuple(
             task for task in extension_targets.values() if task.stage == "spatial_jitter"
         )
+        physical_block_targets = tuple(
+            task
+            for task in jitter_targets
+            if task.model_family.endswith(("voxel", "fiber"))
+        )
         missing_bases = tuple(
             sorted(
                 task.endpoint_id
@@ -980,7 +994,7 @@ def compile_sensitivity_extension_plan(
 
         grouped: dict[str, list[TaskSpec]] = {}
         descriptors: dict[str, dict[str, Any]] = {}
-        for task in jitter_targets:
+        for task in physical_block_targets:
             base = bases_by_endpoint[task.endpoint_id]
             rng = base.get("rng_profile")
             shared = base.get("shared_exposure_entries")
@@ -1068,10 +1082,10 @@ def compile_sensitivity_extension_plan(
                 dependency for task in members for dependency in task.dependencies
             }
             if descriptor["final_branch_mode"] == "delta_reference_adjusted":
-                reference_family = (
-                    "reference_voxel"
-                    if representative.model_family.endswith("voxel")
-                    else "reference_fiber"
+                reference_family = representative.model_family.replace(
+                    "addon_",
+                    "reference_",
+                    1,
                 )
                 for member in members:
                     reference_inputs = tuple(
@@ -1169,7 +1183,7 @@ def compile_sensitivity_extension_plan(
                 )
 
         physical_block_ids = tuple(task.task_id for task in block_tasks)
-        for target in jitter_targets:
+        for target in physical_block_targets:
             current = extension_targets[target.task_id]
             extension_targets[target.task_id] = replace(
                 current,

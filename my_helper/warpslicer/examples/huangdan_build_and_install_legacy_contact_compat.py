@@ -23,7 +23,7 @@ from my_helper.warpslicer.legacy_contact_compat import (  # noqa: E402
 
 
 SUBJECT_LABEL = "Sub-HuangDan"
-SUBJECT_DIR = Path("/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-HuangDan")
+SUBJECT_DIR = Path("/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr029")
 TRANSFORM_DIR = SUBJECT_DIR / "normalization" / "transformations"
 OUTPUT_DIR = SUBJECT_DIR / "warpdrive" / "legacy_contact_compat"
 COHORT_PKL = Path("/Volumes/VAL/STNSNr/summary/cohort/lead/contact_reco_space_locs.pkl")
@@ -34,17 +34,19 @@ MAX_POINT_EXACT_GRID_ERROR_MM = 1e-6
 def main() -> None:
     compat_paths = CompatPaths(
         lead_root=LEAD_ROOT,
-        reconstruction_mat=SUBJECT_DIR / "reconstruction" / "sub-HuangDan_desc-reconstruction.mat",
+        reconstruction_mat=SUBJECT_DIR / "bak" / "sub-SNr029_desc-reconstruction-bak.mat",
         cohort_pkl=COHORT_PKL,
         template_reference=LEAD_ROOT / "templates" / "space" / "MNI152NLin2009bAsym" / "t1.nii",
         native_reference=SUBJECT_DIR
         / "coregistration"
         / "anat"
-        / "sub-HuangDan_ses-preop_space-anchorNative_desc-preproc_acq-ax_T1w.nii",
-        current_forward=TRANSFORM_DIR
-        / "sub-HuangDan_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz",
-        current_inverse=TRANSFORM_DIR
-        / "sub-HuangDan_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants.nii.gz",
+        / "sub-SNr029_ses-preop_space-anchorNative_desc-preproc_acq-ax_T1w.nii",
+        current_forward=SUBJECT_DIR
+        / "bak"
+        / "sub-SNr029_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz",
+        current_inverse=SUBJECT_DIR
+        / "bak"
+        / "sub-SNr029_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz",
         output_dir=OUTPUT_DIR,
         subject_label=SUBJECT_LABEL,
         legacy_target_override_csv=None,
@@ -69,10 +71,12 @@ def main() -> None:
 
     install_paths = InstallPaths(
         lead_root=LEAD_ROOT,
-        reconstruction_mat=compat_paths.reconstruction_mat,
+        reconstruction_mat=SUBJECT_DIR / "reconstruction" / "sub-SNr029_desc-reconstruction.mat",
         cohort_pkl=COHORT_PKL,
-        current_forward=compat_paths.current_forward,
-        current_inverse=compat_paths.current_inverse,
+        current_forward=TRANSFORM_DIR
+        / "sub-SNr029_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz",
+        current_inverse=TRANSFORM_DIR
+        / "sub-SNr029_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants.nii.gz",
         candidate_forward=OUTPUT_DIR
         / "candidate_from-anchorNative_to-MNI152NLin2009bAsym_desc-legacyContactCompat_ants.nii.gz",
         candidate_inverse_point_exact=OUTPUT_DIR

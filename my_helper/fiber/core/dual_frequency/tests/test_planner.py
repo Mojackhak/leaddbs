@@ -23,7 +23,7 @@ class PlannerTest(unittest.TestCase):
         catalog = build_endpoint_catalog(config, synthetic_study())
         return config, catalog, compile_execution_plan(config, catalog)
 
-    def test_compiles_unique_topological_tasks_for_all_four_families(self) -> None:
+    def test_compiles_unique_topological_tasks_for_all_six_families(self) -> None:
         config, _catalog, plan = self._plan()
         self.assertEqual(plan.configuration_hash, config.configuration_hash)
         self.assertEqual(
@@ -32,7 +32,14 @@ class PlannerTest(unittest.TestCase):
         )
         self.assertEqual(
             {task.model_family for task in plan.tasks},
-            {"reference_voxel", "reference_fiber", "addon_voxel", "addon_fiber"},
+            {
+                "reference_voxel",
+                "reference_fiber",
+                "reference_individualized",
+                "addon_voxel",
+                "addon_fiber",
+                "addon_individualized",
+            },
         )
         self.assertEqual(len({task.task_id for task in plan.tasks}), len(plan.tasks))
         task_ids: set[str] = set()
@@ -262,6 +269,17 @@ class PlannerTest(unittest.TestCase):
         self.assertTrue(any(task.stage == "final_realization" for task in plan.tasks))
         self.assertFalse(any(task.stage == "formal_permutation" for task in plan.tasks))
 
+    def test_formal_cutoff_excludes_all_sensitivity_tasks(self) -> None:
+        config, _catalog, plan = self._plan(through="formal")
+        self.assertEqual(config.workflow.execution.through, "formal")
+        self.assertEqual({task.phase for task in plan.tasks}, {"observed", "formal"})
+        self.assertFalse(
+            any(
+                task.stage in {"spatial_jitter", "activation_sensitivity"}
+                for task in plan.tasks
+            )
+        )
+
     def test_addon_dependency_uses_the_exact_catalog_reference(self) -> None:
         _config, catalog, plan = self._plan()
         task_index = {task.task_id: task for task in plan.tasks}
@@ -293,7 +311,12 @@ class PlannerTest(unittest.TestCase):
             readiness = endpoint_tasks["input_readiness"]
             prepare = endpoint_tasks["prepare_exposure"]
             self.assertEqual(readiness.output_record_type, "EndpointInputRecord")
-            self.assertEqual(prepare.output_record_type, "PreparedExposureRecord")
+            expected_record_type = (
+                "PreparedTargetExposureRecord"
+                if endpoint.key.model_family.endswith("individualized")
+                else "PreparedExposureRecord"
+            )
+            self.assertEqual(prepare.output_record_type, expected_record_type)
             self.assertIn("endpoint_input_ready", {gate.fact for gate in prepare.gates})
             for task in endpoint_tasks.values():
                 if task.stage == "observed_grid" or task.stage.startswith("branch_"):
@@ -446,18 +469,19 @@ class PlannerTest(unittest.TestCase):
             }
             if "formal_permutation" not in tasks:
                 continue
-            profile = (
-                config.normative_fiber.formal_resampling
-                if endpoint.key.model_family.endswith("fiber")
-                else config.direct_voxel.formal_resampling
-            )
+            if endpoint.key.model_family.endswith("fiber"):
+                profile = config.normative_fiber.formal_resampling
+            elif endpoint.key.model_family.endswith("individualized"):
+                profile = config.individualized_seed_target.formal_resampling
+            else:
+                profile = config.direct_voxel.formal_resampling
             expected_count = (
                 profile.permutation_resamples
                 + RESAMPLING_REPLICATE_BLOCK_SIZE
                 - 1
             ) // RESAMPLING_REPLICATE_BLOCK_SIZE
             schedule = tasks["formal_permutation_schedule"]
-            workspace = tasks["formal_operator_workspace"]
+            workspace = tasks.get("formal_operator_workspace")
             aggregate = tasks["formal_permutation"]
             blocks = tuple(
                 task
@@ -469,14 +493,19 @@ class PlannerTest(unittest.TestCase):
                 "prepare_formal_permutation_schedule",
             )
             self.assertEqual(schedule.output_record_type, "ResamplingScheduleRecord")
-            self.assertEqual(
-                workspace.service_id,
-                "prepare_formal_operator_workspace",
-            )
-            self.assertEqual(
-                workspace.output_record_type,
-                "FormalOperatorScratchRecord",
-            )
+            if endpoint.key.model_family.endswith("individualized"):
+                self.assertIsNone(workspace)
+            else:
+                self.assertIsNotNone(workspace)
+                assert workspace is not None
+                self.assertEqual(
+                    workspace.service_id,
+                    "prepare_formal_operator_workspace",
+                )
+                self.assertEqual(
+                    workspace.output_record_type,
+                    "FormalOperatorScratchRecord",
+                )
             self.assertEqual(len(blocks), expected_count)
             for block_index, block in enumerate(
                 sorted(blocks, key=lambda item: item.stage)
@@ -487,32 +516,28 @@ class PlannerTest(unittest.TestCase):
                     block.execution_parameters,
                     (("block_index", str(block_index)),),
                 )
-                self.assertTrue(
-                    {schedule.task_id, workspace.task_id}
-                    <= set(block.dependencies)
-                )
+                required = {schedule.task_id}
+                if workspace is not None:
+                    required.add(workspace.task_id)
+                self.assertTrue(required <= set(block.dependencies))
                 self.assertEqual(
                     set(schedule.dependencies),
-                    set(block.dependencies) - {schedule.task_id, workspace.task_id},
+                    set(block.dependencies) - required,
                 )
             self.assertEqual(aggregate.service_id, "aggregate_formal_permutation")
             self.assertEqual(aggregate.output_record_type, "FormalResult")
+            aggregate_required = {
+                schedule.task_id,
+                *(block.task_id for block in blocks),
+            }
+            if workspace is not None:
+                aggregate_required.add(workspace.task_id)
             self.assertTrue(
-                {
-                    schedule.task_id,
-                    workspace.task_id,
-                    *(block.task_id for block in blocks),
-                }
-                <= set(aggregate.dependencies)
+                aggregate_required <= set(aggregate.dependencies)
             )
             self.assertEqual(
                 set(schedule.dependencies),
-                set(aggregate.dependencies)
-                - {
-                    schedule.task_id,
-                    workspace.task_id,
-                    *(block.task_id for block in blocks),
-                },
+                set(aggregate.dependencies) - aggregate_required,
             )
 
     def test_formal_bootstrap_uses_fixed_schedule_block_dag(self) -> None:
@@ -537,11 +562,12 @@ class PlannerTest(unittest.TestCase):
             }
             if "formal_bootstrap" not in tasks:
                 continue
-            profile = (
-                config.normative_fiber.formal_resampling
-                if endpoint.key.model_family.endswith("fiber")
-                else config.direct_voxel.formal_resampling
-            )
+            if endpoint.key.model_family.endswith("fiber"):
+                profile = config.normative_fiber.formal_resampling
+            elif endpoint.key.model_family.endswith("individualized"):
+                profile = config.individualized_seed_target.formal_resampling
+            else:
+                profile = config.direct_voxel.formal_resampling
             expected_count = (
                 profile.bootstrap_resamples
                 + RESAMPLING_REPLICATE_BLOCK_SIZE
@@ -713,11 +739,19 @@ class PlannerTest(unittest.TestCase):
             },
             "reference_fiber": {
                 "round_0", "round_1", "round_2", "round_3",
-                "round_5", "round_5_5", "round_6", "round_7", "round_8",
+                "round_5_5", "round_6", "round_7", "round_8",
             },
             "addon_fiber": {
                 "round_0", "round_1", "round_2", "round_3",
                 "round_5", "round_6", "round_7", "round_8", "round_9",
+            },
+            "reference_individualized": {
+                "round_0", "round_1", "round_2", "round_3",
+                "round_4", "round_5",
+            },
+            "addon_individualized": {
+                "round_0", "round_1", "round_2", "round_3",
+                "round_4", "round_5",
             },
         }
         for family, expected_rounds in expected.items():

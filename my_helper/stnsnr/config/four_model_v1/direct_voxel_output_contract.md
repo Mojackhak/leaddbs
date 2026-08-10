@@ -84,7 +84,7 @@ The publisher derives every lower path. YAML cannot override directory names
 or artifact filenames:
 
 ```text
-<output.root>/direct_voxel/<model_set_id>/<scale_id>/
+<output.root>/direct_voxel/<scale_id>/
 ```
 
 The configured profile binds one baseline/reference/add-on phase-program tuple.
@@ -94,7 +94,7 @@ That binding is stored in `model_manifest.json`; it is not repeated as an
 ## Canonical Directory Tree
 
 ```text
-<output.root>/direct_voxel/<model_set_id>/
+<output.root>/direct_voxel/
 |
 |-- resolved_direct_voxel_model.yaml
 |-- model_manifest.json
@@ -151,7 +151,6 @@ Required fields:
 
 ```text
 schema_version = direct_voxel_model_manifest_v1
-model_set_id
 profile_type
 study_id
 study_base_path
@@ -222,7 +221,7 @@ size_bytes
 status
 ```
 
-All paths are relative to the model-set root. The index does not create a
+All paths are relative to the publication root. The index does not create a
 second copy of any artifact. It indexes resolved configuration, scale outputs,
 and reports, but it does not index itself. Stage `status.json` files likewise
 do not list themselves in `artifact_relative_paths`.
@@ -515,9 +514,9 @@ no_final_model
 When no final model exists, branch and selected-source fields are null,
 artifact references are empty, and failure reasons are mandatory.
 
-`final_model_id` is the SHA-256 of canonical JSON containing `model_set_id`,
-`scale_id`, `model_family`, realized branch, selected-source record hash, and
-scientific configuration hash. Storage paths and `output.root` are excluded.
+`final_model_id` is the SHA-256 of canonical JSON containing `scale_id`,
+`model_family`, realized branch, selected-source record hash, and scientific
+configuration hash. Storage paths and `output.root` are excluded.
 When no final model is realized, `final_model_id` is null.
 
 ## Formal Outputs
@@ -720,13 +719,17 @@ Reference report:
 reference/report/status.json
 reference/report/summary.json
 reference/report/reference_report.html
-reference/report/display/benefit_map_smooth_fwhm1mm.nii.gz
-reference/report/display/benefit_map_smooth_fwhm2mm.nii.gz
 reference/report/display/benefit_map_bilateral.nii.gz
 reference/report/display/mapping_qc.pdf
+reference/visualization/spatial_2d/maps/display.nii.gz
+reference/visualization/spatial_2d/figures/display.png
+reference/visualization/spatial_2d/figures/display.pdf
+reference/visualization/spatial_2d/figures/result.json
 ```
 
-Add-on report uses the same display family with `addon_report.html`. Scale-level
+The single `display.nii.gz` is the configured 1 mm FWHM, 0.1 mm display-only
+derivative of the selected scientific benefit map. Add-on report uses the same
+visualization family with `addon_report.html`. Scale-level
 reporting writes:
 
 ```text
@@ -789,12 +792,9 @@ A later process may publish jitter or other final-linked direct-voxel
 sensitivity below:
 
 ```text
-<output.root>/direct_voxel/<model_set_id>/extensions/<extension_id>/
-├── extension_manifest.json
-├── artifact_index.csv
-└── <scale_id>/
-    ├── reference/sensitivity/
-    └── addon/sensitivity/
+<output.root>/direct_voxel/<scale_id>/
+├── reference/sensitivity/
+└── addon/sensitivity/
 ```
 
 With a complete checkpoint, observed, resolver, and final-model rerun count is
@@ -830,7 +830,7 @@ No candidate branch, source cell, or final model is silently substituted.
 
 ## Collision And Overwrite Rules
 
-The model-set directory is immutable with respect to scientific identity.
+The publication directory is immutable with respect to scientific identity.
 
 - If the directory does not exist, the publisher may create it.
 - If the directory exists with the same scientific configuration identity,
@@ -854,9 +854,9 @@ The model-set directory is immutable with respect to scientific identity.
   orphaned lock or incomplete payload/sidecar pair is an explicit failure and
   is not cleaned up or adopted automatically.
 
-Changing endpoint bindings or scientific model parameters requires a new
-`model_set_id` or explicit archival of the old model-set directory outside this
-contract.
+Changing endpoint bindings or scientific model parameters does not invalidate
+an existing completion marker automatically. Replacing results at the same
+deterministic path requires explicit force.
 
 ## Test Profile
 

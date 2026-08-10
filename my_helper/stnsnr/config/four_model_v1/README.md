@@ -1,7 +1,8 @@
-# Four-Model YAML Profiles
+# Dual-Frequency YAML Profiles
 
-This directory contains the approved direct-voxel and normative-fiber model
-profiles for the dual-frequency four-model refactor.
+This directory contains the approved direct-voxel, normative-fiber, and
+individualized seed-target profiles for the dual-frequency workflow. The
+existing directory name is retained in place and is not a publication version.
 
 ## Profiles
 
@@ -19,6 +20,10 @@ profiles for the dual-frequency four-model refactor.
 - `normative_fiber_model_test.yaml` is a lightweight normative-fiber code-path
   profile. It uses PPMI as `formal`, MGH as `sensitive`, two scales, a reduced
   grid, and minimal resampling counts.
+- `individualized_seed_target_model.yaml` is the production patient-specific
+  target-level profile. It uses the 17-target MRtrix tractography catalog,
+  thresholded mean peak-E target activation burden, any-side support, bilateral
+  actual-burden averaging, and no OSS-pPAM stage.
 - `model.yaml` is a historical predecessor `four_model_v1` profile. The current
   `dual_frequency_v1` workflow, loader, tests, resolved configuration, and
   canonical publications do not reference it. Its older tau grids must not be
@@ -31,12 +36,12 @@ results. It exists only to verify that validation, planning, observed LOOCV,
 source resolution, add-on branch realization, formal-loop dispatch,
 sensitivity dispatch, and artifact writing execute successfully.
 
-Both production profiles retain the hard requirement for at least 12 complete
-subjects after branch-specific exclusion.
+All three production profiles retain the hard requirement for at least 12
+complete subjects after branch-specific exclusion.
 
 ## Shared Contract
 
-All four profiles:
+All production profiles:
 
 - read scale definitions and observations from `study_base.json`;
 - require every configured `scale_id` to match
@@ -49,6 +54,18 @@ All four profiles:
 - apply the same hard-computability and DeltaReferenceScore support rules; and
 - treat every configured scale as an equal engineering execution unit.
 
+The individualized profile additionally:
+
+- reads each patient's left and right `mrtrix_seed_target` tractography;
+- uses 17 targets and excludes `preSMA`;
+- defines target activation burden as suprathreshold peak-E sum divided by all
+  valid fibers assigned to the target;
+- treats either side passing the count and fraction thresholds as patient
+  support while averaging both actual side burdens for scoring;
+- retains all target fibers in the add-on denominator and excludes
+  reference-active fibers only from the add-on numerator; and
+- runs permutation, bootstrap, and spatial jitter without OSS-pPAM.
+
 The normative-fiber profiles additionally require exactly one `formal`
 connectome. Every configured connectome runs the complete observed grid, but
 only `formal` assigns source/prediction status, realizes a final model, and
@@ -57,9 +74,22 @@ Coverage/candidate fibers only; continuous peak E-field remains in the score.
 Add-on exposure retains reference-active overlap exclusion.
 
 Fixed spatial aggregation, estimator, LOOCV, branch-role, fallback, reporting,
-and smoke/equivalence behavior is defined by the corresponding
-`direct_voxel_model_v1` or `normative_fiber_model_v1` schema and is not
-configurable through these YAML files.
+and smoke/equivalence behavior is defined by the strict model profile schemas
+and is not configurable through these YAML files.
+
+Production YAML inputs contain neither `schema_version` nor `model_set_id`.
+The workflow loader selects each schema from the declared profile role and
+validates `profile_type`. Cross-profile compatibility is determined from the
+shared scientific fields: ordered scales, endpoint bindings, frequency
+classes, minimum subject count, and add-on support thresholds. The workflow
+alone declares the single `output.root` used by all three model domains. No
+version label or model-set wrapper participates in configuration loading,
+resume, or publication paths.
+
+Normative-fiber sensitivity retains selected-source neighborhood evaluation,
+spatial jitter, OSS-pPAM, and the plain-burden diagnostic. The former
+high-threshold candidate control and fixed-size sweet/sour outer-library
+control are not part of the configured model or task graph.
 
 ## Test Reductions
 
@@ -83,13 +113,12 @@ The normative-fiber test scan uses tau `[600, 800, 1000]` and Coverage
 `[5, 6]`, with `minimum_adjacent_passing_cells: 1`. It preserves production
 exposure, scoring, branch-role, fallback, and connectome-role semantics.
 
-`workflow.yaml` is the execution-policy profile for the new runtime. It
-references `direct_voxel_model.yaml` and `normative_fiber_model.yaml`, but does
-not declare default scales, endpoint phases, or connectome names. The model
-profiles remain the scientific source of configured scales, the locked
-endpoint pair, and connectome roles. CLI selection may narrow the configured
-scales or model families, but it cannot add values absent from the model
-profiles.
+`workflow.yaml` is the execution-policy profile for the runtime. It references
+all three production model profiles but does not declare default scales,
+endpoint phases, or connectome names. The model profiles remain the scientific
+source of configured scales, the locked endpoint pair, and model-specific
+source roles. CLI selection may narrow the configured scales or model
+families, but it cannot add values absent from the model profiles.
 
 `storage.delete_run_cache_on_success` controls eligible post-publication cache
 cleanup. The generic omitted-field default is `true`, while this production
@@ -115,22 +144,24 @@ the new runner passes its stated acceptance checks.
 
 ## Output Contract
 
-The authoritative configured-run publication layout and artifact schemas are
-defined in `direct_voxel_output_contract.md` and
-`normative_fiber_output_contract.md`.
+The authoritative configured-run publication layout is defined in
+`../../dual_frequency_output_contract.md`. The older domain-specific contracts
+remain implementation references only where they do not conflict with that
+integrated contract.
 
 Production publishes below:
 
 ```text
-/Volumes/VAL/STNSNr/summary/spot/direct_voxel/<model_set_id>/<scale_id>/
-/Volumes/VAL/STNSNr/summary/spot/normative_fiber/<model_set_id>/<scale_id>/
+/Volumes/VAL/STNSNr/summary/spot/direct_voxel/<scale_id>/
+/Volumes/VAL/STNSNr/summary/spot/normative_fiber/<scale_id>/
+/Volumes/VAL/STNSNr/summary/spot/individualized_seed_target/<scale_id>/
 ```
 
 The smoke profile publishes the identical artifact contract below:
 
 ```text
-/Volumes/VAL/STNSNr/validation/spot/direct_voxel/<model_set_id>/<scale_id>/
-/Volumes/VAL/STNSNr/validation/spot/normative_fiber/<model_set_id>/<scale_id>/
+/Volumes/VAL/STNSNr/validation/spot/direct_voxel/<scale_id>/
+/Volumes/VAL/STNSNr/validation/spot/normative_fiber/<scale_id>/
 ```
 
 Reference and add-on selected-source artifacts are stored once. A

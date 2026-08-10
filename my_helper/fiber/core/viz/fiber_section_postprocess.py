@@ -46,8 +46,10 @@ from .fiber_projection import (
     load_binary_projection_mask,
     validate_exact_mask_geometry,
 )
+from .artifacts import create_display_nifti
 from .plugin.default import get_fiber_section_cfg, get_target_score_raincloud_cfg
 from .published_artifacts import PublicationCatalog, PublishedArtifact
+from .spatial_result_config import load_spatial_result_config
 from .target_score_raincloud import (
     build_target_fiber_distribution_rows,
     plot_target_score_dual_raincloud,
@@ -58,10 +60,6 @@ from .voxel_sections import plot_signed_voxel_sections
 
 
 SCHEMA_VERSION = "dual_frequency_fiber_section_postprocess_v12"
-SPATIAL_CONFIG_SCHEMA = "normative_fiber_spatial_projection_v7"
-SMOOTHING_ALGORITHM = "masked_normalized_gaussian_original_roi_v2"
-SMOOTHING_SUPPORT_POLICY = "original_finite_support"
-FWHM_TO_SIGMA = 2.354820045
 
 _TARGET_INFERENCE_BASIS = {
     "inference_valid_fiber_exposure": "valid_fiber_exposure.npy",
@@ -109,6 +107,8 @@ class FiberSectionContext:
     """Shared validated resources for one formal fiber component process."""
 
     config: Mapping[str, Any]
+    display_map: Mapping[str, Any]
+    outline_isovalue: float
     config_record: Mapping[str, Any]
     background_path: Path
     background_record: Mapping[str, Any]
@@ -119,6 +119,8 @@ class FiberSectionContext:
     target_records: tuple[Mapping[str, Any], ...]
     seeds: Mapping[str, Any]
     seed_records: Mapping[str, Mapping[str, Any]]
+    outline_paths: Mapping[str, Path | None]
+    outline_records: Mapping[str, Mapping[str, Any] | None]
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -189,115 +191,6 @@ def _nifti_resource_record(path: str | Path, kind: str) -> dict[str, Any]:
         }
     )
     return record
-
-
-def _validate_spatial_config(config: Mapping[str, Any]) -> None:
-    if config.get("schema_version") != SPATIAL_CONFIG_SCHEMA:
-        raise ValueError("unsupported fiber spatial projection schema")
-    background = config.get("background")
-    projection = config.get("projection")
-    seeds = config.get("seeds")
-    targets = config.get("targets")
-    if not isinstance(background, Mapping) or not background.get("path"):
-        raise ValueError("fiber spatial config requires background.path")
-    if not isinstance(projection, Mapping):
-        raise ValueError("fiber spatial config requires projection settings")
-    expected_projection = {
-        "grid_source": "role_seed",
-        "direct_streamline_scope": "selected_sweet_sour_complete_path",
-        "primary_target_score_fiber_scope": "final_resolver_valid_fiber_axis",
-        "sensitivity_target_score_fiber_scope": "selected_sweet_sour",
-        "voxel_composition_fiber_scope": "formal_connectome_all",
-        "target_conditioned_scope": "seed_only",
-        "per_fiber_per_voxel": "once",
-        "target_hit_method": "segment_intersection",
-        "target_membership": "independent_binary",
-        "streamline_target_score": "equal_mean_over_finite_target_scores",
-        "target_composition": "seed_voxel_target_pattern_counts",
-        "streamline_weight_source": "uniform_one",
-        "missing_target_score_policy": "exclude_target_then_renormalize_per_streamline",
-        "no_scored_target_policy": "exclude_and_report",
-    }
-    for key, expected in expected_projection.items():
-        if projection.get(key) != expected:
-            raise ValueError(
-                f"fiber spatial projection setting {key!r} must be {expected!r}"
-            )
-    if not isinstance(seeds, Mapping) or set(seeds) != {"reference", "addon"}:
-        raise ValueError("fiber spatial config requires reference and addon seeds")
-    for role in ("reference", "addon"):
-        value = seeds[role]
-        if not isinstance(value, Mapping) or value.get("side") != "rh" or not value.get("path"):
-            raise ValueError(f"fiber spatial seed {role!r} must be an explicit rh path")
-    if not isinstance(targets, list) or not targets:
-        raise ValueError("fiber spatial config requires an ordered target list")
-    names: list[str] = []
-    labels: list[str] = []
-    for target in targets:
-        if not isinstance(target, Mapping):
-            raise ValueError("every fiber spatial target must be an object")
-        name = str(target.get("name", "")).strip()
-        label = str(target.get("label", "")).strip()
-        if (
-            not name
-            or not label
-            or target.get("side") != "rh"
-            or not target.get("path")
-        ):
-            raise ValueError(
-                "every fiber spatial target requires name, label, rh side, and path"
-            )
-        names.append(name)
-        labels.append(label)
-    if len(set(names)) != len(names):
-        raise ValueError("fiber spatial target names must be unique")
-    if len(set(labels)) != len(labels):
-        raise ValueError("fiber spatial target display labels must be unique")
-    target_chart = config.get("target_chart")
-    if not isinstance(target_chart, Mapping):
-        raise ValueError("fiber spatial config requires target_chart settings")
-    if target_chart.get("order_policy") != "configured_target_catalog":
-        raise ValueError("fiber target chart order must follow the configured catalog")
-    cache = config.get("cache")
-    if not isinstance(cache, Mapping):
-        raise ValueError("fiber spatial config requires cache settings")
-    if cache.get("physical_cache_kind") != (
-        "whole_connectome_seed_voxel_target_patterns"
-    ):
-        raise ValueError("fiber spatial config has unsupported physical cache kind")
-    chunk_size = cache.get("fiber_chunk_size")
-    if not isinstance(chunk_size, int) or isinstance(chunk_size, bool) or chunk_size <= 0:
-        raise ValueError("fiber spatial cache fiber_chunk_size must be positive")
-    smoothing = config.get("display_smoothing")
-    if not isinstance(smoothing, Mapping):
-        raise ValueError("fiber spatial config requires display_smoothing settings")
-    fwhm_values = smoothing.get("fwhm_mm")
-    if not isinstance(fwhm_values, list) or fwhm_values != [1.0, 2.0]:
-        raise ValueError("fiber display smoothing FWHM values must be [1.0, 2.0]")
-    expected_smoothing = {
-        "algorithm": SMOOTHING_ALGORITHM,
-        "support_policy": SMOOTHING_SUPPORT_POLICY,
-        "purpose": "display_only",
-    }
-    for key, expected in expected_smoothing.items():
-        if smoothing.get(key) != expected:
-            raise ValueError(
-                f"fiber display smoothing setting {key!r} must be {expected!r}"
-            )
-    labels = config.get("display_labels")
-    if not isinstance(labels, Mapping):
-        raise ValueError("fiber spatial config requires display_labels settings")
-    expected_templates = {
-        "direct_streamline_colorbar_template": (
-            "Mean selected-fiber partial Spearman ρ with {scale_display_name}"
-        ),
-        "target_conditioned_colorbar_template": (
-            "Target-derived fiber partial Spearman ρ with {scale_display_name}"
-        ),
-    }
-    for key, expected in expected_templates.items():
-        if labels.get(key) != expected:
-            raise ValueError(f"fiber colorbar template {key!r} does not match contract")
 
 
 def _resolve_role_artifacts(
@@ -551,14 +444,15 @@ def _load_physical_cache(path: Path) -> WholeConnectomeComposition:
     return result
 
 
-def _save_sparse_nifti(
-    path: Path,
+def _sparse_nifti_image(
     *,
     seed_path: Path,
     voxel_indices: np.ndarray,
     values: np.ndarray,
     description: str,
-) -> dict[str, Any]:
+) -> nib.Nifti1Image:
+    """Restore one sparse score vector in memory for display-map creation."""
+
     seed_image = nib.as_closest_canonical(nib.load(str(seed_path)))
     total_voxels = int(np.prod(seed_image.shape, dtype=np.int64))
     indices = np.asarray(voxel_indices, dtype=np.int64)
@@ -572,91 +466,11 @@ def _save_sparse_nifti(
     header = seed_image.header.copy()
     header.set_data_dtype(np.float32)
     header["descrip"] = description[:79]
-    image = nib.Nifti1Image(
+    return nib.Nifti1Image(
         volume.reshape(seed_image.shape, order="C"),
         np.asarray(seed_image.affine, dtype=np.float64),
         header,
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name.removesuffix(".nii.gz") + ".tmp.nii.gz")
-    nib.save(image, str(temporary))
-    temporary.replace(path)
-    return _nifti_resource_record(path, description)
-
-
-def _smooth_sparse_original_roi(
-    *,
-    voxel_indices: np.ndarray,
-    values: np.ndarray,
-    grid_shape: Sequence[int],
-    affine: np.ndarray,
-    fwhm_mm: float,
-) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
-    """Smooth sparse finite values without expanding their original support."""
-
-    from scipy.ndimage import gaussian_filter
-
-    indices = np.asarray(voxel_indices, dtype=np.int64)
-    vector = np.asarray(values, dtype=np.float32)
-    shape = tuple(int(value) for value in grid_shape)
-    if indices.ndim != 1 or vector.shape != indices.shape:
-        raise ValueError("smoothing indices and values must be aligned vectors")
-    finite = np.isfinite(vector)
-    finite_indices = indices[finite]
-    finite_values = vector[finite]
-    if finite_indices.size == 0:
-        raise ValueError("fiber display smoothing requires finite raw values")
-    if np.unique(finite_indices).size != finite_indices.size:
-        raise ValueError("fiber display smoothing requires unique voxel indices")
-
-    zooms = np.asarray(nib.affines.voxel_sizes(affine), dtype=np.float64)
-    if zooms.shape != (3,) or not np.all(np.isfinite(zooms)) or np.any(zooms <= 0.0):
-        raise ValueError("fiber display smoothing requires valid voxel sizes")
-    fwhm = float(fwhm_mm)
-    if not np.isfinite(fwhm) or fwhm <= 0.0:
-        raise ValueError("fiber display smoothing FWHM must be positive")
-    sigma = fwhm / FWHM_TO_SIGMA / zooms
-
-    coordinates = np.asarray(
-        np.unravel_index(finite_indices, shape, order="C"), dtype=np.int64
-    ).T
-    lower = np.min(coordinates, axis=0)
-    upper = np.max(coordinates, axis=0) + 1
-    pad = np.ceil(4.0 * sigma).astype(np.int64)
-    crop_lower = np.maximum(lower - pad, 0)
-    crop_upper = np.minimum(upper + pad, np.asarray(shape, dtype=np.int64))
-    crop_shape = tuple(int(value) for value in crop_upper - crop_lower)
-    local_values = np.zeros(crop_shape, dtype=np.float32)
-    local_mask = np.zeros(crop_shape, dtype=np.float32)
-    local_coordinates = coordinates - crop_lower
-    local_selector = tuple(local_coordinates.T)
-    local_values[local_selector] = finite_values
-    local_mask[local_selector] = 1.0
-    numerator = gaussian_filter(local_values, sigma=sigma, mode="constant")
-    denominator = gaussian_filter(local_mask, sigma=sigma, mode="constant")
-    local_denominator = denominator[local_selector]
-    if np.any(local_denominator <= 0.0) or not np.all(np.isfinite(local_denominator)):
-        raise ValueError("fiber display smoothing lost original finite support")
-    smoothed_values = np.asarray(
-        numerator[local_selector] / local_denominator,
-        dtype=np.float32,
-    )
-    if not np.all(np.isfinite(smoothed_values)):
-        raise ValueError("fiber display smoothing produced nonfinite ROI values")
-    metadata = {
-        "algorithm": SMOOTHING_ALGORITHM,
-        "support_policy": SMOOTHING_SUPPORT_POLICY,
-        "purpose": "display_only",
-        "fwhm_mm": fwhm,
-        "voxel_size_mm": [float(value) for value in zooms],
-        "sigma_voxels": [float(value) for value in sigma],
-        "input_finite_voxels": int(finite_indices.size),
-        "output_finite_voxels": int(smoothed_values.size),
-        "finite_support_identical": True,
-        "gaussian_mode": "constant",
-        "gaussian_truncate_sigma": 4.0,
-    }
-    return finite_indices, smoothed_values, metadata
 
 
 def _write_csv_atomic(
@@ -1110,6 +924,7 @@ def _render_figure(
     heat_path: Path,
     background_path: Path,
     seed_path: Path,
+    outline_path: Path | None,
     figure_stem: Path,
     style: Mapping[str, Any],
     figure_payload: Mapping[str, Any],
@@ -1123,6 +938,7 @@ def _render_figure(
         heat_path,
         background_image=background_path,
         mask_image=seed_path,
+        outline_image=outline_path,
         geometry_image=seed_path,
         geometry_threshold=0.0,
         style_config=style,
@@ -1131,7 +947,7 @@ def _render_figure(
     render_metadata = getattr(figure, "_mh_viz_voxel_section_metadata")
     plt.close(figure)
     relative_outputs = [path.relative_to(root).as_posix() for path in output_paths]
-    result_path = figure_stem.with_suffix(".json")
+    result_path = figure_stem.parent / "result.json"
     payload = {
         **dict(figure_payload),
         "status": "complete",
@@ -1253,9 +1069,10 @@ primary descriptive branch and scores targets from the complete final valid
 fiber axis. `selected_sweet_sour` retains the selected-library target scores as
 a visualization-only sensitivity branch. Both branches map their target scores
 through every canonical streamline in the formal connectome. Each score-map
-family contains raw, 1 mm FWHM, and 2 mm FWHM figures. Smoothing is display-only
-and preserves the exact finite support of its own raw map. Each role also
-contains one mirrored target raincloud. Its left distribution contains the
+family contains one `display.nii.gz` and matching PNG and PDF figures. The
+display map uses the shared Gaussian smoothing, output voxel size, and support
+threshold without changing the scientific model inputs. Each role also contains
+one mirrored target raincloud. Its left distribution contains the
 selected sweet and sour library, its right distribution contains the complete
 final valid fiber axis, and its central jitter shows every target-intersecting
 valid fiber. Reference and add-on use one shared symmetric y-axis; repeated
@@ -1266,8 +1083,8 @@ Freedman-Lane targetwise P values below 0.05. The test is conditional on the
 published final tau, Coverage, branch, and valid fiber axis; exact targetwise,
 Holm-adjusted, and single-step complete-null maxT values remain in the result
 table. An older parent publication without the complete inference basis
-produces no significance-star annotation. Branch-local total, target-scored,
-and target-unscored support maps accompany the signed figures.
+produces no significance-star annotation. Branch-local support counts remain
+available in the projection and composition QC JSON files.
 `endpoint_index.csv` and `manifest.json` provide the compact cross-role index
 and provenance.
 """
@@ -1278,15 +1095,24 @@ def prepare_fiber_section_context(
     *,
     catalog: PublicationCatalog,
     spatial_config_path: str | Path,
+    spatial_config: Mapping[str, Any] | None = None,
     background_record: Mapping[str, Any] | None = None,
 ) -> FiberSectionContext:
     """Validate and open shared fiber visualization resources once."""
 
     config_path = Path(spatial_config_path).expanduser().resolve()
-    config = _read_yaml(config_path)
-    _validate_spatial_config(config)
-    config_record = _file_record(config_path, "fiber_spatial_projection_config")
-    background_path = Path(str(config["background"]["path"])).expanduser().resolve()
+    root_config = (
+        load_spatial_result_config(config_path)
+        if spatial_config is None
+        else spatial_config
+    )
+    config = root_config["fiber"]
+    display_map = root_config["display_map"]
+    outline_isovalue = float(root_config["outline"]["continuous_isovalue"])
+    config_record = _file_record(config_path, "spatial_result_visualization_config")
+    background_path = Path(
+        str(root_config["background"]["path"])
+    ).expanduser().resolve()
     if background_record is None:
         resolved_background_record = _nifti_resource_record(
             background_path, "anatomy_background"
@@ -1361,8 +1187,24 @@ def prepare_fiber_section_context(
         role: _nifti_resource_record(seed.source_path, f"seed:{role}")
         for role, seed in seeds.items()
     }
+    outline_paths: dict[str, Path | None] = {}
+    outline_records: dict[str, Mapping[str, Any] | None] = {}
+    for role_spec in _ROLE_SPECS:
+        configured_path = config["seeds"][role_spec.role].get("outline_path")
+        if configured_path is None:
+            outline_paths[role_spec.role] = None
+            outline_records[role_spec.role] = None
+        else:
+            outline_path = Path(str(configured_path)).expanduser().resolve()
+            outline_paths[role_spec.role] = outline_path
+            outline_records[role_spec.role] = _nifti_resource_record(
+                outline_path,
+                f"continuous_outline:{role_spec.role}",
+            )
     return FiberSectionContext(
         config=config,
+        display_map=display_map,
+        outline_isovalue=outline_isovalue,
         config_record=config_record,
         background_path=background_path,
         background_record=resolved_background_record,
@@ -1373,6 +1215,8 @@ def prepare_fiber_section_context(
         target_records=tuple(target_records),
         seeds=seeds,
         seed_records=seed_records,
+        outline_paths=outline_paths,
+        outline_records=outline_records,
     )
 
 
@@ -1417,6 +1261,8 @@ def run_single_scale_fiber_section_postprocess(
         catalog=catalog, spatial_config_path=spatial_config_path
     )
     config = context.config
+    display_map = context.display_map
+    outline_isovalue = context.outline_isovalue
     config_record = context.config_record
     background_path = context.background_path
     background_record = context.background_record
@@ -1430,6 +1276,8 @@ def run_single_scale_fiber_section_postprocess(
     )
     seeds = context.seeds
     seed_records = context.seed_records
+    outline_paths = context.outline_paths
+    outline_records = context.outline_records
 
     resolved_profile_artifact = catalog.resolve_relative(
         "normative_fiber_main",
@@ -1456,10 +1304,10 @@ def run_single_scale_fiber_section_postprocess(
         )
     )
     direct_colorbar_semantic_label = str(
-        config["display_labels"]["direct_streamline_colorbar_template"]
+        config["labels"]["direct_streamline_colorbar_template"]
     ).format(scale_display_name=normalized_display_name)
     target_colorbar_semantic_label = str(
-        config["display_labels"]["target_conditioned_colorbar_template"]
+        config["labels"]["target_conditioned_colorbar_template"]
     ).format(scale_display_name=normalized_display_name)
     direct_colorbar_render_label = (
         "Mean selected-fiber partial Spearman ρ\n"
@@ -1470,6 +1318,7 @@ def run_single_scale_fiber_section_postprocess(
         f"with {normalized_display_name}"
     )
     base_style = get_fiber_section_cfg(style_overrides)
+    base_style["mask_threshold"] = outline_isovalue
     target_style_defaults = get_target_score_raincloud_cfg()
     target_chart_style = get_target_score_raincloud_cfg(
         {
@@ -1486,10 +1335,12 @@ def run_single_scale_fiber_section_postprocess(
         "scale_display_name": normalized_display_name,
         "study_scale_definition": study_scale_definition_record,
         "spatial_config": config_record,
-        "display_smoothing": dict(config["display_smoothing"]),
+        "display_map": dict(display_map),
+        "outline_isovalue": outline_isovalue,
         "background": background_record,
         "connectome": connectome_record,
         "seeds": seed_records,
+        "outlines": outline_records,
         "targets": target_records,
         "target_chart": dict(config["target_chart"]),
         "target_score_chart_style": target_chart_style,
@@ -1798,6 +1649,8 @@ def run_single_scale_fiber_section_postprocess(
             final_model = prepared.final_model
             seed = seeds[role_spec.role]
             seed_record = seed_records[role_spec.role]
+            outline_path = outline_paths[role_spec.role]
+            outline_record = outline_records[role_spec.role]
             source_records = prepared.source_records
             selected_projection_hash = prepared.selected_projection_hash
             target_request_hash = prepared.target_request_hash
@@ -1891,146 +1744,54 @@ def run_single_scale_fiber_section_postprocess(
                 seed=permutation_seed,
             )
             outputs.extend(target_inference_outputs)
-            map_specs: list[tuple[Path, np.ndarray, np.ndarray, str]] = [
-                (
-                    direct_maps / "streamline_score_mean.nii.gz",
-                    projection.direct_voxel_indices,
-                    projection.direct_score_mean,
-                    "mean selected-fiber model score",
-                ),
-                (
-                    direct_maps / "streamline_support_count.nii.gz",
-                    projection.direct_voxel_indices,
-                    projection.direct_support_count,
-                    "selected-fiber support count",
-                ),
-                (
-                    direct_maps / "streamline_sweet_count.nii.gz",
-                    projection.direct_voxel_indices,
-                    projection.direct_sweet_count,
-                    "selected sweet-fiber support count",
-                ),
-                (
-                    direct_maps / "streamline_sour_count.nii.gz",
-                    projection.direct_voxel_indices,
-                    projection.direct_sour_count,
-                    "selected sour-fiber support count",
-                ),
-            ]
-            for branch, branch_projection in target_projections.items():
-                branch_maps = target_root / branch / "maps"
-                branch_label = branch.replace("_", "-")
-                map_specs.extend(
-                    [
-                        (
-                            branch_maps / "target_conditioned_score.nii.gz",
-                            branch_projection.seed_voxel_indices,
-                            branch_projection.target_conditioned_score,
-                            f"{branch_label} target-conditioned model score",
-                        ),
-                        (
-                            branch_maps / "all_streamline_support_count.nii.gz",
-                            branch_projection.seed_voxel_indices,
-                            branch_projection.all_streamline_support_count,
-                            "all formal-connectome streamline support count",
-                        ),
-                        (
-                            branch_maps / "target_scored_streamline_count.nii.gz",
-                            branch_projection.seed_voxel_indices,
-                            branch_projection.target_scored_streamline_count,
-                            f"{branch_label} target-scored streamline count",
-                        ),
-                        (
-                            branch_maps / "target_unscored_streamline_count.nii.gz",
-                            branch_projection.seed_voxel_indices,
-                            branch_projection.target_unscored_streamline_count,
-                            f"{branch_label} target-unscored streamline count",
-                        ),
-                        (
-                            branch_maps / "target_assignment_fraction.nii.gz",
-                            branch_projection.seed_voxel_indices,
-                            branch_projection.target_assignment_fraction,
-                            f"{branch_label} target-assignment fraction",
-                        ),
-                    ]
-                )
-            map_records: dict[str, dict[str, Any]] = {}
-            for path, indices, values, description in map_specs:
-                record_key = path.relative_to(role_leaf).as_posix()
-                map_records[record_key] = _save_sparse_nifti(
-                    path,
-                    seed_path=seed.source_path,
-                    voxel_indices=indices,
-                    values=values,
-                    description=description,
-                )
-                outputs.append(path.relative_to(root).as_posix())
-
-            smoothing_records: dict[str, dict[str, Any]] = {}
             score_map_families: list[
-                tuple[Path, str, np.ndarray, np.ndarray, str]
+                tuple[Path, np.ndarray, np.ndarray, str]
             ] = [
                 (
                     direct_maps,
-                    "streamline_score_mean",
                     projection.direct_voxel_indices,
                     projection.direct_score_mean,
-                    "smoothed mean selected-fiber model score",
+                    "mean selected-fiber model score",
                 ),
             ]
             for branch, branch_projection in target_projections.items():
                 score_map_families.append(
                     (
                         target_root / branch / "maps",
-                        "target_conditioned_score",
                         branch_projection.seed_voxel_indices,
                         branch_projection.target_conditioned_score,
                         (
-                            f"smoothed {branch.replace('_', '-')} "
+                            f"{branch.replace('_', '-')} "
                             "target-conditioned model score"
                         ),
                     )
                 )
-            for map_directory, raw_stem, indices, values, description in (
-                score_map_families
-            ):
-                raw_path = map_directory / f"{raw_stem}.nii.gz"
-                raw_key = raw_path.relative_to(role_leaf).as_posix()
-                raw_record = map_records[raw_key]
-                for fwhm_value in config["display_smoothing"]["fwhm_mm"]:
-                    fwhm = float(fwhm_value)
-                    fwhm_label = int(fwhm)
-                    smoothed_path = (
-                        map_directory
-                        / f"{raw_stem}_smooth_fwhm{fwhm_label}mm.nii.gz"
-                    )
-                    smoothed_indices, smoothed_values, smoothing = (
-                        _smooth_sparse_original_roi(
-                            voxel_indices=indices,
-                            values=values,
-                            grid_shape=seed.shape,
-                            affine=seed.affine,
-                            fwhm_mm=fwhm,
-                        )
-                    )
-                    smoothing.update(
-                        {
-                            "input_raw_map": raw_path.relative_to(root).as_posix(),
-                            "input_raw_sha256": raw_record["sha256"],
-                        }
-                    )
-                    record = _save_sparse_nifti(
-                        smoothed_path,
-                        seed_path=seed.source_path,
-                        voxel_indices=smoothed_indices,
-                        values=smoothed_values,
-                        description=f"{description}, FWHM {fwhm_label} mm",
-                    )
-                    record["display_smoothing"] = smoothing
-                    smoothed_key = smoothed_path.relative_to(role_leaf).as_posix()
-                    map_records[smoothed_key] = record
-                    smoothing_records[smoothed_key] = smoothing
-                    outputs.append(smoothed_path.relative_to(root).as_posix())
+            map_records: dict[str, dict[str, Any]] = {}
+            display_transforms: dict[str, dict[str, Any]] = {}
+            for map_directory, indices, values, description in score_map_families:
+                display_path = map_directory / "display.nii.gz"
+                source_image = _sparse_nifti_image(
+                    seed_path=seed.source_path,
+                    voxel_indices=indices,
+                    values=values,
+                    description=description,
+                )
+                _, display_transform = create_display_nifti(
+                    source_image,
+                    display_path,
+                    fwhm_mm=float(display_map["fwhm_mm"]),
+                    voxel_size_mm=float(display_map["voxel_size_mm"]),
+                    support_weight_threshold=float(
+                        display_map["support_weight_threshold"]
+                    ),
+                    force=force,
+                )
+                record_key = display_path.relative_to(role_leaf).as_posix()
+                map_records[record_key] = _nifti_resource_record(
+                    display_path, "fiber_display_derivative"
+                )
+                display_transforms[record_key] = display_transform
+                outputs.append(display_path.relative_to(root).as_posix())
 
             projection_qc_path = role_leaf / "direct_streamline" / "projection_qc.json"
             _write_json_atomic(projection_qc_path, _projection_qc(projection))
@@ -2162,6 +1923,7 @@ def run_single_scale_fiber_section_postprocess(
                 "source_artifacts": source_records,
                 "connectome": connectome_record,
                 "seed": seed_record,
+                "outline": outline_record or seed_record,
                 "background": background_record,
                 "selected_projection_hash": selected_projection_hash,
                 "target_request_hash": target_request_hash,
@@ -2186,27 +1948,28 @@ def run_single_scale_fiber_section_postprocess(
                 "all_coverage_distribution_includes_selected": True,
                 "target_inference": target_inference_manifest,
                 "voxel_composition_fiber_scope": "formal_connectome_all",
-                "display_smoothing_contract": config["display_smoothing"],
+                "display_map_contract": dict(display_map),
             }
             direct_style = get_fiber_section_cfg(
                 {
                     **dict(style_overrides or {}),
+                    "mask_threshold": outline_isovalue,
                     "colorbar_label": direct_colorbar_render_label,
                 }
             )
             target_style = get_fiber_section_cfg(
                 {
                     **dict(style_overrides or {}),
+                    "mask_threshold": outline_isovalue,
                     "colorbar_label": target_colorbar_render_label,
                 }
             )
             figure_families: list[
-                tuple[Path, Path, str, str, Mapping[str, Any], str, str | None, str]
+                tuple[Path, Path, str, Mapping[str, Any], str, str | None, str]
             ] = [
                 (
                     direct_maps,
                     direct_figures,
-                    "streamline_score_mean",
                     "direct_streamline_score_mean",
                     direct_style,
                     direct_colorbar_semantic_label,
@@ -2219,7 +1982,6 @@ def run_single_scale_fiber_section_postprocess(
                     (
                         target_root / branch / "maps",
                         target_root / branch / "figures",
-                        "target_conditioned_score",
                         f"target_conditioned_score_{branch}",
                         target_style,
                         target_colorbar_semantic_label,
@@ -2230,46 +1992,32 @@ def run_single_scale_fiber_section_postprocess(
             for (
                 map_directory,
                 figure_directory,
-                raw_stem,
                 artifact_kind,
                 style,
                 semantic_colorbar_label,
                 target_score_fiber_scope,
                 analysis_role,
             ) in figure_families:
-                figure_versions: list[tuple[str, dict[str, Any] | None]] = [
-                    (raw_stem, None)
-                ]
-                figure_versions.extend(
-                    (
-                        f"{raw_stem}_smooth_fwhm{int(float(fwhm))}mm",
-                        smoothing_records[
-                            (
-                                map_directory
-                                / f"{raw_stem}_smooth_fwhm{int(float(fwhm))}mm.nii.gz"
-                            ).relative_to(role_leaf).as_posix()
-                        ],
-                    )
-                    for fwhm in config["display_smoothing"]["fwhm_mm"]
+                display_path = map_directory / "display.nii.gz"
+                display_key = display_path.relative_to(role_leaf).as_posix()
+                _, figure_outputs = _render_figure(
+                    heat_path=display_path,
+                    background_path=background_path,
+                    seed_path=seed.source_path,
+                    outline_path=outline_path,
+                    figure_stem=figure_directory / "display",
+                    style=style,
+                    figure_payload={
+                        **common_figure_payload,
+                        "display_artifact_kind": artifact_kind,
+                        "display_transform": display_transforms[display_key],
+                        "colorbar_semantic_label": semantic_colorbar_label,
+                        "target_score_fiber_scope": target_score_fiber_scope,
+                        "analysis_role": analysis_role,
+                    },
+                    root=root,
                 )
-                for version_stem, smoothing in figure_versions:
-                    _, figure_outputs = _render_figure(
-                        heat_path=map_directory / f"{version_stem}.nii.gz",
-                        background_path=background_path,
-                        seed_path=seed.source_path,
-                        figure_stem=figure_directory / f"{version_stem}_sections",
-                        style=style,
-                        figure_payload={
-                            **common_figure_payload,
-                            "display_artifact_kind": artifact_kind,
-                            "display_smoothing": smoothing,
-                            "colorbar_semantic_label": semantic_colorbar_label,
-                            "target_score_fiber_scope": target_score_fiber_scope,
-                            "analysis_role": analysis_role,
-                        },
-                        root=root,
-                    )
-                    outputs.extend(figure_outputs)
+                outputs.extend(figure_outputs)
             _, target_chart_outputs = _render_target_score_figure(
                 target_ids=physical.target_ids,
                 target_display_labels=target_display_labels,
@@ -2370,8 +2118,8 @@ def run_single_scale_fiber_section_postprocess(
                 },
                 "voxel_composition_fiber_scope": "formal_connectome_all",
                 "n_all_composition_fibers": physical.n_all_fibers,
-                "display_smoothing": config["display_smoothing"],
-                "figure_count": 10,
+                "display_map": dict(display_map),
+                "figure_count": 4,
                 "cache_status": cache_status,
                 "cache_path": cache_path.relative_to(root).as_posix(),
                 "physical_cache_status": physical_cache_status,

@@ -158,6 +158,11 @@ def make_workflow(overrides: WorkflowOverrides):
     workflow["selection"] = {"models": ["all"], "connectomes": ["all"]}
     direct = yaml.safe_load((CONFIG_ROOT / "direct_voxel_model_test.yaml").read_text(encoding="utf-8"))
     fiber = yaml.safe_load((CONFIG_ROOT / "normative_fiber_model_test.yaml").read_text(encoding="utf-8"))
+    individualized = yaml.safe_load(
+        (CONFIG_ROOT / "individualized_seed_target_model.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
     endpoint_pair = {
         "baseline": {"phase_id": "baseline_phase", "program_id": 0},
         "reference": {"phase_id": "reference_phase", "program_id": 1},
@@ -165,35 +170,45 @@ def make_workflow(overrides: WorkflowOverrides):
     }
     direct["endpoint_pair"] = endpoint_pair
     fiber["endpoint_pair"] = endpoint_pair
+    individualized["endpoint_pair"] = endpoint_pair
+    individualized["scales"] = direct["scales"]
     with tempfile.TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory)
         direct_path = root / "direct.yaml"
         fiber_path = root / "fiber.yaml"
+        individualized_path = root / "individualized.yaml"
         workflow_path = root / "workflow.yaml"
         direct_path.write_text(yaml.safe_dump(direct, sort_keys=False), encoding="utf-8")
         fiber_path.write_text(yaml.safe_dump(fiber, sort_keys=False), encoding="utf-8")
+        individualized_path.write_text(
+            yaml.safe_dump(individualized, sort_keys=False),
+            encoding="utf-8",
+        )
         workflow["model_profiles"] = {
             "direct_voxel": direct_path.name,
             "normative_fiber": fiber_path.name,
+            "individualized_seed_target": individualized_path.name,
         }
         workflow_path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
         return load_workflow(workflow_path, overrides)
 
 
 class CatalogTest(unittest.TestCase):
-    def test_builds_all_four_families_with_connectome_roles(self) -> None:
+    def test_builds_all_six_families_with_connectome_roles(self) -> None:
         config = make_workflow(WorkflowOverrides(all_available=True))
         catalog = build_endpoint_catalog(config, synthetic_study())
-        self.assertEqual(len(catalog), 12)
+        self.assertEqual(len(catalog), 16)
         self.assertEqual(
-            tuple(item.key.model_family for item in catalog[:6]),
+            tuple(item.key.model_family for item in catalog[:8]),
             (
                 "reference_voxel",
                 "reference_fiber",
                 "reference_fiber",
+                "reference_individualized",
                 "addon_voxel",
                 "addon_fiber",
                 "addon_fiber",
+                "addon_individualized",
             ),
         )
         sensitive = tuple(item for item in catalog if item.connectome_role == "sensitive")

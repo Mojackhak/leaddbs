@@ -1161,29 +1161,23 @@ class SensitivityCheckpointTest(unittest.TestCase):
         )
         self.assertTrue(all(task.checkpoint_only for task in extension.tasks[:2]))
 
-    def test_adjusted_addon_uses_support_preserving_physical_blocks(self) -> None:
+    def test_individualized_jitter_uses_target_block_provider(self) -> None:
         reference_endpoint = EndpointKey(
             "study",
             "scale-one",
             "reference",
-            "reference_voxel",
+            "reference_individualized",
         )
         endpoint = EndpointKey(
             "study",
             "scale-one",
             "addon",
-            "addon_voxel",
+            "addon_individualized",
         )
         reference_input = _task(
             reference_endpoint,
             "input_readiness",
             "observed",
-        )
-        reference_prepared = _task(
-            reference_endpoint,
-            "prepare_exposure",
-            "observed",
-            dependencies=(reference_input.task_id,),
         )
         parent = _task(endpoint, "final_realization", "observed")
         target = _task(
@@ -1196,7 +1190,7 @@ class SensitivityCheckpointTest(unittest.TestCase):
             configuration_hash=CONFIGURATION_HASH,
             scientific_configuration_hash=SCIENTIFIC_HASH,
             through="sensitivity",
-            tasks=(reference_input, reference_prepared, parent, target),
+            tasks=(reference_input, parent, target),
         )
 
         extension = compile_sensitivity_extension_plan(
@@ -1205,7 +1199,6 @@ class SensitivityCheckpointTest(unittest.TestCase):
             analyses=("jitter",),
             seed_task_ids=(
                 reference_input.task_id,
-                reference_prepared.task_id,
                 parent.task_id,
             ),
             jitter_bases=(
@@ -1217,12 +1210,7 @@ class SensitivityCheckpointTest(unittest.TestCase):
                         "jitter_translation_fwhm_mm": 2.0,
                         "seed": 42,
                     },
-                    "shared_exposure_entries": [
-                        {
-                            "kind": "voxel_exposures",
-                            "semantic_sha256": "d" * 64,
-                        }
-                    ],
+                    "shared_exposure_entries": [],
                 },
             ),
         )
@@ -1232,20 +1220,16 @@ class SensitivityCheckpointTest(unittest.TestCase):
             for task in extension.tasks
             if task.service_id == "prepare_jitter_exposure_block"
         )
-        self.assertEqual(len(blocks), 2)
-        descriptors = tuple(
-            json.loads(block.execution_parameter("group_descriptor"))
-            for block in blocks
-        )
-        self.assertEqual(
-            {descriptor["producer_version"] for descriptor in descriptors},
-            {"2"},
-        )
+        self.assertEqual(blocks, ())
         jitter = next(task for task in extension.tasks if task.stage == "spatial_jitter")
-        block_ids = {block.task_id for block in blocks}
-        self.assertTrue(block_ids < set(jitter.dependencies))
-        self.assertIn(reference_prepared.task_id, jitter.dependencies)
-        self.assertTrue(jitter.execution_parameter("jitter_block_group_id"))
+        self.assertEqual(
+            set(jitter.dependencies),
+            {parent.task_id, reference_input.task_id},
+        )
+        self.assertNotIn(
+            "jitter_block_group_id",
+            dict(jitter.execution_parameters),
+        )
 
     def test_jitter_endpoints_wait_for_every_physical_group(self) -> None:
         voxel_endpoint = EndpointKey(

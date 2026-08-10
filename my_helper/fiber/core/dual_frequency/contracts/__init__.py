@@ -21,6 +21,7 @@ from .records import (
     OSSAxisEquivalenceGroupRecord,
     OSSSharedOmegaGroupRecord,
     PreparedExposureRecord,
+    PreparedTargetExposureRecord,
     RecordError,
     ReferenceDependencyRecord,
     RESAMPLING_REPLICATE_BLOCK_SIZE,
@@ -48,6 +49,8 @@ from .requests import (
     RequestError,
     SensitivityResult,
     SourceGrid,
+    TargetObservedRequest,
+    TargetScoreSettings,
 )
 from .study_base import (
     ClinicalObservation,
@@ -95,6 +98,7 @@ __all__ = [
     "PPAM_OPERATOR_SCRATCH_SCHEMA",
     "ProgramRecord",
     "PreparedExposureRecord",
+    "PreparedTargetExposureRecord",
     "PPAMPermutationBlockRecord",
     "RecordError",
     "ReferenceDependencyRecord",
@@ -109,6 +113,8 @@ __all__ = [
     "SensitivityResult",
     "SourceGrid",
     "SourceRecord",
+    "TargetObservedRequest",
+    "TargetScoreSettings",
     "StimulationSource",
     "StudyBaseError",
     "StudyBaseRecord",

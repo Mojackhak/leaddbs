@@ -60,13 +60,13 @@ legacy entrypoints may remain only in an isolated compatibility layer.
 Production publishes below:
 
 ```text
-/Volumes/VAL/STNSNr/summary/spot/normative_fiber/<model_set_id>/
+/Volumes/VAL/STNSNr/summary/spot/normative_fiber/
 ```
 
 The test profile publishes the same contract below:
 
 ```text
-/Volumes/VAL/STNSNr/validation/spot/normative_fiber/<model_set_id>/
+/Volumes/VAL/STNSNr/validation/spot/normative_fiber/
 ```
 
 `output.root` is storage-only and must be absolute. The publisher derives all
@@ -75,7 +75,7 @@ lower paths; YAML cannot configure artifact filenames or subdirectory names.
 ## Canonical Directory Tree
 
 ```text
-<output.root>/normative_fiber/<model_set_id>/
+<output.root>/normative_fiber/
 |
 |-- resolved_normative_fiber_model.yaml
 |-- model_manifest.json
@@ -101,8 +101,6 @@ lower paths; YAML cannot configure artifact filenames or subdirectory names.
     |   |-- cross_connectome/
     |   |-- formal/
     |   |-- sensitivity/
-    |   |   |-- high_threshold/
-    |   |   |-- fixed_outer_library/
     |   |   |-- plain_burden/
     |   |   |-- oss/
     |   |   |-- jitter/
@@ -156,7 +154,6 @@ Required fields:
 
 ```text
 schema_version = normative_fiber_model_manifest_v1
-model_set_id
 study_id
 study_base_path
 study_base_sha256
@@ -644,12 +641,9 @@ A later process may publish jitter, OSS, or other final-linked fiber sensitivity
 below:
 
 ```text
-<output.root>/normative_fiber/<model_set_id>/extensions/<extension_id>/
-├── extension_manifest.json
-├── artifact_index.csv
-└── <scale_id>/
-    ├── reference/sensitivity/
-    └── addon/sensitivity/
+<output.root>/normative_fiber/<scale_id>/
+├── reference/sensitivity/
+└── addon/sensitivity/
 ```
 
 With a complete checkpoint, observed, resolver, and final-model rerun count is
@@ -694,7 +688,7 @@ Five read-only contract review passes completed on 2026-07-14:
 | 1. Scale equality and endpoint identity | PASS | Production direct-voxel and normative-fiber profiles contain the same 28 ordered scales; both test profiles contain MDS-UPDRS III and IV; every configured scale exists in `study_base.json`; endpoint and frequency bindings match exactly. |
 | 2. Reference-to-add-on dependency and fallback | PASS | The reference formal result alone determines intended add-on branch role; adjusted-input or stable-source absence permits only the declared one-way no-delta fallback; technical failure cannot trigger fallback. |
 | 3. Round and parameter coverage | PASS | The full observed grid, formal resolver, selected-source neighborhood, formal resampling, score support, OSS, jitter, controls, and reporting each have a public value, fixed schema rule, or runtime-derived record. |
-| 4. YAML, path, and manifest consistency | PASS | Production/test model-set IDs, roots, support thresholds, resampling seeds, and shared direct/fiber dependency fields align; every profile has exactly one `formal` connectome and uses only `formal`/`sensitive` roles. |
+| 4. YAML, path, and manifest consistency | PASS | Production/test roots, support thresholds, resampling seeds, and shared direct/fiber dependency fields align; every profile has exactly one `formal` connectome and uses only `formal`/`sensitive` roles. |
 | 5. Current versus planned implementation | PASS | The files are approved design contracts; the configured normative-fiber loader, publisher, code-path smoke, and scientific rerun remain unimplemented, and current legacy outputs remain unchanged. |
 
 The review also confirms that reference and add-on both retain continuous

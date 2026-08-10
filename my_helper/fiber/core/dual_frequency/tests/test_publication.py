@@ -501,10 +501,9 @@ def _extension_fixture(
     work.mkdir(parents=True)
     output_root = tmp_path / "published"
     parent_run_id = "parent-run"
-    model_set_id = "model-set"
     fixture_analyses = list(dict.fromkeys(analysis for _, analysis in entries))
     for domain in ("direct_voxel", "normative_fiber"):
-        parent = output_root / domain / model_set_id
+        parent = output_root / domain
         parent.mkdir(parents=True)
         (parent / "model_manifest.json").write_text(
             json.dumps(
@@ -544,14 +543,9 @@ def _extension_fixture(
     (run_root / "configuration_resolved.yaml").write_text(
         yaml.safe_dump(
             {
-                "direct_voxel": {
-                    "model_set_id": model_set_id,
-                    "output": {"root": str(output_root)},
-                },
-                "normative_fiber": {
-                    "model_set_id": model_set_id,
-                    "output": {"root": str(output_root)},
-                },
+                "output": {"root": str(output_root)},
+                "direct_voxel": {},
+                "normative_fiber": {},
             }
         ),
         encoding="utf-8",
@@ -846,7 +840,6 @@ def test_extension_replay_requires_run_completion_marker(tmp_path: Path) -> None
     extension_root = (
         output_root
         / "normative_fiber"
-        / "model-set"
         / "extensions"
         / "extension-run-v2"
     )
@@ -892,7 +885,6 @@ def test_oss_replay_omits_empty_voxel_domain_and_rejects_technical_failure(
     extension_root = (
         output_root
         / "normative_fiber"
-        / "model-set"
         / "extensions"
         / "extension-run-v2"
     )

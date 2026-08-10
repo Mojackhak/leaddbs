@@ -25,11 +25,11 @@ from .models import (
     FiberDiameterProfile,
     FiberScoreProfile,
     FiberSensitivityProfile,
-    FixedOuterLibraryProfile,
     FormalResamplingProfile,
     FrequencyClasses,
     FrequencyInterval,
     HardComputabilityProfile,
+    IndividualizedSeedTargetModelProfile,
     InvalidSupportProfile,
     NormativeFiberModelProfile,
     OssProfile,
@@ -38,6 +38,9 @@ from .models import (
     SourceCell,
     SourceResolverProfile,
     StorageProfile,
+    TargetExposureProfile,
+    TargetScoreProfile,
+    TractographyProfile,
     WorkflowOverrides,
     WorkflowProfile,
     WorkflowSelection,
@@ -47,8 +50,10 @@ from .models import (
 MODEL_FAMILIES = (
     "reference_voxel",
     "reference_fiber",
+    "reference_individualized",
     "addon_voxel",
     "addon_fiber",
+    "addon_individualized",
 )
 THROUGH_PHASES = frozenset({"observed", "formal", "sensitivity", "report"})
 
@@ -200,9 +205,6 @@ def _direct_profile(payload: Mapping[str, Any]) -> DirectVoxelModelProfile:
     shared = payload["shared"]
     hard = shared["hard_computability"]
     return DirectVoxelModelProfile(
-        schema_version=str(payload["schema_version"]),
-        model_set_id=str(payload["model_set_id"]),
-        output=OutputProfile(root=Path(payload["output"]["root"]).expanduser().resolve()),
         scales=tuple(str(value) for value in payload["scales"]),
         endpoint_pair=_endpoint_pair(payload["endpoint_pair"]),
         frequency_classes=_frequency_classes(payload["frequency_classes"]),
@@ -224,14 +226,9 @@ def _fiber_profile(payload: Mapping[str, Any]) -> NormativeFiberModelProfile:
     hard = payload["hard_computability"]
     score = payload["score"]
     sensitivity = payload["sensitivity"]
-    high = sensitivity["high_threshold"]
-    fixed = sensitivity["fixed_outer_library"]
     oss = payload["oss"]
     diameter = oss["fiber_diameter_um"]
     return NormativeFiberModelProfile(
-        schema_version=str(payload["schema_version"]),
-        model_set_id=str(payload["model_set_id"]),
-        output=OutputProfile(root=Path(payload["output"]["root"]).expanduser().resolve()),
         scales=tuple(str(value) for value in payload["scales"]),
         endpoint_pair=_endpoint_pair(payload["endpoint_pair"]),
         frequency_classes=_frequency_classes(payload["frequency_classes"]),
@@ -260,14 +257,6 @@ def _fiber_profile(payload: Mapping[str, Any]) -> NormativeFiberModelProfile:
             selected_source_tau_multipliers=tuple(
                 float(value) for value in sensitivity["selected_source_tau_multipliers"]
             ),
-            high_threshold=SourceCell(
-                tau=float(high["tau_v_per_m"]),
-                coverage=int(high["coverage_subjects_min"]),
-            ),
-            fixed_outer_library=FixedOuterLibraryProfile(
-                sweet_count=int(fixed["sweet_count"]),
-                sour_count=int(fixed["sour_count"]),
-            ),
         ),
         oss=OssProfile(
             model=str(oss["model"]),
@@ -281,6 +270,76 @@ def _fiber_profile(payload: Mapping[str, Any]) -> NormativeFiberModelProfile:
             fitting_probability_threshold=float(oss["fitting_probability_threshold"]),
             permutation_resamples=int(oss["permutation_resamples"]),
         ),
+        delta_reference_support=_delta_support(payload["addon"]["delta_reference_support"]),
+    )
+
+
+def _individualized_profile(
+    payload: Mapping[str, Any],
+    *,
+    profile_path: Path,
+) -> IndividualizedSeedTargetModelProfile:
+    tractography = payload["tractography"]
+    configured_tracking = Path(tractography["tracking_config"]).expanduser()
+    tracking_config = (
+        configured_tracking
+        if configured_tracking.is_absolute()
+        else profile_path.parent / configured_tracking
+    ).resolve()
+    tracking_payload = _read_yaml(tracking_config)
+    try:
+        tractogram_space = str(tracking_payload["atlas"]["space"]).strip()
+    except (KeyError, TypeError) as exc:
+        raise ConfigurationError(
+            f"tracking config has no atlas.space value: {tracking_config}"
+        ) from exc
+    if not tractogram_space:
+        raise ConfigurationError(
+            f"tracking config atlas.space cannot be empty: {tracking_config}"
+        )
+    target_exposure = payload["target_exposure"]
+    hard = payload["hard_computability"]
+    score = payload["score"]
+    return IndividualizedSeedTargetModelProfile(
+        scales=tuple(str(value) for value in payload["scales"]),
+        endpoint_pair=_endpoint_pair(payload["endpoint_pair"]),
+        frequency_classes=_frequency_classes(payload["frequency_classes"]),
+        tractography=TractographyProfile(
+            tracking_config=tracking_config,
+            space=tractogram_space,
+            subject_root_pattern=str(tractography["subject_root_pattern"]),
+            seed_id=str(tractography["seed_id"]),
+            sides=tuple(str(value) for value in tractography["sides"]),
+            target_ids=tuple(str(value) for value in tractography["target_ids"]),
+            target_membership=str(tractography["target_membership"]),
+            overlapping_targets=str(tractography["overlapping_targets"]),
+        ),
+        source=_source(payload["source"]),
+        target_exposure=TargetExposureProfile(
+            measure=str(target_exposure["measure"]),
+            threshold_inclusive=bool(target_exposure["threshold_inclusive"]),
+            activated_fiber_count_min=int(
+                target_exposure["activated_fiber_count_min"]
+            ),
+            activated_fiber_fraction_min=float(
+                target_exposure["activated_fiber_fraction_min"]
+            ),
+            patient_support=str(target_exposure["patient_support"]),
+            bilateral_score=str(target_exposure["bilateral_score"]),
+            missing_total_fibers=str(target_exposure["missing_total_fibers"]),
+        ),
+        hard_computability=HardComputabilityProfile(
+            n_subjects_min=int(hard["n_subjects_min"]),
+            n_features_full_min=int(hard["full_candidate_targets_min"]),
+            fold_n_features_min=int(hard["fold_candidate_targets_min"]),
+        ),
+        score=TargetScoreProfile(
+            coefficient=str(score["coefficient"]),
+            exposure_scaling=str(score["exposure_scaling"]),
+            normalization=str(score["normalization"]),
+            fdr_use=str(score["fdr_use"]),
+        ),
+        formal_resampling=_formal(payload["formal_resampling"]),
         delta_reference_support=_delta_support(payload["addon"]["delta_reference_support"]),
     )
 
@@ -341,13 +400,17 @@ def _validate_delta_support(profile: DeltaReferenceSupportProfile) -> None:
 def _validate_profiles(
     direct: DirectVoxelModelProfile,
     fiber: NormativeFiberModelProfile,
+    individualized: IndividualizedSeedTargetModelProfile,
 ) -> None:
     _validate_source(direct.source, "direct voxel")
     _validate_source(fiber.source, "normative fiber")
+    _validate_source(individualized.source, "individualized seed-target")
     _validate_frequency_classes(direct.frequency_classes)
     _validate_frequency_classes(fiber.frequency_classes)
+    _validate_frequency_classes(individualized.frequency_classes)
     _validate_delta_support(direct.delta_reference_support)
     _validate_delta_support(fiber.delta_reference_support)
+    _validate_delta_support(individualized.delta_reference_support)
 
     direct_bindings = (
         direct.endpoint_pair.baseline,
@@ -357,20 +420,26 @@ def _validate_profiles(
     if len(set(direct_bindings)) != 3:
         raise ConfigurationError("baseline, reference, and add-on endpoint bindings must be distinct")
 
-    if direct.model_set_id != fiber.model_set_id:
-        raise ConfigurationError("direct and fiber model_set_id values must match")
-    if direct.output.root != fiber.output.root:
-        raise ConfigurationError("direct and fiber output roots must match")
-    if direct.scales != fiber.scales:
-        raise ConfigurationError("direct and fiber scale order must match exactly")
-    if direct.endpoint_pair != fiber.endpoint_pair:
-        raise ConfigurationError("direct and fiber endpoint pairs must match exactly")
-    if direct.frequency_classes != fiber.frequency_classes:
-        raise ConfigurationError("direct and fiber frequency classes must match exactly")
-    if direct.hard_computability.n_subjects_min != fiber.hard_computability.n_subjects_min:
-        raise ConfigurationError("direct and fiber minimum-subject requirements must match")
-    if direct.delta_reference_support != fiber.delta_reference_support:
-        raise ConfigurationError("direct and fiber DeltaReferenceScore support thresholds must match")
+    profiles = (direct, fiber, individualized)
+    if any(item.scales != direct.scales for item in profiles[1:]):
+        raise ConfigurationError("model scale order must match exactly")
+    if any(item.endpoint_pair != direct.endpoint_pair for item in profiles[1:]):
+        raise ConfigurationError("model endpoint pairs must match exactly")
+    if any(item.frequency_classes != direct.frequency_classes for item in profiles[1:]):
+        raise ConfigurationError("model frequency classes must match exactly")
+    if any(
+        item.hard_computability.n_subjects_min
+        != direct.hard_computability.n_subjects_min
+        for item in profiles[1:]
+    ):
+        raise ConfigurationError("model minimum-subject requirements must match")
+    if any(
+        item.delta_reference_support != direct.delta_reference_support
+        for item in profiles[1:]
+    ):
+        raise ConfigurationError(
+            "model DeltaReferenceScore support thresholds must match"
+        )
     connectome_ids = tuple(item.connectome_id for item in fiber.connectomes)
     if len(set(connectome_ids)) != len(connectome_ids):
         raise ConfigurationError("normative-fiber connectome IDs must be unique")
@@ -387,8 +456,18 @@ def _validate_profiles(
         or fiber.oss.fitting_probability_threshold != 0.5
     ):
         raise ConfigurationError(
-            "normative_fiber_model_v1 requires OSS-DBSv2 pPAM with "
+            "normative_fiber_model requires OSS-DBSv2 pPAM with "
             "1-4 um, 10 equidistant samples, and threshold 0.5"
+        )
+    if len(set(individualized.tractography.target_ids)) != len(
+        individualized.tractography.target_ids
+    ):
+        raise ConfigurationError("individualized target IDs must be unique")
+    if individualized.tractography.sides != ("lh", "rh"):
+        raise ConfigurationError("individualized tractography sides must be lh and rh")
+    if "{subject_id}" not in individualized.tractography.subject_root_pattern:
+        raise ConfigurationError(
+            "individualized subject root pattern must contain {subject_id}"
         )
 
 
@@ -442,8 +521,6 @@ def _resolve_selector(values: tuple[str, ...], available: tuple[str, ...], label
 
 def _scientific_profile_payload(profile: object) -> dict[str, object]:
     payload = asdict(profile)
-    payload.pop("schema_version", None)
-    payload.pop("model_set_id", None)
     payload.pop("output", None)
     payload.pop("scales", None)
     connectomes = payload.get("connectomes")
@@ -452,12 +529,16 @@ def _scientific_profile_payload(profile: object) -> dict[str, object]:
             if isinstance(connectome, dict):
                 connectome.pop("label", None)
                 connectome.pop("path", None)
+    tractography = payload.get("tractography")
+    if isinstance(tractography, dict):
+        tractography.pop("tracking_config", None)
     return payload
 
 
 def _scientific_configuration_hash(
     direct: DirectVoxelModelProfile,
     fiber: NormativeFiberModelProfile,
+    individualized: IndividualizedSeedTargetModelProfile,
     selected_scales: tuple[str, ...],
     selected_models: tuple[str, ...],
     selected_connectomes: tuple[str, ...],
@@ -466,6 +547,9 @@ def _scientific_configuration_hash(
         {
             "direct_voxel": _scientific_profile_payload(direct),
             "normative_fiber": _scientific_profile_payload(fiber),
+            "individualized_seed_target": _scientific_profile_payload(
+                individualized
+            ),
             "selected_scales": selected_scales,
             "selected_models": selected_models,
             "selected_connectomes": selected_connectomes,
@@ -476,6 +560,7 @@ def _scientific_configuration_hash(
 def _configuration_hash(
     direct: DirectVoxelModelProfile,
     fiber: NormativeFiberModelProfile,
+    individualized: IndividualizedSeedTargetModelProfile,
     workflow: WorkflowProfile,
     selected_scales: tuple[str, ...],
     selected_models: tuple[str, ...],
@@ -486,6 +571,7 @@ def _configuration_hash(
         {
             "direct_voxel": direct,
             "normative_fiber": fiber,
+            "individualized_seed_target": individualized,
             "selected_scales": selected_scales,
             "selected_models": selected_models,
             "selected_connectomes": selected_connectomes,
@@ -495,6 +581,7 @@ def _configuration_hash(
                 "allow_expensive_producers": execution.allow_expensive_producers,
                 "workers": execution.workers,
             },
+            "output": workflow.output,
             "storage": workflow.storage,
         }
     )
@@ -504,7 +591,7 @@ def load_workflow(
     path: Path,
     overrides: WorkflowOverrides = WorkflowOverrides(),
 ) -> ResolvedWorkflow:
-    """Load and cross-validate the three public YAML profiles."""
+    """Load and cross-validate the public YAML profiles."""
     _validate_override_selection(overrides)
     workflow_path = Path(path).expanduser().resolve()
     workflow_payload = _read_yaml(workflow_path)
@@ -520,11 +607,21 @@ def load_workflow(
 
     direct_payload = _read_yaml(model_paths["direct_voxel"])
     fiber_payload = _read_yaml(model_paths["normative_fiber"])
+    individualized_payload = _read_yaml(model_paths["individualized_seed_target"])
     _validate_schema(direct_payload, "direct_voxel_model", model_paths["direct_voxel"])
     _validate_schema(fiber_payload, "normative_fiber_model", model_paths["normative_fiber"])
+    _validate_schema(
+        individualized_payload,
+        "individualized_seed_target_model",
+        model_paths["individualized_seed_target"],
+    )
     direct = _direct_profile(direct_payload)
     fiber = _fiber_profile(fiber_payload)
-    _validate_profiles(direct, fiber)
+    individualized = _individualized_profile(
+        individualized_payload,
+        profile_path=model_paths["individualized_seed_target"],
+    )
+    _validate_profiles(direct, fiber, individualized)
 
     if overrides.all_available:
         selected_scales = direct.scales
@@ -560,6 +657,12 @@ def load_workflow(
     workflow = WorkflowProfile(
         direct_voxel_model_path=model_paths["direct_voxel"],
         normative_fiber_model_path=model_paths["normative_fiber"],
+        individualized_seed_target_model_path=model_paths[
+            "individualized_seed_target"
+        ],
+        output=OutputProfile(
+            root=Path(workflow_payload["output"]["root"]).expanduser().resolve()
+        ),
         selection=WorkflowSelection(
             models=tuple(workflow_selection["models"]),
             connectomes=tuple(workflow_selection["connectomes"]),
@@ -583,6 +686,7 @@ def load_workflow(
     return ResolvedWorkflow(
         direct_voxel=direct,
         normative_fiber=fiber,
+        individualized_seed_target=individualized,
         workflow=workflow,
         selected_scales=selected_scales,
         selected_models=selected_models,
@@ -590,6 +694,7 @@ def load_workflow(
         configuration_hash=_configuration_hash(
             direct,
             fiber,
+            individualized,
             workflow,
             selected_scales,
             selected_models,
@@ -598,6 +703,7 @@ def load_workflow(
         scientific_configuration_hash=_scientific_configuration_hash(
             direct,
             fiber,
+            individualized,
             selected_scales,
             selected_models,
             selected_connectomes,
@@ -606,6 +712,8 @@ def load_workflow(
             workflow_path,
             model_paths["direct_voxel"],
             model_paths["normative_fiber"],
+            model_paths["individualized_seed_target"],
+            individualized.tractography.tracking_config,
         ),
     )
 
@@ -614,6 +722,12 @@ def validate_study_compatibility(study: StudyBaseRecord, workflow: ResolvedWorkf
     """Validate study-defined scales, endpoint bindings, and connectome assets."""
     if not isinstance(study, StudyBaseRecord):
         raise ConfigurationError("study must be a StudyBaseRecord")
+    tractogram_space = workflow.individualized_seed_target.tractography.space
+    if tractogram_space != study.spatial.canonical_space:
+        raise ConfigurationError(
+            "individualized tractogram space differs from the study canonical space: "
+            f"{tractogram_space!r} != {study.spatial.canonical_space!r}"
+        )
     missing_scales = sorted(set(workflow.direct_voxel.scales) - set(study.scale_ids))
     if missing_scales:
         raise ConfigurationError(f"configured scale IDs missing from study base: {missing_scales}")

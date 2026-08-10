@@ -25,7 +25,7 @@ from .published_artifacts import (
 
 SCHEMA_VERSION = "dual_frequency_scene_example_input_v5"
 _PUBLICATION_ALIAS = "main"
-_VOXEL_DISPLAY_FILENAME = "benefit_map_smooth_fwhm1mm.nii.gz"
+_VOXEL_DISPLAY_FILENAME = "display.nii.gz"
 _MODEL_FAMILIES = {
     "reference_voxel": "voxel",
     "addon_voxel": "voxel",
@@ -108,7 +108,10 @@ def _final_relative_path(scale_id: str, model_family: str) -> str:
 
 def _voxel_display_relative_path(scale_id: str, model_family: str) -> str:
     family = "reference" if model_family.startswith("reference_") else "addon"
-    return f"{scale_id}/{family}/report/display/{_VOXEL_DISPLAY_FILENAME}"
+    return (
+        f"{scale_id}/{family}/visualization/spatial_2d/maps/"
+        f"{_VOXEL_DISPLAY_FILENAME}"
+    )
 
 
 def _published_final(
@@ -482,8 +485,7 @@ def prepare_scene_example_input(
         input_path = voxel_display_map.path
         details = {
             "published_display_map": voxel_display_map.as_manifest_record(),
-            "display_artifact_kind": "benefit_map_smooth_fwhm1mm",
-            "display_smoothing_fwhm_mm": 1.0,
+            "display_artifact_kind": "display",
             "display_only": True,
             "finite_voxel_count": None,
         }

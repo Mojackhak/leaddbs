@@ -9,6 +9,7 @@ from .direct_voxel import (
     compute_direct_voxel_permutation_block,
 )
 from .in_sample import FinalInSampleBackend
+from .individualized_target import IndividualizedTargetFormalBackend
 from .normative_fiber import (
     NormativeFiberFormalBackend,
     compute_normative_fiber_bootstrap,
@@ -22,6 +23,7 @@ __all__ = [
     "FormalBackendError",
     "FormalBackendInputError",
     "FinalInSampleBackend",
+    "IndividualizedTargetFormalBackend",
     "NormativeFiberFormalBackend",
     "compute_direct_voxel_bootstrap",
     "compute_direct_voxel_bootstrap_block",

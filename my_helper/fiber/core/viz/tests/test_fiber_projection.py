@@ -22,7 +22,6 @@ from my_helper.fiber.core.viz.fiber_composition import (
     target_membership_from_bits,
 )
 from my_helper.fiber.core.viz.fiber_section_postprocess import (
-    _smooth_sparse_original_roi,
     prepare_fiber_section_context,
     render_fiber_section_components,
     run_single_scale_fiber_section_postprocess,
@@ -57,11 +56,13 @@ def test_formal_target_catalog_excludes_presma_and_uses_fixed_chart_order() -> N
     repository_root = Path(__file__).resolve().parents[5]
     config_path = (
         repository_root
-        / "my_helper/stnsnr/config/four_model_v1/fiber_spatial_projection.yaml"
+        / "my_helper/stnsnr/config/four_model_v1/"
+        "spatial_result_visualization.yaml"
     )
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    assert config["target_chart"]["order_policy"] == "configured_target_catalog"
-    assert [target["name"] for target in config["targets"]] == [
+    fiber = config["fiber"]
+    assert fiber["target_chart"]["order_policy"] == "configured_target_catalog"
+    assert [target["name"] for target in fiber["targets"]] == [
         "GPe",
         "GPi",
         "caudate",
@@ -80,7 +81,7 @@ def test_formal_target_catalog_excludes_presma_and_uses_fixed_chart_order() -> N
         "DLPFC",
         "Pf_thalamus",
     ]
-    assert [target["label"] for target in config["targets"]] == [
+    assert [target["label"] for target in fiber["targets"]] == [
         "GPe",
         "GPi",
         "Caudate",
@@ -323,7 +324,6 @@ def _write_fiber_publication(
         )
     manifest = {
         "final_status": "completed",
-        "model_set_id": "synthetic",
         "formal_connectome_id": "synthetic_connectome",
         "connectomes": [
             {
@@ -535,33 +535,6 @@ def test_projection_retains_selected_fiber_outside_seed(tmp_path: Path) -> None:
     assert result.direct_support_count.sum() > 0
 
 
-def test_fiber_display_smoothing_preserves_exact_sparse_support() -> None:
-    shape = (9, 9, 9)
-    coordinates = np.asarray([(4, 4, 3), (4, 4, 4), (4, 4, 5)])
-    indices = np.ravel_multi_index(coordinates.T, shape, order="C")
-    values = np.asarray([-1.0, 0.5, 2.0], dtype=np.float64)
-
-    output_indices, output_values, metadata = _smooth_sparse_original_roi(
-        voxel_indices=indices,
-        values=values,
-        grid_shape=shape,
-        affine=np.diag([0.5, 0.5, 0.5, 1.0]),
-        fwhm_mm=1.0,
-    )
-
-    np.testing.assert_array_equal(output_indices, indices)
-    assert np.all(np.isfinite(output_values))
-    assert not np.allclose(output_values, values)
-    assert metadata["algorithm"] == "masked_normalized_gaussian_original_roi_v2"
-    assert metadata["support_policy"] == "original_finite_support"
-    assert metadata["input_finite_voxels"] == 3
-    assert metadata["output_finite_voxels"] == 3
-    np.testing.assert_allclose(
-        metadata["sigma_voxels"],
-        np.repeat(1.0 / 2.354820045 / 0.5, 3),
-    )
-
-
 def test_scale_display_name_comes_from_study_definition(tmp_path: Path) -> None:
     publication, _ = _write_fiber_publication(tmp_path)
     manifest = json.loads(
@@ -600,19 +573,37 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
         resources / "seed.nii.gz",
         [(0, 0, 0), (1, 0, 0), (1, 0, 1)],
     )
+    outline = _write_mask(
+        resources / "outline.nii.gz",
+        [(0, 0, 0), (1, 0, 0), (1, 0, 1)],
+    )
     target_a = _write_mask(resources / "target_a.nii.gz", [(2, 0, 0)])
     target_b = _write_mask(resources / "target_b.nii.gz", [(2, 1, 0)])
     anatomy_data = np.arange(125, dtype=np.float32).reshape((5, 5, 5))
     anatomy = resources / "anatomy.nii"
     nib.save(nib.Nifti1Image(anatomy_data, np.eye(4)), anatomy)
     config = {
-        "schema_version": "normative_fiber_spatial_projection_v7",
         "background": {
             "path": str(anatomy),
             "loading": "panel_local_lazy",
-            "role": "display_only",
         },
-        "projection": {
+        "display_map": {
+            "fwhm_mm": 1.0,
+            "voxel_size_mm": 0.1,
+            "support_weight_threshold": 0.5,
+        },
+        "outline": {"continuous_isovalue": 0.05},
+        "voxel": {
+            "masks": {"reference": str(seed), "addon": str(seed)},
+            "labels": {
+                "colorbar_template": (
+                    "Benefit-oriented partial Spearman ρ with "
+                    "{scale_display_name}"
+                )
+            },
+        },
+        "fiber": {
+            "projection": {
             "grid_source": "role_seed",
             "direct_streamline_scope": "selected_sweet_sour_complete_path",
             "primary_target_score_fiber_scope": (
@@ -630,17 +621,11 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
             "missing_target_score_policy": "exclude_target_then_renormalize_per_streamline",
             "no_scored_target_policy": "exclude_and_report",
         },
-        "cache": {
+            "cache": {
             "physical_cache_kind": "whole_connectome_seed_voxel_target_patterns",
             "fiber_chunk_size": 2,
         },
-        "display_smoothing": {
-            "fwhm_mm": [1.0, 2.0],
-            "algorithm": "masked_normalized_gaussian_original_roi_v2",
-            "support_policy": "original_finite_support",
-            "purpose": "display_only",
-        },
-        "display_labels": {
+            "labels": {
             "direct_streamline_colorbar_template": (
                 "Mean selected-fiber partial Spearman ρ with "
                 "{scale_display_name}"
@@ -650,12 +635,20 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
                 "{scale_display_name}"
             ),
         },
-        "target_chart": {"order_policy": "configured_target_catalog"},
-        "seeds": {
-            "reference": {"side": "rh", "path": str(seed)},
-            "addon": {"side": "rh", "path": str(seed)},
+            "target_chart": {"order_policy": "configured_target_catalog"},
+            "seeds": {
+            "reference": {
+                "side": "rh",
+                "path": str(seed),
+                "outline_path": str(outline),
+            },
+            "addon": {
+                "side": "rh",
+                "path": str(seed),
+                "outline_path": str(outline),
+            },
         },
-        "targets": [
+            "targets": [
             {
                 "name": "target_a",
                 "label": "Target A",
@@ -668,9 +661,10 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
                 "side": "rh",
                 "path": str(target_b),
             },
-        ],
+            ],
+        },
     }
-    config_path = tmp_path / "fiber_spatial_projection.yaml"
+    config_path = tmp_path / "spatial_result_visualization.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     output = tmp_path / "postprocess"
     arguments = {
@@ -712,55 +706,28 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
     for role in ("reference", "addon"):
         leaf = output / "scales" / "pdq39_score" / role / "fiber"
         assert (leaf / "completion/fiber_2d/complete.json").is_file()
-        assert (leaf / "direct_streamline/maps/streamline_score_mean.nii.gz").is_file()
-        for family, stem in (
-            (Path("direct_streamline"), "streamline_score_mean"),
-            (
-                Path("target_conditioned/all_coverage"),
-                "target_conditioned_score",
-            ),
-            (
-                Path("target_conditioned/selected_sweet_sour"),
-                "target_conditioned_score",
-            ),
+        for family in (
+            Path("direct_streamline"),
+            Path("target_conditioned/all_coverage"),
+            Path("target_conditioned/selected_sweet_sour"),
         ):
-            raw_path = leaf / family / "maps" / f"{stem}.nii.gz"
-            raw = np.asarray(nib.load(raw_path).dataobj, dtype=np.float32)
-            raw_finite = np.isfinite(raw)
-            for fwhm in (1, 2):
-                smooth_path = (
-                    leaf
-                    / family
-                    / "maps"
-                    / f"{stem}_smooth_fwhm{fwhm}mm.nii.gz"
-                )
-                smooth = np.asarray(
-                    nib.load(smooth_path).dataobj,
-                    dtype=np.float32,
-                )
-                np.testing.assert_array_equal(np.isfinite(smooth), raw_finite)
-                assert np.all(np.isnan(smooth[~raw_finite]))
-                if np.ptp(raw[raw_finite]) > 0.0:
-                    assert not np.allclose(smooth[raw_finite], raw[raw_finite])
-                else:
-                    np.testing.assert_allclose(
-                        smooth[raw_finite], raw[raw_finite], atol=1e-7
-                    )
-                assert (
-                    leaf
-                    / family
-                    / "figures"
-                    / f"{stem}_smooth_fwhm{fwhm}mm_sections.png"
-                ).is_file()
+            display_path = leaf / family / "maps/display.nii.gz"
+            assert display_path.is_file()
+            assert np.allclose(
+                nib.load(display_path).header.get_zooms()[:3],
+                (0.1, 0.1, 0.1),
+            )
+            assert (leaf / family / "figures/display.png").is_file()
+            assert (leaf / family / "figures/result.json").is_file()
         for branch, scope in (
             ("all_coverage", "final_resolver_valid_fiber_axis"),
             ("selected_sweet_sour", "selected_sweet_sour"),
         ):
             branch_root = leaf / "target_conditioned" / branch
-            assert (branch_root / "maps/all_streamline_support_count.nii.gz").is_file()
-            assert (
+            assert not (branch_root / "maps/all_streamline_support_count.nii.gz").exists()
+            assert not (
                 branch_root / "maps/target_scored_streamline_count.nii.gz"
-            ).is_file()
+            ).exists()
             assert (branch_root / "tables/target_scores.csv").is_file()
             target_qc = json.loads(
                 (branch_root / "target_score_qc.json").read_text(encoding="utf-8")
@@ -811,7 +778,7 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
         coverage_map = np.asarray(
             nib.load(
                 leaf
-                / "target_conditioned/all_coverage/maps/target_conditioned_score.nii.gz"
+                / "target_conditioned/all_coverage/maps/display.nii.gz"
             ).dataobj,
             dtype=np.float32,
         )
@@ -819,7 +786,7 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
             nib.load(
                 leaf
                 / "target_conditioned/selected_sweet_sour/maps/"
-                "target_conditioned_score.nii.gz"
+                "display.nii.gz"
             ).dataobj,
             dtype=np.float32,
         )
@@ -832,12 +799,12 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
             leaf / "target_conditioned/tables/target_fiber_distributions.csv"
         ).is_file()
         assert (
-            leaf / "direct_streamline/figures/streamline_score_mean_sections.png"
+            leaf / "direct_streamline/figures/display.png"
         ).is_file()
         assert (
             leaf
             / "target_conditioned/all_coverage/figures/"
-            "target_conditioned_score_sections.png"
+            "display.png"
         ).is_file()
         target_chart_path = (
             leaf
@@ -848,7 +815,7 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
             (
                 leaf
                 / "target_conditioned/all_coverage/figures/"
-                "target_conditioned_score_sections.json"
+                "result.json"
             ).read_text(encoding="utf-8")
         )
         assert figure_json["analysis_role"] == "primary"
@@ -858,31 +825,28 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
         assert figure_json["render_metadata"]["slice_support_source"] == (
             "positive_geometry_image"
         )
+        assert figure_json["render_metadata"]["mask_sampling_representation"] == (
+            "continuous_atlas"
+        )
+        assert figure_json["render_metadata"]["mask_contour_level"] == 0.05
+        assert figure_json["outline"]["path"] == str(outline.resolve())
+        assert figure_json["seed"]["path"] == str(seed.resolve())
         assert figure_json["render_metadata"]["background_loading_mode"] == (
             "panel_local_lazy"
         )
-        smooth_figure_json = json.loads(
-            (
-                leaf
-                / "target_conditioned/all_coverage/figures/"
-                "target_conditioned_score_smooth_fwhm2mm_sections.json"
-            ).read_text(encoding="utf-8")
-        )
-        assert smooth_figure_json["display_smoothing"]["fwhm_mm"] == 2.0
-        assert smooth_figure_json["display_smoothing"][
-            "finite_support_identical"
-        ] is True
-        assert smooth_figure_json["scale_display_name"] == "PDQ39 score"
-        assert smooth_figure_json["colorbar_semantic_label"] == (
+        assert figure_json["display_transform"]["fwhm_mm"] == 1.0
+        assert figure_json["display_transform"]["support_weight_threshold"] == 0.5
+        assert figure_json["scale_display_name"] == "PDQ39 score"
+        assert figure_json["colorbar_semantic_label"] == (
             "Target-derived fiber partial Spearman ρ with PDQ39 score"
         )
-        assert smooth_figure_json["style"]["colorbar_label"] == (
+        assert figure_json["style"]["colorbar_label"] == (
             "Target-derived fiber partial Spearman ρ\nwith PDQ39 score"
         )
         direct_figure_json = json.loads(
             (
                 leaf
-                / "direct_streamline/figures/streamline_score_mean_sections.json"
+                / "direct_streamline/figures/result.json"
             ).read_text(encoding="utf-8")
         )
         assert direct_figure_json["colorbar_semantic_label"] == (
@@ -892,7 +856,7 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
             "Mean selected-fiber partial Spearman ρ\nwith PDQ39 score"
         )
         result_json = json.loads((leaf / "result.json").read_text(encoding="utf-8"))
-        assert result_json["figure_count"] == 10
+        assert result_json["figure_count"] == 4
         assert set(result_json["finite_target_score_count"]) == {
             "all_coverage",
             "selected_sweet_sour",
@@ -901,9 +865,9 @@ def test_single_scale_fiber_postprocess_writes_and_reuses_two_roles(
             [
                 value
                 for value in result_json["outputs"]
-                if value.endswith("_sections.png")
+                if value.endswith(".png")
             ]
-        ) == 9
+        ) == 4
         target_chart_json = json.loads(
             (
                 leaf

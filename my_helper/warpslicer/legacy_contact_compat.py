@@ -22,6 +22,7 @@ from typing import Iterable
 import nibabel as nib
 import numpy as np
 import pandas as pd
+from scipy.ndimage import map_coordinates
 from scipy.io import loadmat
 
 
@@ -50,7 +51,9 @@ class CompatParams:
     stiffness: float = 0.0
     precision_decimals: int = 7
     overwrite_existing_outputs: bool = True
-    write_point_exact_inverse: bool = True
+    inversion_max_iterations: int = 8
+    inversion_tolerance_mm: float = 1e-5
+    inversion_chunk_depth: int = 4
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,8 @@ class InstallParams:
 
     precision_decimals: int = 7
     max_point_exact_grid_error_mm: float = 1e-6
+    max_derived_forward_contact_error_mm: float = 0.05
+    max_round_trip_error_mm: float = 0.5
     abort_if_backup_exists: bool = True
 
 
@@ -88,17 +93,26 @@ RUN_OUTPUT_NAMES = (
     "residual_currentMni_to_legacyMni_rbf.nrrd",
     "residual_legacyMni_to_currentMni_rbf.nrrd",
     "candidate_from-anchorNative_to-MNI152NLin2009bAsym_desc-legacyContactCompat_ants.nii.gz",
+    "candidate_from-anchorNative_to-MNI152NLin2009bAsym_desc-legacyContactCompatOrdinarySeed_ants.nii.gz",
     "candidate_from-MNI152NLin2009bAsym_to-anchorNative_desc-legacyContactCompat_ants.nii.gz",
     "candidate_from-MNI152NLin2009bAsym_to-anchorNative_desc-legacyContactCompatPointExact_ants.nii.gz",
     "validation_current_forward.csv",
     "validation_current_inverse.csv",
     "validation_candidate_forward.csv",
+    "validation_candidate_forward_grid.csv",
+    "validation_candidate_forward_parity.csv",
     "validation_candidate_inverse.csv",
     "validation_candidate_inverse_point_exact_grid.csv",
     "validation_candidate_inverse_point_exact_ants.csv",
+    "validation_round_trip_anchor.csv",
+    "validation_round_trip_mni.csv",
     "validation_residual_only.csv",
     "validation_summary.json",
+    "numerical_inverse_summary.json",
 )
+
+_FIXED_POINT_MAX_ITERATIONS = 100
+_FIXED_POINT_RELAXATION = 0.5
 
 
 def build_legacy_contact_compat(paths: CompatPaths, params: CompatParams) -> dict:
@@ -129,6 +143,10 @@ def build_legacy_contact_compat(paths: CompatPaths, params: CompatParams) -> dic
     residual_forward = paths.output_dir / "residual_currentMni_to_legacyMni_rbf.nrrd"
     residual_inverse = paths.output_dir / "residual_legacyMni_to_currentMni_rbf.nrrd"
     candidate_forward = paths.output_dir / "candidate_from-anchorNative_to-MNI152NLin2009bAsym_desc-legacyContactCompat_ants.nii.gz"
+    ordinary_forward_seed = (
+        paths.output_dir
+        / "candidate_from-anchorNative_to-MNI152NLin2009bAsym_desc-legacyContactCompatOrdinarySeed_ants.nii.gz"
+    )
     candidate_inverse = paths.output_dir / "candidate_from-MNI152NLin2009bAsym_to-anchorNative_desc-legacyContactCompat_ants.nii.gz"
     candidate_inverse_point_exact = (
         paths.output_dir
@@ -161,9 +179,9 @@ def build_legacy_contact_compat(paths: CompatPaths, params: CompatParams) -> dic
         input_transform_1=paths.current_forward,
         input_transform_2=residual_forward,
         reference_volume=paths.template_reference,
-        output_transform=candidate_forward,
+        output_transform=ordinary_forward_seed,
         logger=logger,
-        label="candidate forward",
+        label="ordinary forward seed",
     )
     _run_composite_cli(
         cli["composite"],
@@ -174,16 +192,24 @@ def build_legacy_contact_compat(paths: CompatPaths, params: CompatParams) -> dic
         logger=logger,
         label="candidate inverse",
     )
-    if params.write_point_exact_inverse:
-        write_point_exact_inverse_candidate(
-            input_transform=candidate_inverse,
-            output_transform=candidate_inverse_point_exact,
-            source_ras=landmarks["source_for_forward"],
-            target_ras=landmarks["legacy_mni"],
-            logger=logger,
-        )
-    else:
-        candidate_inverse_point_exact = None
+    write_point_exact_inverse_candidate(
+        input_transform=candidate_inverse,
+        output_transform=candidate_inverse_point_exact,
+        source_ras=landmarks["source_for_forward"],
+        target_ras=landmarks["legacy_mni"],
+        logger=logger,
+    )
+    numerical_inverse = write_numerical_inverse_candidate(
+        authoritative_transform=candidate_inverse_point_exact,
+        initial_inverse_transform=ordinary_forward_seed,
+        output_transform=candidate_forward,
+        max_iterations=params.inversion_max_iterations,
+        tolerance_mm=params.inversion_tolerance_mm,
+        chunk_depth=params.inversion_chunk_depth,
+        logger=logger,
+    )
+    with (paths.output_dir / "numerical_inverse_summary.json").open("w") as f:
+        json.dump(numerical_inverse, f, indent=2)
 
     validation = _validate_outputs(
         paths=paths,
@@ -208,8 +234,10 @@ def build_legacy_contact_compat(paths: CompatPaths, params: CompatParams) -> dic
         "residual_forward": str(residual_forward),
         "residual_inverse": str(residual_inverse),
         "candidate_forward": str(candidate_forward),
+        "ordinary_forward_seed": str(ordinary_forward_seed),
         "candidate_inverse": str(candidate_inverse),
         "candidate_inverse_point_exact": str(candidate_inverse_point_exact) if candidate_inverse_point_exact else None,
+        "numerical_inverse": numerical_inverse,
         "validation": validation,
     }
     with (paths.output_dir / "validation_summary.json").open("w") as f:
@@ -284,7 +312,7 @@ def install_legacy_contact_compat(paths: InstallPaths, params: InstallParams) ->
     install_record = {
         "installed_at": timestamp,
         "subject": paths.subject_label,
-        "policy": "ordinary_forward_point_exact_inverse",
+        "policy": "point_exact_authoritative_inverse_derived_forward",
         "targets": {key: str(path) for key, path in targets.items()},
         "sources": {key: str(path) for key, path in sources.items()},
         "backup_dir": str(backup_dir),
@@ -371,6 +399,283 @@ def write_point_exact_inverse_candidate(
         logger.write(f"Point-exact edited vertex count: {summary['edited_vertex_count']}")
         logger.write(f"Point-exact grid max error after patch: {summary['max_error_after_mm']:.9g} mm")
     return summary
+
+
+def write_numerical_inverse_candidate(
+    authoritative_transform: Path,
+    initial_inverse_transform: Path,
+    output_transform: Path,
+    max_iterations: int = 8,
+    tolerance_mm: float = 1e-5,
+    chunk_depth: int = 1,
+    logger: "_Logger | None" = None,
+) -> dict:
+    """Numerically invert one authoritative displacement field on a target grid."""
+
+    authoritative_transform = Path(authoritative_transform)
+    initial_inverse_transform = Path(initial_inverse_transform)
+    output_transform = Path(output_transform)
+    if max_iterations < 1:
+        raise ValueError("max_iterations must be at least 1")
+    if tolerance_mm <= 0:
+        raise ValueError("tolerance_mm must be positive")
+    if chunk_depth < 1:
+        raise ValueError("chunk_depth must be at least 1")
+
+    authoritative_img = nib.load(str(authoritative_transform))
+    authoritative_raw = np.asarray(authoritative_img.dataobj, dtype=np.float32)
+    authoritative_data, _ = _displacement_data_view(authoritative_raw)
+    authoritative_shape = np.asarray(authoritative_data.shape[:3], dtype=int)
+    authoritative_inverse_affine = np.linalg.inv(authoritative_img.affine)
+
+    gradients = []
+    for component in range(3):
+        gradients.append(np.gradient(authoritative_data[..., component], edge_order=1))
+
+    initial_img = nib.load(str(initial_inverse_transform))
+    initial_raw = np.asarray(initial_img.dataobj, dtype=np.float32)
+    initial_data, vector_axis_kind = _displacement_data_view(initial_raw)
+    target_shape = tuple(int(value) for value in initial_data.shape[:3])
+
+    output_transform.parent.mkdir(parents=True, exist_ok=True)
+    temporary = tempfile.NamedTemporaryFile(prefix="warpslicer_inverse_", suffix=".dat", delete=False)
+    temporary_path = Path(temporary.name)
+    temporary.close()
+    output_memmap = np.memmap(temporary_path, dtype=np.float64, mode="w+", shape=target_shape + (3,))
+    output_memmap[:] = 0.0
+
+    total_points = int(np.prod(target_shape))
+    candidate_count = 0
+    converged_count = 0
+    newton_converged_count = 0
+    fixed_point_converged_count = 0
+    residual_sum = 0.0
+    residual_max = 0.0
+    identity_count = 0
+    if logger:
+        logger.write(
+            "Numerically inverting PointExact field "
+            f"with {max_iterations} Newton iterations and {tolerance_mm:.9g} mm tolerance"
+        )
+
+    try:
+        for z_start in range(0, target_shape[2], chunk_depth):
+            z_stop = min(z_start + chunk_depth, target_shape[2])
+            local_shape = (target_shape[0], target_shape[1], z_stop - z_start)
+            indices = np.indices(local_shape, dtype=np.float64).reshape(3, -1).T
+            indices[:, 2] += z_start
+            target_points = nib.affines.apply_affine(initial_img.affine, indices)
+            initial_displacement = np.asarray(
+                initial_data[:, :, z_start:z_stop, :], dtype=np.float64
+            ).reshape(-1, 3)
+            estimates = target_points + initial_displacement
+            source_indices = nib.affines.apply_affine(authoritative_inverse_affine, estimates)
+            candidates = _indices_inside_volume(source_indices, authoritative_shape)
+            identity_count += int((~candidates).sum())
+            candidate_count += int(candidates.sum())
+
+            candidate_rows = np.flatnonzero(candidates)
+            initial_candidate_estimates = estimates[candidates].copy()
+            candidate_estimates = initial_candidate_estimates.copy()
+            candidate_targets = target_points[candidates]
+            converged = np.zeros(len(candidate_rows), dtype=bool)
+            active = np.ones(len(candidate_rows), dtype=bool)
+            final_residuals = np.full(len(candidate_rows), np.inf, dtype=np.float64)
+
+            for _iteration in range(max_iterations):
+                active_rows = np.flatnonzero(active)
+                if len(active_rows) == 0:
+                    break
+                active_estimates = candidate_estimates[active_rows]
+                active_source_indices = nib.affines.apply_affine(
+                    authoritative_inverse_affine,
+                    active_estimates,
+                )
+                inside = _indices_inside_volume(active_source_indices, authoritative_shape)
+                if not np.all(inside):
+                    active[active_rows[~inside]] = False
+                solve_rows = active_rows[inside]
+                if len(solve_rows) == 0:
+                    continue
+                solve_indices = active_source_indices[inside]
+                displacement = _sample_vector_data(authoritative_data, solve_indices)
+                residual = candidate_estimates[solve_rows] + displacement - candidate_targets[solve_rows]
+                residual_norm = np.linalg.norm(residual, axis=1)
+                now_converged = residual_norm <= tolerance_mm
+                if np.any(now_converged):
+                    rows = solve_rows[now_converged]
+                    converged[rows] = True
+                    active[rows] = False
+                    final_residuals[rows] = residual_norm[now_converged]
+
+                update_rows = solve_rows[~now_converged]
+                if len(update_rows) == 0:
+                    continue
+                update_indices = solve_indices[~now_converged]
+                update_residual = residual[~now_converged]
+                jacobian_index = _sample_displacement_gradient(gradients, update_indices)
+                jacobian_world = jacobian_index @ authoritative_inverse_affine[:3, :3]
+                jacobian = jacobian_world + np.eye(3, dtype=np.float64)[np.newaxis, :, :]
+                determinant = np.linalg.det(jacobian)
+                solvable = np.isfinite(determinant) & (np.abs(determinant) > 1e-6)
+                if not np.all(solvable):
+                    active[update_rows[~solvable]] = False
+                if np.any(solvable):
+                    delta = np.linalg.solve(
+                        jacobian[solvable],
+                        update_residual[solvable, :, np.newaxis],
+                    )[:, :, 0]
+                    candidate_estimates[update_rows[solvable]] -= delta
+
+            remaining_rows = np.flatnonzero(active)
+            if len(remaining_rows):
+                remaining_indices = nib.affines.apply_affine(
+                    authoritative_inverse_affine,
+                    candidate_estimates[remaining_rows],
+                )
+                inside = _indices_inside_volume(remaining_indices, authoritative_shape)
+                if np.any(inside):
+                    rows = remaining_rows[inside]
+                    displacement = _sample_vector_data(authoritative_data, remaining_indices[inside])
+                    residual = candidate_estimates[rows] + displacement - candidate_targets[rows]
+                    residual_norm = np.linalg.norm(residual, axis=1)
+                    now_converged = residual_norm <= tolerance_mm
+                    converged[rows[now_converged]] = True
+                    final_residuals[rows[now_converged]] = residual_norm[now_converged]
+
+            chunk_newton_converged_count = int(converged.sum())
+            newton_converged_count += chunk_newton_converged_count
+            fallback_rows = np.flatnonzero(~converged)
+            if len(fallback_rows):
+                fallback_estimates = initial_candidate_estimates[fallback_rows].copy()
+                fallback_targets = candidate_targets[fallback_rows]
+                fallback_converged = np.zeros(len(fallback_rows), dtype=bool)
+                fallback_active = np.ones(len(fallback_rows), dtype=bool)
+                fallback_residuals = np.full(len(fallback_rows), np.inf, dtype=np.float64)
+                for _iteration in range(_FIXED_POINT_MAX_ITERATIONS + 1):
+                    active_rows = np.flatnonzero(fallback_active)
+                    if len(active_rows) == 0:
+                        break
+                    active_estimates = fallback_estimates[active_rows]
+                    active_indices = nib.affines.apply_affine(
+                        authoritative_inverse_affine,
+                        active_estimates,
+                    )
+                    inside = _indices_inside_volume(active_indices, authoritative_shape)
+                    if not np.all(inside):
+                        fallback_active[active_rows[~inside]] = False
+                    solve_rows = active_rows[inside]
+                    if len(solve_rows) == 0:
+                        continue
+                    displacement = _sample_vector_data(authoritative_data, active_indices[inside])
+                    residual = fallback_estimates[solve_rows] + displacement - fallback_targets[solve_rows]
+                    residual_norm = np.linalg.norm(residual, axis=1)
+                    now_converged = residual_norm <= tolerance_mm
+                    if np.any(now_converged):
+                        rows = solve_rows[now_converged]
+                        fallback_converged[rows] = True
+                        fallback_active[rows] = False
+                        fallback_residuals[rows] = residual_norm[now_converged]
+                    if _iteration == _FIXED_POINT_MAX_ITERATIONS:
+                        continue
+                    update_rows = solve_rows[~now_converged]
+                    if len(update_rows):
+                        fallback_estimates[update_rows] -= (
+                            _FIXED_POINT_RELAXATION * residual[~now_converged]
+                        )
+
+                if np.any(fallback_converged):
+                    solved_fallback_rows = fallback_rows[fallback_converged]
+                    candidate_estimates[solved_fallback_rows] = fallback_estimates[fallback_converged]
+                    converged[solved_fallback_rows] = True
+                    final_residuals[solved_fallback_rows] = fallback_residuals[fallback_converged]
+                    fixed_point_converged_count += int(fallback_converged.sum())
+
+            if np.any(converged):
+                solved_rows = candidate_rows[converged]
+                solved_displacement = candidate_estimates[converged] - candidate_targets[converged]
+                output_chunk = np.zeros(local_shape + (3,), dtype=np.float64)
+                output_chunk_flat = output_chunk.reshape(-1, 3)
+                output_chunk_flat[solved_rows] = solved_displacement
+                output_memmap[:, :, z_start:z_stop, :] = output_chunk
+                residuals = final_residuals[converged]
+                converged_count += int(converged.sum())
+                residual_sum += float(residuals.sum())
+                residual_max = max(residual_max, float(residuals.max()))
+
+            if logger and (z_stop == target_shape[2] or z_stop % max(1, target_shape[2] // 10) == 0):
+                logger.write(f"Numerical inverse progress: {z_stop}/{target_shape[2]} slices")
+
+        output_memmap.flush()
+        header = initial_img.header.copy()
+        header.set_data_dtype(np.float64)
+        header.set_intent("displacement vector")
+        output_data = _restore_displacement_data_shape(output_memmap, vector_axis_kind)
+        output_img = nib.Nifti1Image(output_data, initial_img.affine, header=header)
+        output_img.set_qform(initial_img.get_qform(), int(initial_img.header["qform_code"]))
+        output_img.set_sform(initial_img.get_sform(), int(initial_img.header["sform_code"]))
+        nib.save(output_img, str(output_transform))
+    finally:
+        del output_memmap
+        temporary_path.unlink(missing_ok=True)
+
+    summary = {
+        "authoritative_transform": str(authoritative_transform),
+        "initial_inverse_transform": str(initial_inverse_transform),
+        "output_transform": str(output_transform),
+        "method": "chunked_newton_with_damped_fixed_point_fallback",
+        "max_iterations": int(max_iterations),
+        "tolerance_mm": float(tolerance_mm),
+        "total_grid_point_count": total_points,
+        "candidate_point_count": candidate_count,
+        "identity_outside_authoritative_domain_count": identity_count,
+        "converged_point_count": converged_count,
+        "newton_converged_point_count": newton_converged_count,
+        "fixed_point_converged_point_count": fixed_point_converged_count,
+        "fixed_point_max_iterations": _FIXED_POINT_MAX_ITERATIONS,
+        "fixed_point_relaxation": _FIXED_POINT_RELAXATION,
+        "nonconverged_point_count": candidate_count - converged_count,
+        "mean_converged_residual_mm": residual_sum / converged_count if converged_count else None,
+        "max_converged_residual_mm": residual_max if converged_count else None,
+    }
+    if logger:
+        logger.write(
+            "Numerical inverse convergence: "
+            f"{converged_count}/{candidate_count}; "
+            f"newton={newton_converged_count}; fixed_point={fixed_point_converged_count}; "
+            f"nonconverged={candidate_count - converged_count}"
+        )
+        logger.write(f"Numerical inverse max converged residual: {residual_max:.9g} mm")
+    return summary
+
+
+def _indices_inside_volume(indices: np.ndarray, shape: np.ndarray) -> np.ndarray:
+    return np.all((indices >= 0.0) & (indices <= (shape - 1)), axis=1)
+
+
+def _sample_vector_data(data: np.ndarray, indices: np.ndarray) -> np.ndarray:
+    coordinates = np.asarray(indices, dtype=np.float64).T
+    return np.column_stack(
+        [
+            map_coordinates(data[..., component], coordinates, order=1, mode="nearest", prefilter=False)
+            for component in range(3)
+        ]
+    )
+
+
+def _sample_displacement_gradient(gradients: list[tuple[np.ndarray, ...]], indices: np.ndarray) -> np.ndarray:
+    coordinates = np.asarray(indices, dtype=np.float64).T
+    sampled = np.empty((len(indices), 3, 3), dtype=np.float64)
+    for component in range(3):
+        for axis in range(3):
+            sampled[:, component, axis] = map_coordinates(
+                gradients[component][axis],
+                coordinates,
+                order=1,
+                mode="nearest",
+                prefilter=False,
+            )
+    return sampled
 
 
 def extract_contact_landmarks(paths: CompatPaths) -> dict:
@@ -519,15 +824,37 @@ def _preflight_install(paths: InstallPaths, params: InstallParams) -> dict:
             "PointExact grid max error exceeds threshold: "
             f"{point_exact_grid['max_error_mm']} > {params.max_point_exact_grid_error_mm}"
         )
+    numerical_inverse = validation_summary.get("numerical_inverse")
+    if not numerical_inverse:
+        raise ValueError("Validation summary does not contain numerical inverse provenance")
+    derived_forward = validation_summary["validation"]["candidate_forward_grid"]
+    if float(derived_forward["max_error_mm"]) > params.max_derived_forward_contact_error_mm:
+        raise ValueError(
+            "Derived forward contact error exceeds threshold: "
+            f"{derived_forward['max_error_mm']} > {params.max_derived_forward_contact_error_mm}"
+        )
+    for key in ("round_trip_anchor", "round_trip_mni"):
+        round_trip = validation_summary["validation"][key]
+        if float(round_trip["max_error_mm"]) > params.max_round_trip_error_mm:
+            raise ValueError(
+                f"{key} max error exceeds threshold: "
+                f"{round_trip['max_error_mm']} > {params.max_round_trip_error_mm}"
+            )
 
     legacy_by_side = _legacy_contacts_by_side(paths)
     reconstruction_validation = _validate_reconstruction_side_shapes(paths.reconstruction_mat, legacy_by_side)
     source_for_forward = _source_for_forward_points(paths)
+    legacy_points = np.vstack(
+        [legacy_by_side[side][["MNI_x", "MNI_y", "MNI_z"]].to_numpy(float) for side in (2, 1)]
+    )
     return {
         "validation": point_exact_grid,
+        "numerical_inverse": numerical_inverse,
+        "derived_forward_validation": derived_forward,
         "legacy_by_side": legacy_by_side,
         "reconstruction_shape_validation": reconstruction_validation,
         "source_for_forward": source_for_forward,
+        "legacy_points": legacy_points,
         "original_sizes": {
             "forward": paths.current_forward.stat().st_size,
             "inverse": paths.current_inverse.stat().st_size,
@@ -775,17 +1102,29 @@ def _post_validate_install(
     if not reconstruction_validation["rounded_exact"]:
         raise RuntimeError("Installed reconstruction does not match legacy contacts")
 
-    observed = apply_grid_transform_to_points_ras(paths.current_inverse, preflight["source_for_forward"])
-    expected = np.vstack(
-        [preflight["legacy_by_side"][side][["MNI_x", "MNI_y", "MNI_z"]].to_numpy(float) for side in (2, 1)]
-    )
-    grid_validation = _summarize_point_errors(observed, expected, params.precision_decimals)
+    source_points = preflight["source_for_forward"]
+    legacy_points = preflight["legacy_points"]
+    observed = apply_grid_transform_to_points_ras(paths.current_inverse, source_points)
+    grid_validation = _summarize_point_errors(observed, legacy_points, params.precision_decimals)
     if not grid_validation["rounded_exact"]:
         raise RuntimeError("Installed PointExact inverse grid validation is not rounded-exact")
+    recovered_source = apply_grid_transform_to_points_ras(paths.current_forward, legacy_points)
+    forward_validation = _summarize_point_errors(recovered_source, source_points, params.precision_decimals)
+    if float(forward_validation["max_error_mm"]) > params.max_derived_forward_contact_error_mm:
+        raise RuntimeError("Installed derived forward contact validation failed")
+    anchor_round_trip = apply_grid_transform_to_points_ras(paths.current_forward, observed)
+    mni_round_trip = apply_grid_transform_to_points_ras(paths.current_inverse, recovered_source)
+    round_trip_anchor = _summarize_point_errors(anchor_round_trip, source_points, params.precision_decimals)
+    round_trip_mni = _summarize_point_errors(mni_round_trip, legacy_points, params.precision_decimals)
+    if max(round_trip_anchor["max_error_mm"], round_trip_mni["max_error_mm"]) > params.max_round_trip_error_mm:
+        raise RuntimeError("Installed transform-pair round-trip validation failed")
     return {
         "sizes": size_validation,
         "reconstruction": reconstruction_validation,
         "installed_point_exact_grid": grid_validation,
+        "installed_derived_forward_grid": forward_validation,
+        "round_trip_anchor": round_trip_anchor,
+        "round_trip_mni": round_trip_mni,
     }
 
 
@@ -1032,31 +1371,37 @@ def _validate_outputs(
     residual_forward: Path,
     candidate_forward: Path,
     candidate_inverse: Path,
-    candidate_inverse_point_exact: Path | None,
+    candidate_inverse_point_exact: Path,
     logger: "_Logger",
 ) -> dict:
     current_from_current_transform = lps_to_ras(
-        apply_ants_transform_to_points(ants_points, ras_to_lps(source_ras), paths.current_forward)
+        apply_ants_transform_to_points(ants_points, ras_to_lps(current_mni_ras), paths.current_forward)
     )
     current_from_current_inverse = lps_to_ras(
         apply_ants_transform_to_points(ants_points, ras_to_lps(source_ras), paths.current_inverse)
     )
-    candidate = lps_to_ras(
-        apply_ants_transform_to_points(ants_points, ras_to_lps(source_ras), candidate_forward)
+    candidate_forward_grid = apply_grid_transform_to_points_ras(candidate_forward, legacy_mni_ras)
+    candidate_forward_ants = lps_to_ras(
+        apply_ants_transform_to_points(ants_points, ras_to_lps(legacy_mni_ras), candidate_forward)
     )
     candidate_inverse_points = lps_to_ras(
         apply_ants_transform_to_points(ants_points, ras_to_lps(source_ras), candidate_inverse)
     )
-    candidate_inverse_point_exact_grid = None
-    candidate_inverse_point_exact_ants = None
-    if candidate_inverse_point_exact is not None:
-        candidate_inverse_point_exact_grid = apply_grid_transform_to_points_ras(
-            candidate_inverse_point_exact,
-            source_ras,
-        )
-        candidate_inverse_point_exact_ants = lps_to_ras(
-            apply_ants_transform_to_points(ants_points, ras_to_lps(source_ras), candidate_inverse_point_exact)
-        )
+    candidate_inverse_point_exact_grid = apply_grid_transform_to_points_ras(
+        candidate_inverse_point_exact,
+        source_ras,
+    )
+    candidate_inverse_point_exact_ants = lps_to_ras(
+        apply_ants_transform_to_points(ants_points, ras_to_lps(source_ras), candidate_inverse_point_exact)
+    )
+    anchor_round_trip = apply_grid_transform_to_points_ras(
+        candidate_forward,
+        candidate_inverse_point_exact_grid,
+    )
+    mni_round_trip = apply_grid_transform_to_points_ras(
+        candidate_inverse_point_exact,
+        candidate_forward_grid,
+    )
     residual_only = lps_to_ras(
         apply_ants_transform_to_points(ants_points, ras_to_lps(current_mni_ras), residual_forward)
     )
@@ -1064,7 +1409,7 @@ def _validate_outputs(
     current_summary = _write_validation_csv(
         paths.output_dir / "validation_current_forward.csv",
         current_from_current_transform,
-        current_mni_ras,
+        source_ras,
         params.precision_decimals,
     )
     current_inverse_summary = _write_validation_csv(
@@ -1073,10 +1418,22 @@ def _validate_outputs(
         current_mni_ras,
         params.precision_decimals,
     )
-    candidate_summary = _write_validation_csv(
+    candidate_forward_ants_summary = _write_validation_csv(
         paths.output_dir / "validation_candidate_forward.csv",
-        candidate,
-        legacy_mni_ras,
+        candidate_forward_ants,
+        source_ras,
+        params.precision_decimals,
+    )
+    candidate_forward_grid_summary = _write_validation_csv(
+        paths.output_dir / "validation_candidate_forward_grid.csv",
+        candidate_forward_grid,
+        source_ras,
+        params.precision_decimals,
+    )
+    candidate_forward_parity_summary = _write_validation_csv(
+        paths.output_dir / "validation_candidate_forward_parity.csv",
+        candidate_forward_grid,
+        candidate_forward_ants,
         params.precision_decimals,
     )
     candidate_inverse_summary = _write_validation_csv(
@@ -1085,22 +1442,30 @@ def _validate_outputs(
         legacy_mni_ras,
         params.precision_decimals,
     )
-    candidate_inverse_point_exact_grid_summary = None
-    candidate_inverse_point_exact_ants_summary = None
-    if candidate_inverse_point_exact_grid is not None:
-        candidate_inverse_point_exact_grid_summary = _write_validation_csv(
-            paths.output_dir / "validation_candidate_inverse_point_exact_grid.csv",
-            candidate_inverse_point_exact_grid,
-            legacy_mni_ras,
-            params.precision_decimals,
-        )
-    if candidate_inverse_point_exact_ants is not None:
-        candidate_inverse_point_exact_ants_summary = _write_validation_csv(
-            paths.output_dir / "validation_candidate_inverse_point_exact_ants.csv",
-            candidate_inverse_point_exact_ants,
-            legacy_mni_ras,
-            params.precision_decimals,
-        )
+    candidate_inverse_point_exact_grid_summary = _write_validation_csv(
+        paths.output_dir / "validation_candidate_inverse_point_exact_grid.csv",
+        candidate_inverse_point_exact_grid,
+        legacy_mni_ras,
+        params.precision_decimals,
+    )
+    candidate_inverse_point_exact_ants_summary = _write_validation_csv(
+        paths.output_dir / "validation_candidate_inverse_point_exact_ants.csv",
+        candidate_inverse_point_exact_ants,
+        legacy_mni_ras,
+        params.precision_decimals,
+    )
+    anchor_round_trip_summary = _write_validation_csv(
+        paths.output_dir / "validation_round_trip_anchor.csv",
+        anchor_round_trip,
+        source_ras,
+        params.precision_decimals,
+    )
+    mni_round_trip_summary = _write_validation_csv(
+        paths.output_dir / "validation_round_trip_mni.csv",
+        mni_round_trip,
+        legacy_mni_ras,
+        params.precision_decimals,
+    )
     residual_summary = _write_validation_csv(
         paths.output_dir / "validation_residual_only.csv",
         residual_only,
@@ -1111,31 +1476,36 @@ def _validate_outputs(
     logger.write(f"Candidate-inverse point mean error: {candidate_inverse_summary['mean_error_mm']:.9g} mm")
     logger.write(f"Candidate-inverse point max error: {candidate_inverse_summary['max_error_mm']:.9g} mm")
     logger.write(f"Candidate-inverse rounded exact: {candidate_inverse_summary['rounded_exact']}")
-    if candidate_inverse_point_exact_grid_summary is not None:
-        logger.write(
-            "Point-exact inverse grid max error: "
-            f"{candidate_inverse_point_exact_grid_summary['max_error_mm']:.9g} mm"
-        )
-        logger.write(
-            "Point-exact inverse grid rounded exact: "
-            f"{candidate_inverse_point_exact_grid_summary['rounded_exact']}"
-        )
-    if candidate_inverse_point_exact_ants_summary is not None:
-        logger.write(
-            "Point-exact inverse ANTs max error: "
-            f"{candidate_inverse_point_exact_ants_summary['max_error_mm']:.9g} mm"
-        )
-        logger.write(
-            "Point-exact inverse ANTs rounded exact: "
-            f"{candidate_inverse_point_exact_ants_summary['rounded_exact']}"
-        )
+    logger.write(f"Derived-forward grid max error: {candidate_forward_grid_summary['max_error_mm']:.9g} mm")
+    logger.write(f"Derived-forward ANTs max error: {candidate_forward_ants_summary['max_error_mm']:.9g} mm")
+    logger.write(f"Derived-forward grid/ANTs parity max error: {candidate_forward_parity_summary['max_error_mm']:.9g} mm")
+    logger.write(
+        "Point-exact inverse grid max error: "
+        f"{candidate_inverse_point_exact_grid_summary['max_error_mm']:.9g} mm"
+    )
+    logger.write(
+        "Point-exact inverse grid rounded exact: "
+        f"{candidate_inverse_point_exact_grid_summary['rounded_exact']}"
+    )
+    logger.write(
+        "Point-exact inverse ANTs max error: "
+        f"{candidate_inverse_point_exact_ants_summary['max_error_mm']:.9g} mm"
+    )
+    logger.write(
+        "Point-exact inverse ANTs rounded exact: "
+        f"{candidate_inverse_point_exact_ants_summary['rounded_exact']}"
+    )
     return {
         "current_forward_sanity": current_summary,
         "current_inverse_point_sanity": current_inverse_summary,
-        "candidate_forward": candidate_summary,
+        "candidate_forward": candidate_forward_ants_summary,
+        "candidate_forward_grid": candidate_forward_grid_summary,
+        "candidate_forward_parity": candidate_forward_parity_summary,
         "candidate_inverse_point": candidate_inverse_summary,
         "candidate_inverse_point_exact_grid": candidate_inverse_point_exact_grid_summary,
         "candidate_inverse_point_exact_ants": candidate_inverse_point_exact_ants_summary,
+        "round_trip_anchor": anchor_round_trip_summary,
+        "round_trip_mni": mni_round_trip_summary,
         "residual_only": residual_summary,
     }
 
@@ -1176,10 +1546,10 @@ def _trilinear_entries(indices: np.ndarray, shape: tuple[int, int, int]) -> list
     entries: list[list[tuple[tuple[int, int, int], float]]] = []
     max_index = np.asarray(shape, dtype=int) - 1
     for index in np.asarray(indices, dtype=float):
-        lower = np.floor(index).astype(int)
-        upper = lower + 1
-        if np.any(lower < 0) or np.any(upper > max_index):
+        if np.any(index < 0.0) or np.any(index > max_index):
             raise ValueError(f"Point index {index.tolist()} is outside the displacement grid")
+        lower = np.minimum(np.floor(index).astype(int), max_index - 1)
+        upper = lower + 1
         fraction = index - lower
         point_entries: list[tuple[tuple[int, int, int], float]] = []
         for dx in (0, 1):

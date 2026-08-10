@@ -95,7 +95,7 @@ _VOXEL_SECTION_CONFIG: Final[dict[str, Any]] = {
     "background_gamma": 1.0,
     "background_alpha": 1.0,
     "background_loading_mode": "bounded_union_lazy",
-    "mask_threshold": 0.05,
+    "mask_threshold": 0.5,
     "mask_color": "#000000",
     "mask_alpha": 1.0,
     "mask_linewidth_pt": 1.0,

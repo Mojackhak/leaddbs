@@ -84,6 +84,46 @@ def write_concatenated_tck(
     _write_lazy_tck(Path(output_path), generate, expected_count)
 
 
+def write_generated_tck(
+    generator_factory: Callable[[], Iterable[np.ndarray]],
+    output_path: Path | str,
+    expected_count: int,
+) -> None:
+    """Write a validated caller-owned lazy streamline generator."""
+
+    _write_lazy_tck(Path(output_path), generator_factory, expected_count)
+
+
+def write_ordinal_subset_tck(
+    input_path: Path | str,
+    ordinals: Sequence[int],
+    output_path: Path | str,
+) -> None:
+    """Write one strictly ordered streamline subset by zero-based source ordinal."""
+
+    selected = tuple(int(value) for value in ordinals)
+    if any(value < 0 for value in selected) or any(
+        current <= previous for previous, current in zip(selected, selected[1:])
+    ):
+        raise ValidationError("subset ordinals must be nonnegative and strictly increasing")
+
+    def generate() -> Iterator[np.ndarray]:
+        wanted = iter(selected)
+        current = next(wanted, None)
+        for index, streamline in enumerate(iter_tck(input_path)):
+            if current is None:
+                break
+            if index == current:
+                yield streamline
+                current = next(wanted, None)
+        if current is not None:
+            raise ValidationError(
+                f"subset ordinal {current} is outside TCK {input_path}"
+            )
+
+    _write_lazy_tck(Path(output_path), generate, len(selected))
+
+
 def nibabel_tck_count(path: Path | str) -> int:
     """Count streamlines through a lazy Nibabel structural read."""
 

@@ -422,6 +422,11 @@ def _write_profiles(root: Path) -> WorkflowRequest:
     fiber = yaml.safe_load(
         (PROFILE_ROOT / "normative_fiber_model_test.yaml").read_text(encoding="utf-8")
     )
+    individualized = yaml.safe_load(
+        (PROFILE_ROOT / "individualized_seed_target_model.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
     workflow = yaml.safe_load(
         (PROFILE_ROOT / "workflow.yaml").read_text(encoding="utf-8")
     )
@@ -430,9 +435,7 @@ def _write_profiles(root: Path) -> WorkflowRequest:
         "reference": {"phase_id": "reference_window", "program_id": 202},
         "addon": {"phase_id": "addon_window", "program_id": 303},
     }
-    for profile in (direct, fiber):
-        profile["model_set_id"] = "project_neutral_synthetic_e2e_v1"
-        profile["output"]["root"] = str(root / "outputs")
+    for profile in (direct, fiber, individualized):
         profile["scales"] = ["response_scale"]
         profile["endpoint_pair"] = copy.deepcopy(endpoint_pair)
     direct["shared"]["formal_resampling"]["permutation_resamples"] = 2
@@ -474,27 +477,34 @@ def _write_profiles(root: Path) -> WorkflowRequest:
         "sour_selected_min_count": 3,
         "weighted_peak_min_count": 2,
     }
-    fiber["sensitivity"]["high_threshold"] = {
-        "tau_v_per_m": 220,
-        "coverage_subjects_min": 5,
-    }
-    fiber["sensitivity"]["fixed_outer_library"] = {
-        "sweet_count": 8,
-        "sour_count": 4,
-    }
     fiber["oss"]["permutation_resamples"] = 2
 
     direct_path = root / "direct_voxel_model.yaml"
     fiber_path = root / "normative_fiber_model.yaml"
+    individualized_path = root / "individualized_seed_target_model.yaml"
     workflow_path = root / "workflow.yaml"
     study_path = root / "study_base.json"
     direct_path.write_text(yaml.safe_dump(direct, sort_keys=False), encoding="utf-8")
     fiber_path.write_text(yaml.safe_dump(fiber, sort_keys=False), encoding="utf-8")
+    individualized_path.write_text(
+        yaml.safe_dump(individualized, sort_keys=False),
+        encoding="utf-8",
+    )
     workflow["model_profiles"] = {
         "direct_voxel": direct_path.name,
         "normative_fiber": fiber_path.name,
+        "individualized_seed_target": individualized_path.name,
     }
-    workflow["selection"] = {"models": ["all"], "connectomes": ["all"]}
+    workflow["output"] = {"root": str(root / "outputs")}
+    workflow["selection"] = {
+        "models": [
+            "reference_voxel",
+            "reference_fiber",
+            "addon_voxel",
+            "addon_fiber",
+        ],
+        "connectomes": ["all"],
+    }
     workflow["execution"].update(
         {
             "through": "report",
@@ -1747,7 +1757,6 @@ class SyntheticEndToEndTest(unittest.TestCase):
                     root
                     / "outputs"
                     / "direct_voxel"
-                    / "project_neutral_synthetic_e2e_v1"
                     / "extensions"
                     / "jitter-extension"
                     / "extension_manifest.json"
@@ -1756,7 +1765,6 @@ class SyntheticEndToEndTest(unittest.TestCase):
                     root
                     / "outputs"
                     / "normative_fiber"
-                    / "project_neutral_synthetic_e2e_v1"
                     / "extensions"
                     / "oss-extension"
                     / "extension_manifest.json"
@@ -1879,7 +1887,7 @@ class SyntheticEndToEndTest(unittest.TestCase):
             artifact_root = {
                 "base-run": parent_root,
                 "cache": configuration.workflow.storage.cache_root,
-                "output": configuration.direct_voxel.output.root,
+                "output": configuration.workflow.output.root,
             }[parsed.scheme]
             artifact_path = artifact_root / unquote(parsed.path.lstrip("/"))
             artifact_path.unlink()
@@ -2568,7 +2576,13 @@ class SyntheticEndToEndTest(unittest.TestCase):
             reloaded_configuration.scientific_configuration_hash,
             configuration.scientific_configuration_hash,
         )
-        self.assertEqual(len(configuration_sources["sources"]), 4)
+        self.assertEqual(len(configuration_sources["sources"]), 6)
+        self.assertTrue(
+            any(
+                urlsplit(source["uri"]).path.endswith("mrtrix_seed_target.yaml")
+                for source in configuration_sources["sources"]
+            )
+        )
         self.assertTrue(source_hashes_match)
         self.assertGreater(len(sensitivity_bases), 1)
         self.assertTrue(

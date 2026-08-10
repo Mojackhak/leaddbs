@@ -32,9 +32,16 @@ reference and add-on final models from the Task 17 main run:
 
 - `open_pdq39_reference_voxel_scene.m` opens the benefit-oriented direct-voxel
   1 mm FWHM display derivative with symmetric `vik` colors and grayscale
-  anatomy slices. It keeps the migrated `insideOnly` color-sampling contract
-  at the repository surface default depth of 1 mm. The add-on voxel example
-  and formal reference/add-on PDF exporter use the same 1 mm depth. It also enables the configurable
+  anatomy slices. Before surface extraction, the finite-support crop is
+  resampled to a retained isotropic 0.1 mm display NIfTI under
+  `visualization/spatial_2d/maps/` by
+  finite-mask-normalized interpolation with signed-distance support
+  preservation. The crop retains one source voxel of background as a working
+  halo for interpolation and boundary reconstruction; the halo never becomes
+  the rendered finite support. The renderer keeps the migrated `insideOnly`
+  color-sampling contract at a depth of 0.25 mm. The add-on voxel example and
+  formal reference/add-on PDF exporter use the same retained display input and
+  sampling depth. It also enables the configurable
   `Custom_STNSNr` atlas by default and draws only ROI 2, the STN, as a
   50%-reduced atlas-colored wireframe with edge alpha 0.15. The interactive figure applies
   the configurable scene background immediately after creation and defaults to

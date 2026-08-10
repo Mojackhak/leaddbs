@@ -107,7 +107,32 @@ def _load_coregistration_method(path: Path) -> tuple[str, str, bool]:
     raise DiscoveryError(f"unsupported B0 coregistration method {method!r} in {path}")
 
 
-def _default_paths(subject: SubjectSpec) -> dict[str, Path]:
+def _load_normalization_method(path: Path) -> tuple[str, float]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        method_value = document["method"]
+        approval_value = document["approval"]
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise DiscoveryError(
+            f"invalid normalization method log {path}: {exc}"
+        ) from exc
+    if not isinstance(method_value, str) or not method_value.strip():
+        raise DiscoveryError(f"normalization method is missing or invalid in {path}")
+    if isinstance(approval_value, bool) or not isinstance(
+        approval_value, (int, float)
+    ):
+        raise DiscoveryError(
+            f"normalization approval must be one numeric scalar in {path}"
+        )
+    approval = float(approval_value)
+    if approval not in {0.5, 1.0}:
+        raise DiscoveryError(
+            f"normalization is not approved in {path}: approval={approval_value!r}"
+        )
+    return method_value.strip(), approval
+
+
+def _default_paths(subject: SubjectSpec, target_space: str) -> dict[str, Path]:
     subject_id = subject.subject_id
     root = subject.subject_dir
     dwi_dir = root / "preprocessing" / "dwi"
@@ -131,39 +156,66 @@ def _default_paths(subject: SubjectSpec) -> dict[str, Path]:
             dwi_dir, "trackingmask", "DWI tracking mask"
         ),
         "anchor_native_reference": _select_anchor_reference(root, subject_id),
-        "mni_to_anchor_transform": (
+        "target_to_anchor_image_deformation": (
             root
             / "normalization"
             / "transformations"
-            / f"{subject_id}_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants.nii.gz"
+            / f"{subject_id}_from-{target_space}_to-anchorNative_desc-ants.nii.gz"
+        ),
+        "anchor_to_target_image_deformation": (
+            root
+            / "normalization"
+            / "transformations"
+            / f"{subject_id}_from-anchorNative_to-{target_space}_desc-ants.nii.gz"
         ),
         "coregistration_method_log": coreg_log,
+        "normalization_method_log": (
+            root
+            / "normalization"
+            / "log"
+            / f"{subject_id}_desc-normmethod.json"
+        ),
     }
     return paths
 
 
-def discover_subject(subject: SubjectSpec) -> ResolvedSubjectInputs:
+def discover_subject(subject: SubjectSpec, target_space: str) -> ResolvedSubjectInputs:
     """Resolve and validate the exact configured input set for one subject."""
 
     if not subject.subject_dir.is_dir():
         raise DiscoveryError(f"subject directory does not exist: {subject.subject_dir}")
-    paths = _default_paths(subject)
+    paths = _default_paths(subject, target_space)
     paths.update(subject.path_overrides)
 
-    method_log = _require_file(
+    coregistration_method_log = _require_file(
         paths["coregistration_method_log"], "B0 coregistration method log"
     )
-    method, method_token, approved = _load_coregistration_method(method_log)
-    if "anchor_to_dwi_transform" not in paths:
-        paths["anchor_to_dwi_transform"] = (
-            subject.subject_dir
-            / "coregistration"
-            / "transformations"
-            / (
-                f"{subject.subject_id}_from-anchorNative_to-b0_"
-                f"desc-{method_token}44.mat"
-            )
-        )
+    method, method_token, approved = _load_coregistration_method(
+        coregistration_method_log
+    )
+    normalization_method_log = _require_file(
+        paths["normalization_method_log"], "normalization method log"
+    )
+    normalization_method, normalization_approval = _load_normalization_method(
+        normalization_method_log
+    )
+    transform_root = subject.subject_dir / "coregistration" / "transformations"
+    paths.setdefault(
+        "b0_to_anchor_transform",
+        transform_root
+        / (
+            f"{subject.subject_id}_from-b0_to-anchorNative_"
+            f"desc-{method_token}44.mat"
+        ),
+    )
+    paths.setdefault(
+        "anchor_to_b0_transform",
+        transform_root
+        / (
+            f"{subject.subject_id}_from-anchorNative_to-b0_"
+            f"desc-{method_token}44.mat"
+        ),
+    )
 
     resolved = {
         key: _require_file(value, key.replace("_", " "))
@@ -179,12 +231,22 @@ def discover_subject(subject: SubjectSpec) -> ResolvedSubjectInputs:
         brain_mask=resolved["brain_mask"],
         tracking_mask=resolved["tracking_mask"],
         anchor_native_reference=resolved["anchor_native_reference"],
-        mni_to_anchor_transform=resolved["mni_to_anchor_transform"],
-        anchor_to_dwi_transform=resolved["anchor_to_dwi_transform"],
-        coregistration_method_log=method_log,
+        b0_to_anchor_transform=resolved["b0_to_anchor_transform"],
+        anchor_to_b0_transform=resolved["anchor_to_b0_transform"],
+        target_to_anchor_image_deformation=resolved[
+            "target_to_anchor_image_deformation"
+        ],
+        anchor_to_target_image_deformation=resolved[
+            "anchor_to_target_image_deformation"
+        ],
+        coregistration_method_log=coregistration_method_log,
         coregistration_method=method,
         coregistration_method_token=method_token,
         coregistration_approved=approved,
+        normalization_method_log=normalization_method_log,
+        normalization_method=normalization_method,
+        normalization_approval=normalization_approval,
+        target_space=target_space,
     )
     validate_subject_geometry(result)
     return result
@@ -284,7 +346,8 @@ def validate_subject_geometry(subject: ResolvedSubjectInputs) -> None:
         raise ValidationError(
             f"bval count does not match DWI volumes for {subject.subject_id}"
         )
-    load_tmat(subject.anchor_to_dwi_transform)
+    load_tmat(subject.b0_to_anchor_transform)
+    load_tmat(subject.anchor_to_b0_transform)
 
 
 def iter_all_roi_paths(seeds: Iterable) -> Iterable[Path]:

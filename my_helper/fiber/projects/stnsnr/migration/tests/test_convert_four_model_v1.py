@@ -133,7 +133,6 @@ class FourModelMigrationTests(unittest.TestCase):
             _write_yaml(root / name, payload)
         mapping = {
             "schema_version": "dual_frequency_migration_mapping_v1",
-            "target_model_set_id": "dual_frequency_test",
             "target_endpoint_pair": {
                 "baseline": {"phase_id": "T0", "program_id": 0},
                 "reference": {
@@ -260,6 +259,8 @@ class FourModelMigrationTests(unittest.TestCase):
             "normative_fiber_model.yaml",
         )
         for payload in (target_direct, target_normative, target_workflow):
+            self.assertNotIn("schema_version", payload)
+            self.assertNotIn("model_set_id", payload)
             serialized = _serialized_yaml(payload)
             self.assertNotIn("legacy_", serialized)
         self.assertEqual(report["status"], "draft_requires_review")

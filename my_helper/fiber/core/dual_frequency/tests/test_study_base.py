@@ -466,12 +466,31 @@ class StudyBaseTest(unittest.TestCase):
         )
 
         workflow_payload = yaml.safe_load((CONFIG_ROOT / "workflow.yaml").read_text(encoding="utf-8"))
-        workflow_payload["model_profiles"] = {
-            "direct_voxel": str(CONFIG_ROOT / "direct_voxel_model_test.yaml"),
-            "normative_fiber": str(CONFIG_ROOT / "normative_fiber_model_test.yaml"),
-        }
         with tempfile.TemporaryDirectory() as temporary_directory:
-            test_workflow_path = Path(temporary_directory) / "workflow.yaml"
+            temporary_root = Path(temporary_directory)
+            direct_test = yaml.safe_load(
+                (CONFIG_ROOT / "direct_voxel_model_test.yaml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            individualized_test = yaml.safe_load(
+                (CONFIG_ROOT / "individualized_seed_target_model.yaml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            individualized_test["scales"] = direct_test["scales"]
+            individualized_test["endpoint_pair"] = direct_test["endpoint_pair"]
+            individualized_test_path = temporary_root / "individualized.yaml"
+            individualized_test_path.write_text(
+                yaml.safe_dump(individualized_test, sort_keys=False),
+                encoding="utf-8",
+            )
+            workflow_payload["model_profiles"] = {
+                "direct_voxel": str(CONFIG_ROOT / "direct_voxel_model_test.yaml"),
+                "normative_fiber": str(CONFIG_ROOT / "normative_fiber_model_test.yaml"),
+                "individualized_seed_target": str(individualized_test_path),
+            }
+            test_workflow_path = temporary_root / "workflow.yaml"
             test_workflow_path.write_text(
                 yaml.safe_dump(workflow_payload, sort_keys=False),
                 encoding="utf-8",

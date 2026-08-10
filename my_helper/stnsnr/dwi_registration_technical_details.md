@@ -174,6 +174,32 @@ DWI streamlines should be displayed in MNI space by:
 DWI streamline -> anchorNative T2/anchorNative T1 -> MNI
 ```
 
+The approved, not-yet-implemented publication update is specified in
+`my_helper/stnsnr/mrtrix_seed_target_space_aware_tractogram_plan.md`. It keeps
+tracking in native DWI space and will publish parallel TCK trees under:
+
+```text
+tractograms/native/
+tractograms/<target_space>/
+```
+
+`<target_space>` is read from the authoritative YAML as
+`config.atlas.space`; it is not a fixed runtime directory name. The direct
+approved B0-to-anchorNative matrix maps published native TCK coordinates into
+anchorNative space. The production point backend then remains entirely in RAS
+world millimetres: it uses the inverse full NIfTI affine to locate each
+anchorNative point in the displacement grid, trilinearly samples the stored RAS
+world-mm vector, and adds that vector directly to the RAS point. The deformation
+named `from-<target_space>_to-anchorNative` is used because its image-resampling
+direction is opposite to its direct point direction. The paired
+`from-anchorNative_to-<target_space>` deformation supplies the reverse point
+leg of round-trip QC. Both fields are accepted only with NIfTI displacement
+intent `1006`, vector layout `(X, Y, Z, 1, 3)`, a finite invertible affine, and
+the expected anchorNative or target-space grid. RAS-to-LPS conversion occurs
+only in the independent `antsApplyTransformsToPoints` reference helper, never
+in bulk production. This publication update must reuse valid native TCKs and
+must not rerun tracking solely because their directory changes.
+
 The previous direct b0-to-anchorNative T1 outputs under `coregistration/dwi/`
 remain available only for comparison. Coregister UI B0 outputs under
 `coregistration/anat/` and `coregistration/transformations/` are formal Lead-DBS

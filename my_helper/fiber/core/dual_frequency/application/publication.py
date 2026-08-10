@@ -33,6 +33,7 @@ from ..contracts import (
     IndexedArrayView,
     ObservedResult,
     PreparedExposureRecord,
+    PreparedTargetExposureRecord,
     SensitiveRecord,
     SensitivityResult,
     SourceRecord,
@@ -72,19 +73,35 @@ class PublicationResult:
     """Stable summary of one publication-only replay."""
 
     run_id: str
-    direct_voxel_root: Path
-    normative_fiber_root: Path
+    direct_voxel_root: Path | None
+    normative_fiber_root: Path | None
+    individualized_seed_target_root: Path | None
     direct_voxel_artifact_count: int
     normative_fiber_artifact_count: int
+    individualized_seed_target_artifact_count: int
     scale_count: int
 
     def as_dict(self) -> dict[str, object]:
         return {
             "run_id": self.run_id,
-            "direct_voxel_root": str(self.direct_voxel_root),
-            "normative_fiber_root": str(self.normative_fiber_root),
+            "direct_voxel_root": (
+                None if self.direct_voxel_root is None else str(self.direct_voxel_root)
+            ),
+            "normative_fiber_root": (
+                None
+                if self.normative_fiber_root is None
+                else str(self.normative_fiber_root)
+            ),
+            "individualized_seed_target_root": (
+                None
+                if self.individualized_seed_target_root is None
+                else str(self.individualized_seed_target_root)
+            ),
             "direct_voxel_artifact_count": self.direct_voxel_artifact_count,
             "normative_fiber_artifact_count": self.normative_fiber_artifact_count,
+            "individualized_seed_target_artifact_count": (
+                self.individualized_seed_target_artifact_count
+            ),
             "scale_count": self.scale_count,
         }
 
@@ -530,6 +547,131 @@ class _PublicationWriter:
         self._install_bytes(self._target(relative), payload)
 
 
+class _CompleteMarkerWriter:
+    """Publish deterministic paths and use completion markers for resume."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = Path(root).resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.written_count = 0
+
+    def _target(self, relative: str) -> Path:
+        candidate = Path(relative)
+        if candidate.is_absolute() or ".." in candidate.parts:
+            raise PublicationError(f"publication path must be relative: {relative}")
+        return self.root / candidate
+
+    @staticmethod
+    def _install_bytes(target: Path, payload: bytes) -> bool:
+        if target.is_file():
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=target.parent,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+            if target.is_file():
+                return False
+            os.replace(temporary, target)
+            return True
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _install_file(target: Path, source: Path) -> bool:
+        if target.is_file():
+            return False
+        if not source.is_file():
+            raise PublicationError(f"source artifact is missing: {source}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=target.parent,
+        )
+        os.close(descriptor)
+        temporary = Path(temporary_name)
+        try:
+            shutil.copyfile(source, temporary)
+            if target.is_file():
+                return False
+            os.replace(temporary, target)
+            return True
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def bytes(self, relative: str, payload: bytes) -> None:
+        if self._install_bytes(self._target(relative), payload):
+            self.written_count += 1
+
+    def json(self, relative: str, payload: Mapping[str, Any]) -> None:
+        self.bytes(relative, _json_bytes(payload))
+
+    def csv(
+        self,
+        relative: str,
+        rows: Iterable[Mapping[str, Any]],
+        fields: Iterable[str],
+    ) -> None:
+        self.bytes(relative, _csv_bytes(rows, fields))
+
+    @staticmethod
+    def _metadata(artifact: ArtifactRef, relative: str) -> dict[str, object]:
+        return {
+            "artifact_kind": artifact.kind,
+            "published_relative_path": Path(relative).as_posix(),
+            "dtype": artifact.dtype,
+            "shape": _plain(artifact.shape),
+            "axes": [
+                {
+                    "axis_id": axis.axis_id,
+                    "count": axis.count,
+                }
+                for axis in artifact.axis_refs
+            ],
+            "units": artifact.units,
+            "space": artifact.space,
+        }
+
+    def artifact(self, relative: str, artifact: ArtifactRef) -> None:
+        source = _artifact_location(artifact)
+        if self._install_file(self._target(relative), source):
+            self.written_count += 1
+        self.json(
+            f"{relative}.metadata.json",
+            self._metadata(artifact, relative),
+        )
+
+    def array(
+        self,
+        relative: str,
+        values: np.ndarray,
+        *,
+        artifact_kind: str,
+        axes: Iterable[Mapping[str, object]],
+        units: str | None,
+        space: str | None,
+    ) -> None:
+        array = np.asarray(values)
+        self.bytes(relative, _npy_bytes(array))
+        self.json(
+            f"{relative}.metadata.json",
+            {
+                "artifact_kind": artifact_kind,
+                "published_relative_path": Path(relative).as_posix(),
+                "dtype": array.dtype.str,
+                "shape": list(array.shape),
+                "axes": [dict(axis) for axis in axes],
+                "units": units,
+                "space": space,
+            },
+        )
+
 def _one_artifact(record: object, kind: str, *, required: bool = True) -> ArtifactRef | None:
     artifacts = tuple(getattr(record, "artifacts", ()))
     matches = tuple(item for item in artifacts if item.kind == kind)
@@ -588,7 +730,7 @@ def _stage_status(
 
 
 class CanonicalPublisher:
-    """Replay one completed parent run into both stable model-set trees."""
+    """Replay one completed parent run into both stable publication trees."""
 
     def __init__(self) -> None:
         self._fiber_voxel_cache: dict[tuple[str, str], dict[int, np.ndarray]] = {}
@@ -656,6 +798,7 @@ class CanonicalPublisher:
         run_root: Path,
         *,
         output_root_override: Path | None = None,
+        force: bool = False,
     ) -> PublicationResult:
         root = Path(run_root).expanduser().resolve()
         manifest = self._manifest(root)
@@ -668,6 +811,14 @@ class CanonicalPublisher:
             if outcome.status == "completed" and outcome.result is not None
         }
         endpoint_keys = self._endpoint_keys(outcomes, records)
+        model_families = {
+            str(key.model_family) for key in endpoint_keys.values()
+        }
+        has_direct = any(family.endswith("voxel") for family in model_families)
+        has_fiber = any(family.endswith("fiber") for family in model_families)
+        has_individualized = any(
+            family.endswith("individualized") for family in model_families
+        )
         scale_definitions = {
             str(item["scale_id"]): dict(item)
             for item in study_document["study"]["scale_definitions"]
@@ -675,42 +826,59 @@ class CanonicalPublisher:
         output_root = (
             Path(output_root_override).expanduser().resolve()
             if output_root_override is not None
-            else Path(resolved["direct_voxel"]["output"]["root"]).resolve()
+            else Path(resolved["output"]["root"]).resolve()
         )
-        direct_root = (
-            output_root
-            / "direct_voxel"
-            / str(resolved["direct_voxel"]["model_set_id"])
+        direct_root = output_root / "direct_voxel"
+        fiber_root = output_root / "normative_fiber"
+        individualized_root = output_root / "individualized_seed_target"
+        if force and has_individualized and individualized_root.exists():
+            subprocess.run(
+                ["/usr/bin/trash", str(individualized_root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        direct_writer = (
+            _PublicationWriter(
+                direct_root,
+                domain="direct_voxel",
+                artifact_resolver=self._artifact_path,
+            )
+            if has_direct
+            else None
         )
-        fiber_root = (
-            output_root
-            / "normative_fiber"
-            / str(resolved["normative_fiber"]["model_set_id"])
+        fiber_writer = (
+            _PublicationWriter(
+                fiber_root,
+                domain="normative_fiber",
+                artifact_resolver=self._artifact_path,
+            )
+            if has_fiber
+            else None
         )
-        direct_writer = _PublicationWriter(
-            direct_root,
-            domain="direct_voxel",
-            artifact_resolver=self._artifact_path,
-        )
-        fiber_writer = _PublicationWriter(
-            fiber_root,
-            domain="normative_fiber",
-            artifact_resolver=self._artifact_path,
+        individualized_writer = (
+            _CompleteMarkerWriter(individualized_root)
+            if has_individualized
+            else None
         )
 
         times = self._run_times(outcomes)
-        self._publish_profile(
-            direct_writer,
-            "resolved_direct_voxel_model.yaml",
-            resolved["direct_voxel"],
-        )
-        self._publish_profile(
-            fiber_writer,
-            "resolved_normative_fiber_model.yaml",
-            resolved["normative_fiber"],
-        )
+        if direct_writer is not None:
+            self._publish_profile(
+                direct_writer,
+                "resolved_direct_voxel_model.yaml",
+                resolved["direct_voxel"],
+            )
+        if fiber_writer is not None:
+            self._publish_profile(
+                fiber_writer,
+                "resolved_normative_fiber_model.yaml",
+                resolved["normative_fiber"],
+            )
         study_bytes = (root / "inputs" / "study_base.json").read_bytes()
-        for writer in (direct_writer, fiber_writer):
+        for writer in tuple(
+            item for item in (direct_writer, fiber_writer) if item is not None
+        ):
             writer.bytes(
                 "study_base.json",
                 study_bytes,
@@ -723,66 +891,108 @@ class CanonicalPublisher:
             if outcome.task_id in records:
                 by_endpoint[outcome.endpoint_id].append((outcome, records[outcome.task_id]))
 
-        direct_scale_rows = self._publish_direct(
-            direct_writer,
-            resolved,
-            study_document,
-            scale_definitions,
-            endpoint_keys,
-            by_endpoint,
-            times,
+        direct_scale_rows = (
+            self._publish_direct(
+                direct_writer,
+                resolved,
+                study_document,
+                scale_definitions,
+                endpoint_keys,
+                by_endpoint,
+                times,
+            )
+            if direct_writer is not None
+            else []
         )
-        fiber_scale_rows = self._publish_fiber(
-            fiber_writer,
-            resolved,
-            study_document,
-            scale_definitions,
-            endpoint_keys,
-            by_endpoint,
-            times,
+        fiber_scale_rows = (
+            self._publish_fiber(
+                fiber_writer,
+                resolved,
+                study_document,
+                scale_definitions,
+                endpoint_keys,
+                by_endpoint,
+                times,
+            )
+            if fiber_writer is not None
+            else []
         )
-        self._publish_scale_status(direct_writer, direct_scale_rows, domain="direct_voxel")
-        self._publish_scale_status(fiber_writer, fiber_scale_rows, domain="normative_fiber")
-        direct_writer.write_index()
-        fiber_writer.write_index()
-        self._publish_manifest(
-            direct_writer,
-            manifest,
-            resolved,
-            study_document,
-            times,
-            domain="direct_voxel",
-        )
-        self._publish_manifest(
-            fiber_writer,
-            manifest,
-            resolved,
-            study_document,
-            times,
-            domain="normative_fiber",
-        )
+        if direct_writer is not None:
+            self._publish_scale_status(
+                direct_writer,
+                direct_scale_rows,
+                domain="direct_voxel",
+            )
+            direct_writer.write_index()
+            self._publish_manifest(
+                direct_writer,
+                manifest,
+                resolved,
+                study_document,
+                times,
+                domain="direct_voxel",
+            )
+        if fiber_writer is not None:
+            self._publish_scale_status(
+                fiber_writer,
+                fiber_scale_rows,
+                domain="normative_fiber",
+            )
+            fiber_writer.write_index()
+            self._publish_manifest(
+                fiber_writer,
+                manifest,
+                resolved,
+                study_document,
+                times,
+                domain="normative_fiber",
+            )
+        if individualized_writer is not None:
+            self._publish_individualized(
+                individualized_writer,
+                resolved,
+                scale_definitions,
+                endpoint_keys,
+                by_endpoint,
+                times,
+            )
         result = PublicationResult(
             run_id=str(manifest["run_id"]),
-            direct_voxel_root=direct_root,
-            normative_fiber_root=fiber_root,
-            direct_voxel_artifact_count=len(direct_writer.rows),
-            normative_fiber_artifact_count=len(fiber_writer.rows),
+            direct_voxel_root=direct_root if direct_writer is not None else None,
+            normative_fiber_root=fiber_root if fiber_writer is not None else None,
+            individualized_seed_target_root=(
+                individualized_root
+                if individualized_writer is not None
+                else None
+            ),
+            direct_voxel_artifact_count=(
+                0 if direct_writer is None else len(direct_writer.rows)
+            ),
+            normative_fiber_artifact_count=(
+                0 if fiber_writer is None else len(fiber_writer.rows)
+            ),
+            individualized_seed_target_artifact_count=(
+                0
+                if individualized_writer is None
+                else individualized_writer.written_count
+            ),
             scale_count=len(resolved["study"]["selected_scales"]),
         )
-        try:
-            from .run_cache_cleanup import cleanup_run_cache_after_publication
+        if direct_writer is not None and fiber_writer is not None:
+            try:
+                from .run_cache_cleanup import cleanup_run_cache_after_publication
 
-            cleanup_run_cache_after_publication(
-                run_root=root,
-                resolved_configuration=resolved,
-                outcomes=outcomes,
-                direct_voxel_publication=direct_root,
-                normative_fiber_publication=fiber_root,
-            )
-        except (OSError, RuntimeError, TypeError, ValueError) as error:
-            raise PublicationError(
-                f"post-publication run-cache cleanup failed: {error}"
-            ) from error
+                cleanup_run_cache_after_publication(
+                    run_root=root,
+                    resolved_configuration=resolved,
+                    outcomes=outcomes,
+                    direct_voxel_publication=direct_root,
+                    normative_fiber_publication=fiber_root,
+                )
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
+                raise PublicationError(
+                    f"post-publication run-cache cleanup failed: {error}"
+                ) from error
         return result
 
     def publish_extension(
@@ -834,19 +1044,11 @@ class CanonicalPublisher:
         output_root = (
             Path(output_root_override).expanduser().resolve()
             if output_root_override is not None
-            else Path(resolved["direct_voxel"]["output"]["root"]).resolve()
+            else Path(resolved["output"]["root"]).resolve()
         )
         domains = {
-            "direct_voxel": (
-                output_root
-                / "direct_voxel"
-                / str(resolved["direct_voxel"]["model_set_id"])
-            ),
-            "normative_fiber": (
-                output_root
-                / "normative_fiber"
-                / str(resolved["normative_fiber"]["model_set_id"])
-            ),
+            "direct_voxel": output_root / "direct_voxel",
+            "normative_fiber": output_root / "normative_fiber",
         }
         writers: dict[str, _PublicationWriter] = {}
         for domain, main_root in domains.items():
@@ -1148,19 +1350,11 @@ class CanonicalPublisher:
         output_root = (
             Path(output_root_override).expanduser().resolve()
             if output_root_override is not None
-            else Path(resolved["direct_voxel"]["output"]["root"]).resolve()
+            else Path(resolved["output"]["root"]).resolve()
         )
         domains = {
-            "direct_voxel": (
-                output_root
-                / "direct_voxel"
-                / str(resolved["direct_voxel"]["model_set_id"])
-            ),
-            "normative_fiber": (
-                output_root
-                / "normative_fiber"
-                / str(resolved["normative_fiber"]["model_set_id"])
-            ),
+            "direct_voxel": output_root / "direct_voxel",
+            "normative_fiber": output_root / "normative_fiber",
         }
         for main_root in domains.values():
             self._validate_parent_publication(main_root, parent_run_id)
@@ -1691,6 +1885,1065 @@ class CanonicalPublisher:
                 artifact_kind="scale_status",
                 context={"scale_id": row["scale_id"], "stage": "status"},
             )
+
+    @staticmethod
+    def _unverified_array(artifact: ArtifactRef) -> np.ndarray:
+        path = _artifact_location(artifact)
+        if not path.is_file():
+            raise PublicationError(f"source artifact is missing: {path}")
+        return np.asarray(np.load(path, allow_pickle=False))
+
+    @staticmethod
+    def _unverified_document(artifact: ArtifactRef) -> dict[str, Any]:
+        path = _artifact_location(artifact)
+        if not path.is_file():
+            raise PublicationError(f"source artifact is missing: {path}")
+        return CanonicalPublisher._json(path)
+
+    @staticmethod
+    def _record(
+        records: Iterable[tuple[TaskOutcome, object]],
+        record_type: type,
+        *,
+        required: bool = True,
+    ) -> object | None:
+        matches = tuple(
+            record for _, record in records if isinstance(record, record_type)
+        )
+        if len(matches) > 1 or (required and not matches):
+            raise PublicationError(
+                f"endpoint requires one {record_type.__name__} record"
+            )
+        return matches[0] if matches else None
+
+    @staticmethod
+    def _artifact_map(record: object) -> dict[str, ArtifactRef]:
+        return {artifact.kind: artifact for artifact in getattr(record, "artifacts", ())}
+
+    def _publish_individualized(
+        self,
+        writer: _CompleteMarkerWriter,
+        resolved: Mapping[str, Any],
+        scale_definitions: Mapping[str, Mapping[str, Any]],
+        endpoint_keys: Mapping[str, object],
+        by_endpoint: Mapping[str, list[tuple[TaskOutcome, object]]],
+        times: tuple[str | None, str | None],
+    ) -> None:
+        if (writer.root / "complete.json").is_file():
+            return
+        profile = dict(resolved["individualized_seed_target"])
+        selected_scales = tuple(str(value) for value in resolved["study"]["selected_scales"])
+        selected_models = tuple(str(value) for value in resolved["selection"]["models"])
+        selected_families = tuple(
+            value for value in selected_models if value.endswith("individualized")
+        )
+        expected_families = tuple(
+            family
+            for family in ("reference_individualized", "addon_individualized")
+            if family in selected_families
+            or (
+                family == "reference_individualized"
+                and "addon_individualized" in selected_families
+            )
+        )
+        writer.bytes(
+            "resolved_model.yaml",
+            yaml.safe_dump(
+                profile,
+                sort_keys=True,
+                allow_unicode=False,
+            ).encode("utf-8"),
+        )
+
+        selection_rows: list[dict[str, object]] = []
+        statistics_rows: list[dict[str, object]] = []
+        for scale_id in selected_scales:
+            endpoints = {
+                str(key.model_family): endpoint_id
+                for endpoint_id, key in endpoint_keys.items()
+                if key.scale_id == scale_id
+                and str(key.model_family).endswith("individualized")
+            }
+            missing = tuple(
+                family for family in expected_families if family not in endpoints
+            )
+            if missing:
+                raise PublicationError(
+                    f"individualized scale {scale_id!r} lacks endpoints: {missing}"
+                )
+            for family in expected_families:
+                selection_row, statistics_row = self._publish_individualized_endpoint(
+                    writer,
+                    by_endpoint[endpoints[family]],
+                    profile,
+                )
+                selection_rows.append(selection_row)
+                statistics_rows.append(statistics_row)
+        selection_fields = (
+            "scale_id",
+            "model_family",
+            "role",
+            "computability_status",
+            "selected_tau_v_per_m",
+            "selected_coverage_subjects_min",
+            "fallback_used",
+            "finite_subjects",
+            "candidate_feature_count",
+            "selected_feature_count",
+            "failure_reason",
+        )
+        writer.csv(
+            "final_model_selection.csv",
+            selection_rows,
+            selection_fields,
+        )
+        statistics_fields = (
+            "scale_id",
+            "model_family",
+            "role",
+            "in_sample_finite_subjects",
+            "in_sample_finite_permutations",
+            "loocv_finite_predictions",
+            "loocv_finite_permutations",
+            "in_sample_spearman_rho",
+            "in_sample_spearman_nominal_p",
+            "in_sample_permutation_p_plus_one_two_sided",
+            "loocv_spearman_rho",
+            "loocv_spearman_nominal_p",
+            "loocv_permutation_p_plus_one_two_sided",
+            "in_sample_pearson_r",
+            "in_sample_pearson_nominal_p",
+            "loocv_pearson_r",
+            "loocv_pearson_nominal_p",
+            "in_sample_r2",
+            "in_sample_relative_r2",
+            "loocv_q2",
+            "in_sample_rmse",
+            "in_sample_mae",
+            "loocv_rmse_model",
+            "loocv_mae_model",
+            "in_sample_rmse_baseline",
+            "in_sample_mae_baseline",
+            "loocv_rmse_baseline",
+            "loocv_mae_baseline",
+            "spearman_optimism_gap",
+            "pearson_optimism_gap",
+            "r2_q2_gap",
+            "rmse_optimism_gap",
+            "mae_optimism_gap",
+        )
+        writer.csv(
+            "final_statistics.csv",
+            statistics_rows,
+            statistics_fields,
+        )
+        writer.json(
+            "model_manifest.json",
+            {
+                "model_family": "individualized_seed_target",
+                "shared_root": "../shared",
+                "resolved_model_path": "resolved_model.yaml",
+                "scale_ids": list(selected_scales),
+                "scales": [
+                    {
+                        "scale_id": scale_id,
+                        "display_name": str(scale_definitions[scale_id]["label"]),
+                    }
+                    for scale_id in selected_scales
+                ],
+                "scale_count": len(selected_scales),
+                "roles": [
+                    "reference"
+                    if family.startswith("reference_")
+                    else "addon"
+                    for family in expected_families
+                ],
+                "final_model_selection_path": "final_model_selection.csv",
+                "final_statistics_path": "final_statistics.csv",
+                "status": "completed",
+                "started_at": times[0],
+                "finished_at": times[1],
+            },
+        )
+    def _publish_individualized_endpoint(
+        self,
+        writer: _CompleteMarkerWriter,
+        records: list[tuple[TaskOutcome, object]],
+        profile: Mapping[str, Any],
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        selection = self._record(records, FinalSelectionRecord)
+        endpoint_input = self._record(records, EndpointInputRecord)
+        assert isinstance(selection, FinalSelectionRecord)
+        assert isinstance(endpoint_input, EndpointInputRecord)
+        endpoint = selection.endpoint
+        role = (
+            "reference"
+            if endpoint.model_family.startswith("reference_")
+            else "addon"
+        )
+        base = f"{endpoint.scale_id}/{role}"
+        prepared = self._record(
+            records,
+            PreparedTargetExposureRecord,
+            required=False,
+        )
+        assert prepared is None or isinstance(prepared, PreparedTargetExposureRecord)
+        source = _source_from_selection(selection)
+        self._publish_individualized_observed(
+            writer,
+            base,
+            endpoint_input,
+            prepared,
+            source,
+            profile,
+        )
+
+        selection_row: dict[str, object] = {
+            "scale_id": endpoint.scale_id,
+            "model_family": "individualized_seed_target",
+            "role": role,
+            "computability_status": selection.selection_status,
+            "selected_tau_v_per_m": "",
+            "selected_coverage_subjects_min": "",
+            "fallback_used": (
+                source is not None
+                and source.source_status == "scan_fallback_accepted"
+            ),
+            "finite_subjects": len(endpoint_input.included_subject_ids),
+            "candidate_feature_count": 0,
+            "selected_feature_count": 0,
+            "failure_reason": ";".join(selection.reason_codes),
+        }
+        empty_statistics: dict[str, object] = {
+            "scale_id": endpoint.scale_id,
+            "model_family": "individualized_seed_target",
+            "role": role,
+        }
+        if selection.final_model is None or source is None:
+            writer.json(
+                f"{base}/resolver/source_selection.json",
+                {
+                    "selection_status": selection.selection_status,
+                    "reason_codes": list(selection.reason_codes),
+                },
+            )
+            writer.json(
+                f"{base}/resolver/status.json",
+                {
+                    "stage": "resolver",
+                    "status": selection.selection_status,
+                },
+            )
+            writer.json(
+                f"{base}/final_model.json",
+                {
+                    "model_family": "individualized_seed_target",
+                    "role": role,
+                    "scale_id": endpoint.scale_id,
+                    "status": selection.selection_status,
+                    "reason_codes": list(selection.reason_codes),
+                },
+            )
+            writer.json(
+                f"{base}/report/summary.json",
+                {
+                    "model_family": "individualized_seed_target",
+                    "role": role,
+                    "scale_id": endpoint.scale_id,
+                    "status": selection.selection_status,
+                    "reason_codes": list(selection.reason_codes),
+                },
+            )
+            return selection_row, empty_statistics
+
+        source_artifacts = self._artifact_map(source)
+        full_target_ids = self._unverified_array(
+            source_artifacts["individualized_all_target_ids"]
+        )
+        target_ids = tuple(str(value) for value in full_target_ids.tolist())
+        if len(target_ids) != 17:
+            raise PublicationError(
+                "individualized publication requires the configured 17-target axis"
+            )
+        resolver_artifacts = (
+            ("individualized_all_target_ids", "target_ids.npy"),
+            ("individualized_all_full_target_weights", "full_weights.npy"),
+            ("individualized_all_full_target_centers", "full_centers.npy"),
+            ("individualized_all_full_target_scales", "full_scales.npy"),
+            ("individualized_all_fold_target_weights", "fold_weights.npy"),
+            ("individualized_all_fold_target_centers", "fold_centers.npy"),
+            ("individualized_all_fold_target_scales", "fold_scales.npy"),
+            ("individualized_all_fold_target_valid_masks", "fold_valid_masks.npy"),
+        )
+        for kind, name in resolver_artifacts:
+            writer.artifact(
+                f"{base}/resolver/{name}",
+                source_artifacts[kind],
+            )
+
+        assert source.selected_tau is not None
+        assert source.selected_coverage is not None
+        selected_tau = float(source.selected_tau)
+        selected_coverage = int(source.selected_coverage)
+        selected_indices = self._unverified_array(
+            source_artifacts["individualized_selected_target_indices"]
+        ).astype(np.int64)
+        full_weights = self._unverified_array(
+            source_artifacts["individualized_all_full_target_weights"]
+        ).astype(np.float64)
+        nominal_p = self._unverified_array(
+            source_artifacts["individualized_all_full_target_nominal_p"]
+        ).astype(np.float64)
+        fdr_q = self._unverified_array(
+            source_artifacts["individualized_all_full_target_fdr_q"]
+        ).astype(np.float64)
+        full_valid = self._unverified_array(
+            source_artifacts["individualized_all_full_target_valid_mask"]
+        ).astype(bool)
+        fold_weights = self._unverified_array(
+            source_artifacts["individualized_all_fold_target_weights"]
+        ).astype(np.float64)
+        fold_valid = self._unverified_array(
+            source_artifacts["individualized_all_fold_target_valid_masks"]
+        ).astype(bool)
+        source_resolution = self._unverified_document(
+            source_artifacts["individualized_target_source_resolution"]
+        )
+        writer.json(
+            f"{base}/resolver/source_selection.json",
+            {
+                key: value
+                for key, value in source_resolution.items()
+                if key != "schema_version"
+            },
+        )
+        writer.json(
+            f"{base}/resolver/status.json",
+            {
+                "stage": "resolver",
+                "status": "completed",
+                "source_status": source.source_status,
+                "prediction_status": source.prediction_status,
+            },
+        )
+
+        assert isinstance(prepared, PreparedTargetExposureRecord)
+        tau_values = tuple(float(value) for value in profile["source"]["tau_values"])
+        tau_index = tau_values.index(selected_tau)
+        patient_burdens = self._unverified_array(prepared.patient_burdens).astype(
+            np.float64
+        )
+        patient_support = self._unverified_array(prepared.patient_support).astype(bool)
+        selected_burdens = patient_burdens[tau_index]
+        selected_support = patient_support[tau_index]
+        full_coverage = selected_support.sum(axis=0).astype(np.int64)
+        fold_coverage = (
+            full_coverage[None, :]
+            - selected_support.astype(np.int64)
+        )
+        support_rows: list[dict[str, object]] = []
+        stability_rows: list[dict[str, object]] = []
+        finite_indices = np.flatnonzero(np.isfinite(full_weights))
+        ranks = np.full(full_weights.shape, np.nan)
+        if finite_indices.size:
+            order = finite_indices[
+                np.argsort(-np.abs(full_weights[finite_indices]), kind="stable")
+            ]
+            ranks[order] = np.arange(1, order.size + 1)
+        for index, target_id in enumerate(target_ids):
+            valid_fold_values = fold_weights[
+                fold_valid[:, index] & np.isfinite(fold_weights[:, index]),
+                index,
+            ]
+            support_rows.append(
+                {
+                    "target_id": target_id,
+                    "selected_tau_v_per_m": selected_tau,
+                    "selected_coverage_subjects_min": selected_coverage,
+                    "full_coverage_subjects": int(full_coverage[index]),
+                    "fold_coverage_min": int(np.min(fold_coverage[:, index])),
+                    "fold_coverage_median": float(
+                        np.median(fold_coverage[:, index])
+                    ),
+                    "fold_coverage_max": int(np.max(fold_coverage[:, index])),
+                    "full_support": bool(
+                        full_coverage[index] >= selected_coverage
+                    ),
+                    "full_valid": bool(full_valid[index]),
+                }
+            )
+            stability_rows.append(
+                {
+                    "target_id": target_id,
+                    "full_coverage_subjects": int(full_coverage[index]),
+                    "benefit_oriented_coefficient": (
+                        float(full_weights[index])
+                        if np.isfinite(full_weights[index])
+                        else ""
+                    ),
+                    "absolute_coefficient_rank": (
+                        int(ranks[index]) if np.isfinite(ranks[index]) else ""
+                    ),
+                    "nominal_p": (
+                        float(nominal_p[index])
+                        if np.isfinite(nominal_p[index])
+                        else ""
+                    ),
+                    "fdr_q": (
+                        float(fdr_q[index]) if np.isfinite(fdr_q[index]) else ""
+                    ),
+                    "fold_selection_frequency": float(
+                        np.mean(fold_valid[:, index])
+                    ),
+                    "fold_coefficient_median": (
+                        float(np.median(valid_fold_values))
+                        if valid_fold_values.size
+                        else ""
+                    ),
+                    "fold_coefficient_percentile_2_5": (
+                        float(np.percentile(valid_fold_values, 2.5))
+                        if valid_fold_values.size
+                        else ""
+                    ),
+                    "fold_coefficient_percentile_97_5": (
+                        float(np.percentile(valid_fold_values, 97.5))
+                        if valid_fold_values.size
+                        else ""
+                    ),
+                }
+            )
+        writer.csv(
+            f"{base}/resolver/target_activation_support.csv",
+            support_rows,
+            tuple(support_rows[0]),
+        )
+        writer.csv(
+            f"{base}/resolver/target_stability.csv",
+            stability_rows,
+            tuple(stability_rows[0]),
+        )
+        subject_rows = [
+            {"subject_index": index, "subject_id": subject_id}
+            for index, subject_id in enumerate(endpoint_input.included_subject_ids)
+        ]
+        writer.csv(
+            f"{base}/resolver/subject_order.csv",
+            subject_rows,
+            ("subject_index", "subject_id"),
+        )
+        self._publish_individualized_scores(
+            writer,
+            base,
+            endpoint_input,
+            source_artifacts,
+            target_ids,
+            selected_burdens,
+            selected_support,
+        )
+
+        final_model = selection.final_model
+        assert final_model is not None
+        writer.json(
+            f"{base}/final_model.json",
+            {
+                "model_family": "individualized_seed_target",
+                "role": role,
+                "scale_id": endpoint.scale_id,
+                "status": selection.selection_status,
+                "final_branch": final_model.final_key.final_branch,
+                "selected_tau_v_per_m": selected_tau,
+                "selected_coverage_subjects_min": selected_coverage,
+                "target_exposure": "target_activation_burden",
+                "patient_support": "any_side",
+                "bilateral_score": "mean_actual_side_burdens",
+                "configured_target_count": len(target_ids),
+                "selected_target_count": int(selected_indices.size),
+                "selected_target_ids": [
+                    target_ids[index] for index in selected_indices
+                ],
+            },
+        )
+
+        formal_records = {
+            record.resampling_kind: record
+            for _, record in records
+            if isinstance(record, FormalResult)
+            and record.final_model_id == final_model.identifier
+        }
+        required_formal = {
+            "permutation",
+            "bootstrap",
+            "in_sample_permutation",
+        }
+        missing_formal = required_formal - set(formal_records)
+        if missing_formal:
+            raise PublicationError(
+                f"individualized final lacks formal outputs: {sorted(missing_formal)}"
+            )
+        self._publish_individualized_formal(
+            writer,
+            base,
+            target_ids,
+            selected_indices,
+            formal_records,
+        )
+        in_sample_summary = self._publish_individualized_in_sample(
+            writer,
+            base,
+            endpoint_input,
+            source_artifacts,
+            formal_records["in_sample_permutation"],
+        )
+        writer.json(
+            f"{base}/report/summary.json",
+            {
+                "model_family": "individualized_seed_target",
+                "role": role,
+                "scale_id": endpoint.scale_id,
+                "status": "completed",
+                "selected_tau_v_per_m": selected_tau,
+                "selected_coverage_subjects_min": selected_coverage,
+                "configured_target_count": len(target_ids),
+                "selected_target_count": int(selected_indices.size),
+                "prediction_status": source.prediction_status,
+                "sensitivity_extensions": [],
+                "in_sample": in_sample_summary["in_sample"],
+                "loocv": in_sample_summary["loocv"],
+                "optimism_gaps": in_sample_summary["optimism_gaps"],
+            },
+        )
+        selected_metrics = source_resolution.get("selected_metrics")
+        candidate_count = (
+            selected_metrics.get("n_features_full", 0)
+            if isinstance(selected_metrics, Mapping)
+            else 0
+        )
+        selection_row.update(
+            {
+                "selected_tau_v_per_m": selected_tau,
+                "selected_coverage_subjects_min": selected_coverage,
+                "candidate_feature_count": candidate_count,
+                "selected_feature_count": int(selected_indices.size),
+            }
+        )
+        statistics_row = self._individualized_statistics_row(
+            endpoint.scale_id,
+            role,
+            in_sample_summary,
+        )
+        return selection_row, statistics_row
+
+    def _publish_individualized_observed(
+        self,
+        writer: _CompleteMarkerWriter,
+        base: str,
+        endpoint_input: EndpointInputRecord,
+        prepared: PreparedTargetExposureRecord | None,
+        source: SourceRecord | None,
+        profile: Mapping[str, Any],
+    ) -> None:
+        exclusion_reasons = {
+            item.subject_id: item.reason_code for item in endpoint_input.exclusions
+        }
+        rows: list[dict[str, object]] = []
+        for subject_id in endpoint_input.candidate_subject_ids:
+            if subject_id not in endpoint_input.included_subject_ids:
+                rows.append(
+                    {
+                        "subject_id": subject_id,
+                        "included": False,
+                        "exclusion_reason": exclusion_reasons[subject_id],
+                        "side": "",
+                        "target_id": "",
+                        "tau_v_per_m": "",
+                        "total_fiber_count": "",
+                        "activated_fiber_count": "",
+                        "activated_fiber_fraction": "",
+                        "side_burden_v_per_m": "",
+                        "side_supported": "",
+                        "bilateral_burden_v_per_m": "",
+                        "patient_supported": "",
+                    }
+                )
+        if prepared is not None:
+            target_ids = self._unverified_array(prepared.target_ids)
+            total_counts = self._unverified_array(prepared.side_total_counts)
+            side_burdens = self._unverified_array(prepared.side_burdens)
+            activated_counts = self._unverified_array(prepared.side_activated_counts)
+            activated_fractions = self._unverified_array(
+                prepared.side_activated_fractions
+            )
+            patient_burdens = self._unverified_array(prepared.patient_burdens)
+            patient_support = self._unverified_array(prepared.patient_support)
+            tau_values = tuple(float(value) for value in profile["source"]["tau_values"])
+            sides = tuple(str(value) for value in profile["tractography"]["sides"])
+            count_min = int(
+                profile["target_exposure"]["activated_fiber_count_min"]
+            )
+            fraction_min = float(
+                profile["target_exposure"]["activated_fiber_fraction_min"]
+            )
+            for tau_index, tau in enumerate(tau_values):
+                for subject_index, subject_id in enumerate(
+                    endpoint_input.included_subject_ids
+                ):
+                    for side_index, side in enumerate(sides):
+                        for target_index, target_id in enumerate(target_ids):
+                            activated_count = int(
+                                activated_counts[
+                                    tau_index,
+                                    subject_index,
+                                    side_index,
+                                    target_index,
+                                ]
+                            )
+                            activated_fraction = float(
+                                activated_fractions[
+                                    tau_index,
+                                    subject_index,
+                                    side_index,
+                                    target_index,
+                                ]
+                            )
+                            rows.append(
+                                {
+                                    "subject_id": subject_id,
+                                    "included": True,
+                                    "exclusion_reason": "",
+                                    "side": side,
+                                    "target_id": str(target_id),
+                                    "tau_v_per_m": tau,
+                                    "total_fiber_count": int(
+                                        total_counts[
+                                            subject_index,
+                                            side_index,
+                                            target_index,
+                                        ]
+                                    ),
+                                    "activated_fiber_count": activated_count,
+                                    "activated_fiber_fraction": activated_fraction,
+                                    "side_burden_v_per_m": float(
+                                        side_burdens[
+                                            tau_index,
+                                            subject_index,
+                                            side_index,
+                                            target_index,
+                                        ]
+                                    ),
+                                    "side_supported": bool(
+                                        activated_count >= count_min
+                                        and activated_fraction >= fraction_min
+                                    ),
+                                    "bilateral_burden_v_per_m": float(
+                                        patient_burdens[
+                                            tau_index,
+                                            subject_index,
+                                            target_index,
+                                        ]
+                                    ),
+                                    "patient_supported": bool(
+                                        patient_support[
+                                            tau_index,
+                                            subject_index,
+                                            target_index,
+                                        ]
+                                    ),
+                                }
+                            )
+        fields = (
+            "subject_id",
+            "included",
+            "exclusion_reason",
+            "side",
+            "target_id",
+            "tau_v_per_m",
+            "total_fiber_count",
+            "activated_fiber_count",
+            "activated_fiber_fraction",
+            "side_burden_v_per_m",
+            "side_supported",
+            "bilateral_burden_v_per_m",
+            "patient_supported",
+        )
+        writer.csv(f"{base}/observed/source_scan.csv", rows, fields)
+        writer.json(
+            f"{base}/observed/source_scan_qc.json",
+            {
+                "readiness_status": endpoint_input.readiness_status,
+                "candidate_subject_count": len(endpoint_input.candidate_subject_ids),
+                "included_subject_count": len(endpoint_input.included_subject_ids),
+                "excluded_subject_count": len(endpoint_input.exclusions),
+                "prepared_target_exposure": prepared is not None,
+                "source_status": None if source is None else source.source_status,
+                "configured_target_count": len(
+                    profile["tractography"]["target_ids"]
+                ),
+                "tau_count": len(profile["source"]["tau_values"]),
+            },
+        )
+        writer.json(
+            f"{base}/observed/status.json",
+            {
+                "stage": "observed_input_preparation",
+                "status": (
+                    "completed"
+                    if endpoint_input.readiness_status == "ready"
+                    else endpoint_input.readiness_status
+                ),
+            },
+        )
+
+    def _publish_individualized_scores(
+        self,
+        writer: _CompleteMarkerWriter,
+        base: str,
+        endpoint_input: EndpointInputRecord,
+        source_artifacts: Mapping[str, ArtifactRef],
+        target_ids: tuple[str, ...],
+        burdens: np.ndarray,
+        support: np.ndarray,
+    ) -> None:
+        outcome = self._unverified_array(endpoint_input.outcome)
+        baseline = self._unverified_array(endpoint_input.baseline)
+        full_scores = self._unverified_array(
+            source_artifacts["individualized_full_target_scores"]
+        )
+        heldout_scores = self._unverified_array(
+            source_artifacts["individualized_loocv_heldout_scores"]
+        )
+        predictions = self._unverified_array(
+            source_artifacts["loocv_model_predictions"]
+        )
+        baseline_predictions = self._unverified_array(
+            source_artifacts["loocv_baseline_predictions"]
+        )
+        score_rows: list[dict[str, object]] = []
+        prediction_rows: list[dict[str, object]] = []
+        for subject_index, subject_id in enumerate(
+            endpoint_input.included_subject_ids
+        ):
+            prediction_rows.append(
+                {
+                    "subject_id": subject_id,
+                    "outcome": float(outcome[subject_index]),
+                    "loocv_score": float(heldout_scores[subject_index]),
+                    "loocv_prediction": float(predictions[subject_index]),
+                    "loocv_baseline_prediction": float(
+                        baseline_predictions[subject_index]
+                    ),
+                }
+            )
+            for target_index, target_id in enumerate(target_ids):
+                score_rows.append(
+                    {
+                        "subject_id": subject_id,
+                        "target_id": target_id,
+                        "target_activation_burden_v_per_m": float(
+                            burdens[subject_index, target_index]
+                        ),
+                        "patient_support": bool(
+                            support[subject_index, target_index]
+                        ),
+                        "full_sample_score": float(full_scores[subject_index]),
+                        "loocv_score": float(heldout_scores[subject_index]),
+                        "outcome": float(outcome[subject_index]),
+                        "baseline": float(baseline[subject_index]),
+                    }
+                )
+        writer.csv(
+            f"{base}/resolver/scores.csv",
+            score_rows,
+            tuple(score_rows[0]),
+        )
+        writer.csv(
+            f"{base}/resolver/loocv_predictions.csv",
+            prediction_rows,
+            tuple(prediction_rows[0]),
+        )
+
+    def _publish_individualized_formal(
+        self,
+        writer: _CompleteMarkerWriter,
+        base: str,
+        target_ids: tuple[str, ...],
+        selected_indices: np.ndarray,
+        records: Mapping[str, FormalResult],
+    ) -> None:
+        permutation = records["permutation"]
+        permutation_artifacts = self._artifact_map(permutation)
+        writer.artifact(
+            f"{base}/formal/permutation_null.npy",
+            permutation_artifacts["formal_permutation_null_statistics"],
+        )
+        permutation_summary = self._unverified_document(
+            permutation_artifacts["formal_permutation_summary"]
+        )
+        permutation_row = {
+            key: value
+            for key, value in permutation_summary.items()
+            if key not in {"schema_version", "observed"}
+        }
+        observed = permutation_summary.get("observed")
+        if isinstance(observed, Mapping):
+            permutation_row.update(observed)
+        writer.csv(
+            f"{base}/formal/permutation_summary.csv",
+            [permutation_row],
+            tuple(permutation_row),
+        )
+
+        bootstrap = records["bootstrap"]
+        bootstrap_artifacts = self._artifact_map(bootstrap)
+        replicate_weights = self._unverified_array(
+            bootstrap_artifacts["formal_bootstrap_replicate_weights"]
+        ).astype(np.float64)
+        expanded = np.full(
+            (replicate_weights.shape[0], len(target_ids)),
+            np.nan,
+            dtype=np.float64,
+        )
+        expanded[:, selected_indices] = replicate_weights
+        writer.array(
+            f"{base}/formal/bootstrap_target_coefficients.npy",
+            expanded,
+            artifact_kind="bootstrap_target_coefficients",
+            axes=(
+                {
+                    "axis_id": "bootstrap_replicate",
+                    "count": expanded.shape[0],
+                },
+                {
+                    "axis_id": "individualized_target",
+                    "count": expanded.shape[1],
+                },
+            ),
+            units="coefficient",
+            space=None,
+        )
+        bootstrap_document = self._unverified_document(
+            bootstrap_artifacts["formal_bootstrap_summary"]
+        )
+        bootstrap_rows: list[dict[str, object]] = []
+        for index, target_id in enumerate(target_ids):
+            finite = expanded[np.isfinite(expanded[:, index]), index]
+            bootstrap_rows.append(
+                {
+                    "target_id": target_id,
+                    "resamples_requested": bootstrap_document.get(
+                        "resamples_requested"
+                    ),
+                    "finite_replicates": int(finite.size),
+                    "coefficient_mean": (
+                        float(np.mean(finite)) if finite.size else ""
+                    ),
+                    "coefficient_percentile_2_5": (
+                        float(np.percentile(finite, 2.5)) if finite.size else ""
+                    ),
+                    "coefficient_percentile_97_5": (
+                        float(np.percentile(finite, 97.5)) if finite.size else ""
+                    ),
+                    "positive_sign_frequency": (
+                        float(np.mean(finite > 0.0)) if finite.size else ""
+                    ),
+                    "technical_status": bootstrap.technical_status,
+                }
+            )
+        writer.csv(
+            f"{base}/formal/bootstrap_summary.csv",
+            bootstrap_rows,
+            tuple(bootstrap_rows[0]),
+        )
+        writer.json(
+            f"{base}/formal/status.json",
+            {
+                "stage": "formal_inference",
+                "status": "completed",
+                "permutation_status": permutation.technical_status,
+                "bootstrap_status": bootstrap.technical_status,
+            },
+        )
+
+    def _publish_individualized_in_sample(
+        self,
+        writer: _CompleteMarkerWriter,
+        base: str,
+        endpoint_input: EndpointInputRecord,
+        source_artifacts: Mapping[str, ArtifactRef],
+        record: FormalResult,
+    ) -> dict[str, Any]:
+        artifacts = self._artifact_map(record)
+        writer.artifact(
+            f"{base}/in_sample/model_predictions.npy",
+            artifacts["in_sample_model_predictions"],
+        )
+        writer.artifact(
+            f"{base}/in_sample/baseline_predictions.npy",
+            artifacts["in_sample_baseline_predictions"],
+        )
+        model_predictions = self._unverified_array(
+            artifacts["in_sample_model_predictions"]
+        )
+        baseline_predictions = self._unverified_array(
+            artifacts["in_sample_baseline_predictions"]
+        )
+        outcome = self._unverified_array(endpoint_input.outcome)
+        full_scores = self._unverified_array(
+            source_artifacts["individualized_full_target_scores"]
+        )
+        prediction_rows = [
+            {
+                "subject_id": subject_id,
+                "outcome": float(outcome[index]),
+                "full_sample_score": float(full_scores[index]),
+                "in_sample_prediction": float(model_predictions[index]),
+                "in_sample_baseline_prediction": float(
+                    baseline_predictions[index]
+                ),
+            }
+            for index, subject_id in enumerate(endpoint_input.included_subject_ids)
+        ]
+        writer.csv(
+            f"{base}/in_sample/predictions.csv",
+            prediction_rows,
+            tuple(prediction_rows[0]),
+        )
+        summary = self._unverified_document(
+            artifacts["formal_in_sample_summary"]
+        )
+        writer.json(
+            f"{base}/in_sample/summary.json",
+            {
+                "scale_id": summary["scale_id"],
+                "model_family": summary["model_family"],
+                "selected_tau": summary["selected_tau"],
+                "selected_coverage": summary["selected_coverage"],
+                "final_branch": summary["final_branch"],
+                "in_sample": summary["in_sample"],
+                "loocv": summary["loocv"],
+                "optimism_gaps": summary["optimism_gaps"],
+                "technical_status": summary["technical_status"],
+            },
+        )
+        writer.json(
+            f"{base}/in_sample/technical_summary.json",
+            {
+                key: value
+                for key, value in summary.items()
+                if key != "schema_version"
+            },
+        )
+        writer.json(
+            f"{base}/in_sample/status.json",
+            {
+                "stage": "in_sample",
+                "status": record.technical_status,
+            },
+        )
+        return summary
+
+    def _publish_individualized_jitter(
+        self,
+        writer: _CompleteMarkerWriter,
+        base: str,
+        record: SensitivityResult,
+    ) -> None:
+        artifacts = self._artifact_map(record)
+        writer.bytes(
+            f"{base}/sensitivity/spatial_jitter/observed_statistic.json",
+            _artifact_location(
+                artifacts["individualized_target_jitter_observed_statistic"]
+            ).read_bytes(),
+        )
+        writer.artifact(
+            f"{base}/sensitivity/spatial_jitter/null_statistics.npy",
+            artifacts["individualized_target_jitter_statistics"],
+        )
+        writer.bytes(
+            f"{base}/sensitivity/spatial_jitter/summary.json",
+            _artifact_location(
+                artifacts["individualized_target_jitter_summary"]
+            ).read_bytes(),
+        )
+        writer.json(
+            f"{base}/sensitivity/spatial_jitter/status.json",
+            {
+                "stage": "spatial_jitter",
+                "status": "completed",
+            },
+        )
+
+    @staticmethod
+    def _individualized_statistics_row(
+        scale_id: str,
+        role: str,
+        summary: Mapping[str, Any],
+    ) -> dict[str, object]:
+        in_sample = summary["in_sample"]
+        loocv = summary["loocv"]
+        gaps = summary["optimism_gaps"]
+        return {
+            "scale_id": scale_id,
+            "model_family": "individualized_seed_target",
+            "role": role,
+            "in_sample_finite_subjects": in_sample.get(
+                "in_sample_n_subjects_finite"
+            ),
+            "in_sample_finite_permutations": in_sample.get(
+                "in_sample_permutations_finite"
+            ),
+            "loocv_finite_predictions": loocv.get(
+                "loocv_n_subjects_finite"
+            ),
+            "loocv_finite_permutations": loocv.get(
+                "loocv_permutations_finite"
+            ),
+            "in_sample_spearman_rho": in_sample.get(
+                "in_sample_spearman_rho"
+            ),
+            "in_sample_spearman_nominal_p": in_sample.get(
+                "in_sample_spearman_nominal_p"
+            ),
+            "in_sample_permutation_p_plus_one_two_sided": in_sample.get(
+                "in_sample_permutation_p_plus_one_two_sided"
+            ),
+            "loocv_spearman_rho": loocv.get("loocv_spearman_rho"),
+            "loocv_spearman_nominal_p": loocv.get(
+                "loocv_spearman_nominal_p"
+            ),
+            "loocv_permutation_p_plus_one_two_sided": loocv.get(
+                "loocv_permutation_p_plus_one_two_sided"
+            ),
+            "in_sample_pearson_r": in_sample.get("in_sample_pearson_r"),
+            "in_sample_pearson_nominal_p": in_sample.get(
+                "in_sample_pearson_nominal_p"
+            ),
+            "loocv_pearson_r": loocv.get("loocv_pearson_r"),
+            "loocv_pearson_nominal_p": loocv.get(
+                "loocv_pearson_nominal_p"
+            ),
+            "in_sample_r2": in_sample.get("in_sample_r2"),
+            "in_sample_relative_r2": in_sample.get(
+                "in_sample_relative_r2"
+            ),
+            "loocv_q2": loocv.get("loocv_q2"),
+            "in_sample_rmse": in_sample.get("in_sample_rmse"),
+            "in_sample_mae": in_sample.get("in_sample_mae"),
+            "loocv_rmse_model": loocv.get("loocv_rmse_model"),
+            "loocv_mae_model": loocv.get("loocv_mae_model"),
+            "in_sample_rmse_baseline": in_sample.get(
+                "in_sample_rmse_baseline"
+            ),
+            "in_sample_mae_baseline": in_sample.get(
+                "in_sample_mae_baseline"
+            ),
+            "loocv_rmse_baseline": loocv.get("loocv_rmse_baseline"),
+            "loocv_mae_baseline": loocv.get("loocv_mae_baseline"),
+            "spearman_optimism_gap": gaps.get("spearman_optimism_gap"),
+            "pearson_optimism_gap": gaps.get("pearson_optimism_gap"),
+            "r2_q2_gap": gaps.get("r2_q2_gap"),
+            "rmse_optimism_gap": gaps.get("rmse_optimism_gap"),
+            "mae_optimism_gap": gaps.get("mae_optimism_gap"),
+        }
 
     def _publish_direct(
         self,
@@ -4322,7 +5575,6 @@ class CanonicalPublisher:
         profile = resolved[domain]
         payload: dict[str, object] = {
             "schema_version": f"{domain}_model_manifest_v1",
-            "model_set_id": profile["model_set_id"],
             "profile_type": domain,
             "study_id": run_manifest["study_id"],
             "study_base_path": str(writer.root / "study_base.json"),
@@ -4343,7 +5595,7 @@ class CanonicalPublisher:
             "scientific_config_sha256": run_manifest[
                 "scientific_configuration_hash"
             ],
-            "output_root": str(writer.root.parent.parent),
+            "output_root": str(writer.root.parent),
             "scale_ids": list(profile["scales"]),
             "scale_count": len(profile["scales"]),
             "code_provenance": {

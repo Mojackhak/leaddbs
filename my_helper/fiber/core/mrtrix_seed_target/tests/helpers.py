@@ -65,6 +65,11 @@ def minimal_document(tmp_path: Path, *, subject_count: int = 1) -> dict[str, Any
             "matlab_executable": "/bin/true",
             "mrtrix_path_prefix": "/usr/local/bin",
         },
+        "visualization": {
+            "target_fiber_display_budget": 3000,
+            "target_colormap": "hsv",
+            "seed_wireframe_color": "#D9D9D9",
+        },
     }
 
 
@@ -91,6 +96,9 @@ def make_subject_tree(
     method: str = "SPM (Friston 2007)",
     method_token: str = "spm",
     approved: int = 1,
+    normalization_method: str = "EasyReg (Iglesias 2023)",
+    normalization_approval: float = 1,
+    target_space: str = "MNI152NLin2009bAsym",
 ) -> Path:
     """Create the exact minimal Lead-DBS paths used by discovery."""
 
@@ -125,13 +133,20 @@ def make_subject_tree(
         np.ones((8, 8, 8), dtype=np.float32),
         np.diag([0.7, 0.7, 0.7, 1.0]),
     )
-    normalization = (
+    target_to_anchor = (
         subject
         / "normalization"
         / "transformations"
-        / f"{subject_id}_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants.nii.gz"
+        / f"{subject_id}_from-{target_space}_to-anchorNative_desc-ants.nii.gz"
     )
-    write_nifti(normalization, np.ones((2, 2, 2), dtype=np.uint8))
+    anchor_to_target = (
+        subject
+        / "normalization"
+        / "transformations"
+        / f"{subject_id}_from-anchorNative_to-{target_space}_desc-ants.nii.gz"
+    )
+    write_nifti(target_to_anchor, np.zeros((8, 8, 8, 1, 3), dtype=np.float32))
+    write_nifti(anchor_to_target, np.zeros((2, 2, 2, 1, 3), dtype=np.float32))
     log_path = (
         subject / "coregistration" / "log" / f"{subject_id}_desc-coregmethod.json"
     )
@@ -141,12 +156,25 @@ def make_subject_tree(
         % (method, approved),
         encoding="utf-8",
     )
-    transform = (
-        subject
-        / "coregistration"
-        / "transformations"
+    normalization_log = (
+        subject / "normalization" / "log" / f"{subject_id}_desc-normmethod.json"
+    )
+    normalization_log.parent.mkdir(parents=True, exist_ok=True)
+    normalization_log.write_text(
+        '{"method":"%s","approval":%s}\n'
+        % (normalization_method, normalization_approval),
+        encoding="utf-8",
+    )
+    transform_root = subject / "coregistration" / "transformations"
+    anchor_to_b0 = (
+        transform_root
         / f"{subject_id}_from-anchorNative_to-b0_desc-{method_token}44.mat"
     )
-    transform.parent.mkdir(parents=True, exist_ok=True)
-    savemat(transform, {"tmat": np.eye(4, dtype=np.float64)})
+    b0_to_anchor = (
+        transform_root
+        / f"{subject_id}_from-b0_to-anchorNative_desc-{method_token}44.mat"
+    )
+    anchor_to_b0.parent.mkdir(parents=True, exist_ok=True)
+    savemat(anchor_to_b0, {"tmat": np.eye(4, dtype=np.float64)})
+    savemat(b0_to_anchor, {"tmat": np.eye(4, dtype=np.float64)})
     return subject

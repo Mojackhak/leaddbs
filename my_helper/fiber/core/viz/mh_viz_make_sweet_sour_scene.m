@@ -6,8 +6,9 @@ function scene = mh_viz_make_sweet_sour_scene(spec)
 % colorbar. VoxelSweetNifti and VoxelSourNifti are optional binary overlays.
 % FiberCategoricalMat contains the complete candidate axis with aligned
 % `fibers`, `idx`, `scores`, `fiber_ids`, and `fiber_roles` variables.
-% FiberCoefficientMat renders the same complete axis from its continuous
-% `scores` coefficients with a symmetric vik colorbar and no count legend.
+% FiberCoefficientMat or FiberCoefficientData renders the same complete axis
+% from continuous `scores` coefficients with a symmetric vik colorbar and no
+% count legend.
 % Legacy scored fiber MAT inputs remain supported independently.
 
 if nargin < 1 || ~isstruct(spec) || ~isscalar(spec)
@@ -27,6 +28,7 @@ hasSource = false;
 for i = 1:numel(sourceFields)
     hasSource = hasSource || strlength(string(spec.(sourceFields{i}))) > 0;
 end
+hasSource = hasSource || ~isempty(fieldnames(spec.FiberCoefficientData));
 if ~hasSource
     error('mh_viz_make_sweet_sour_scene:MissingSource', ...
         'At least one signed voxel, selection mask, or fiber source is required.');
@@ -154,7 +156,8 @@ if ~isempty(fiberColorLimit) && isempty(colorbarHandle)
 end
 if strlength(string(spec.FiberCategoricalMat)) > 0
     local_apply_categorical_fiber_layer_order(hAx, objects);
-elseif strlength(string(spec.FiberCoefficientMat)) > 0
+elseif strlength(string(spec.FiberCoefficientMat)) > 0 || ...
+        ~isempty(fieldnames(spec.FiberCoefficientData))
     set(hAx, 'SortMethod', 'childorder');
     uistack(objects.fiberCoefficient, 'top');
 end
@@ -263,6 +266,7 @@ defaults.VoxelSweetNifti = '';
 defaults.VoxelSourNifti = '';
 defaults.FiberCategoricalMat = '';
 defaults.FiberCoefficientMat = '';
+defaults.FiberCoefficientData = struct();
 defaults.FiberScoreMat = '';
 defaults.FiberSweetMat = '';
 defaults.FiberSourMat = '';
@@ -326,7 +330,10 @@ defaults.CloseAfterExport = false;
 isDedicatedFiber = (isfield(spec, 'FiberCategoricalMat') && ...
     strlength(string(spec.FiberCategoricalMat)) > 0) || ...
     (isfield(spec, 'FiberCoefficientMat') && ...
-    strlength(string(spec.FiberCoefficientMat)) > 0);
+    strlength(string(spec.FiberCoefficientMat)) > 0) || ...
+    (isfield(spec, 'FiberCoefficientData') && ...
+    isstruct(spec.FiberCoefficientData) && ...
+    ~isempty(fieldnames(spec.FiberCoefficientData)));
 if isDedicatedFiber
     fiberDefaults = mh_viz_default_fiber_scene_spec();
     fiberNames = fieldnames(fiberDefaults);
@@ -436,15 +443,21 @@ if ~isempty(spec.FiberColorLimit) && ...
     error('mh_viz_make_sweet_sour_scene:BadFiberColorLimit', ...
         'FiberColorLimit must be empty or a positive finite scalar.');
 end
-dedicatedFiberSources = strlength(string( ...
-    {spec.FiberCategoricalMat, spec.FiberCoefficientMat})) > 0;
+if ~isstruct(spec.FiberCoefficientData) || ~isscalar(spec.FiberCoefficientData)
+    error('mh_viz_make_sweet_sour_scene:BadCoefficientFiberData', ...
+        'FiberCoefficientData must be a scalar struct.');
+end
+dedicatedFiberSources = [strlength(string( ...
+    {spec.FiberCategoricalMat, spec.FiberCoefficientMat})) > 0, ...
+    ~isempty(fieldnames(spec.FiberCoefficientData))];
 legacyFiberSources = strlength(string( ...
     {spec.FiberScoreMat, spec.FiberSweetMat, spec.FiberSourMat})) > 0;
 if nnz(dedicatedFiberSources) > 1 || ...
         (any(dedicatedFiberSources) && any(legacyFiberSources))
     error('mh_viz_make_sweet_sour_scene:MixedFiberModes', ...
-        ['FiberCategoricalMat, FiberCoefficientMat, and legacy scored MAT ', ...
-        'inputs are mutually exclusive.']);
+        ['FiberCategoricalMat, FiberCoefficientMat, FiberCoefficientData, ', ...
+         'and legacy scored MAT ', ...
+         'inputs are mutually exclusive.']);
 end
 if ~isnumeric(spec.CandidateFiberLineWidth) || ...
         ~isscalar(spec.CandidateFiberLineWidth) || ...
@@ -792,19 +805,25 @@ function [handle, metadata] = ...
 handle = gobjects(0, 1);
 metadata = struct();
 pathValue = char(string(spec.FiberCoefficientMat));
-if isempty(pathValue)
+if isempty(pathValue) && isempty(fieldnames(spec.FiberCoefficientData))
     return;
 end
-if ~isfile(pathValue)
-    error('mh_viz_make_sweet_sour_scene:MissingCoefficientFiberFile', ...
-        'Coefficient fiber MAT does not exist: %s', pathValue);
+if isempty(pathValue)
+    data = spec.FiberCoefficientData;
+    sourceValue = 'in_memory';
+else
+    if ~isfile(pathValue)
+        error('mh_viz_make_sweet_sour_scene:MissingCoefficientFiberFile', ...
+            'Coefficient fiber MAT does not exist: %s', pathValue);
+    end
+    data = load(pathValue, 'fibers', 'idx', 'scores', 'fiber_ids');
+    sourceValue = pathValue;
 end
-data = load(pathValue, 'fibers', 'idx', 'scores', 'fiber_ids');
 required = {'fibers', 'idx', 'scores', 'fiber_ids'};
 for index = 1:numel(required)
     if ~isfield(data, required{index})
         error('mh_viz_make_sweet_sour_scene:BadCoefficientFiberFile', ...
-            'Coefficient fiber MAT lacks %s: %s', required{index}, pathValue);
+            'Coefficient fiber input lacks %s: %s', required{index}, sourceValue);
     end
 end
 if isempty(colorLimit)
@@ -816,7 +835,7 @@ end
     colorLimit, ...
     'Alpha', spec.CoefficientFiberAlpha, ...
     'LineWidth', spec.CoefficientFiberLineWidth);
-metadata.source = pathValue;
+metadata.source = sourceValue;
 set(handle, 'UserData', struct( ...
     'mh_viz_type', 'fiber_coefficient', ...
     'source', pathValue, ...
@@ -896,7 +915,8 @@ end
 paths = {spec.FiberCoefficientMat, spec.FiberScoreMat, ...
     spec.FiberSweetMat, spec.FiberSourMat};
 hasFiberSource = any(cellfun(@(value) ...
-    strlength(string(value)) > 0, paths));
+    strlength(string(value)) > 0, paths)) || ...
+    ~isempty(fieldnames(spec.FiberCoefficientData));
 if ~hasFiberSource
     colorLimit = [];
     return;
@@ -907,6 +927,13 @@ if ~isempty(spec.FiberColorLimit)
 end
 
 allScores = [];
+if ~isempty(fieldnames(spec.FiberCoefficientData))
+    if ~isfield(spec.FiberCoefficientData, 'scores')
+        error('mh_viz_make_sweet_sour_scene:MissingFiberScores', ...
+            'FiberCoefficientData must contain one scores value per fiber.');
+    end
+    allScores = double(spec.FiberCoefficientData.scores(:));
+end
 for i = 1:numel(paths)
     pathValue = char(string(paths{i}));
     if isempty(pathValue)

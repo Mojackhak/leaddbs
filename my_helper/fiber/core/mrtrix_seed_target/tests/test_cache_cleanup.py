@@ -21,11 +21,53 @@ from ..tck import write_selected_tck
 def _validation(tmp_path: Path, *, cleanup: bool = True):
     output_root = tmp_path / "mrtrix_seed_target"
     work_root = output_root / "work"
-    public = output_root / "tractograms" / "lh" / "Seed" / "seedwide.tck"
+    native_public = (
+        output_root
+        / "tractograms"
+        / "native"
+        / "lh"
+        / "Seed"
+        / "seedwide.tck"
+    )
+    target_space = "MNI152NLin2009bAsym"
+    target_public = (
+        output_root
+        / "tractograms"
+        / target_space
+        / "lh"
+        / "Seed"
+        / "seedwide.tck"
+    )
     write_selected_tck(
         [np.asarray([[0, 0, 0], [1, 1, 1]], dtype=np.float32)],
         np.asarray([True]),
-        public,
+        native_public,
+    )
+    write_selected_tck(
+        [np.asarray([[0, 0, 0], [1, 1, 1]], dtype=np.float32)],
+        np.asarray([True]),
+        target_public,
+    )
+    scene_root = output_root / "visualization" / target_space / "lh" / "Seed"
+    scene_artifacts = []
+    for suffix in ("fig", "png", "pdf"):
+        path = scene_root / f"scene.{suffix}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"scene-{suffix}".encode("ascii"))
+        scene_artifacts.append({"path": str(path), "sha256": file_sha256(path)})
+    fingerprints = {
+        "sampling": "sampling",
+        "color": "color",
+        "style": "style",
+    }
+    scene_complete = scene_root / "complete.json"
+    atomic_write_json(
+        scene_complete,
+        {
+            "status": "complete",
+            "fingerprints": fingerprints,
+            "artifacts": scene_artifacts,
+        },
     )
     for name in CACHE_DIRECTORY_NAMES:
         directory = work_root / name
@@ -38,19 +80,39 @@ def _validation(tmp_path: Path, *, cleanup: bool = True):
     state = {
         "owner": OWNER,
         "status": "complete",
-        "configuration_hash": "configuration",
+        "configuration_hash": "historical-configuration",
+        "target_space": target_space,
         "published_artifacts": [
             {
-                "path": str(public),
-                "sha256": file_sha256(public),
+                "semantic_key": "lh/Seed/seedwide",
+                "coordinate_space": "native",
+                "path": str(native_public),
+                "sha256": file_sha256(native_public),
+                "streamline_count": 1,
+            },
+            {
+                "semantic_key": "lh/Seed/seedwide",
+                "coordinate_space": target_space,
+                "path": str(target_public),
+                "sha256": file_sha256(target_public),
                 "streamline_count": 1,
             }
         ],
+        "visualization_scenes": {
+            "lh/Seed": {
+                "complete_path": str(scene_complete),
+                "fingerprints": fingerprints,
+            }
+        },
     }
     atomic_write_json(work_root / "state.json", state)
     subject = SimpleNamespace(subject_id="sub-001", output_root=output_root)
     config = SimpleNamespace(
-        configuration_hash="configuration",
+        configuration_hash="current-different-configuration",
+        atlas=SimpleNamespace(
+            space=target_space,
+            seeds=(SimpleNamespace(key="lh/Seed", targets=()),),
+        ),
         execution=SimpleNamespace(cleanup_work_cache_after_success=cleanup),
     )
     return SimpleNamespace(

@@ -106,16 +106,14 @@ def test_cli_reports_keyboard_interrupt_with_exit_130(
     assert '"status": "interrupted"' in capsys.readouterr().err
 
 
-def test_approved_formal_and_test_yaml_counts() -> None:
-    formal_path = Path("/Volumes/VAL/STNSNr/config/mrtrix_seed_target.yaml")
-    test_path = Path("/Volumes/VAL/STNSNr/config/mrtrix_seed_target_test.yaml")
-    if not formal_path.is_file() or not test_path.is_file():
-        pytest.skip("approved real YAML files are unavailable")
-    formal = load_config(formal_path)
-    test = load_config(test_path)
-    assert len(formal.subjects) == 16
-    assert [len(seed.targets) for seed in formal.atlas.seeds] == [18, 18]
-    assert [target.roi_id for target in formal.atlas.seeds[0].targets] == [
+def test_authoritative_yaml_counts_targets_and_visualization() -> None:
+    path = Path("/Volumes/VAL/STNSNr/config/spot/mrtrix_seed_target.yaml")
+    if not path.is_file():
+        pytest.skip("authoritative real YAML is unavailable")
+    config = load_config(path)
+    assert len(config.subjects) == 16
+    assert [len(seed.targets) for seed in config.atlas.seeds] == [17, 17]
+    assert [target.roi_id for target in config.atlas.seeds[0].targets] == [
         "VM_thalamus",
         "VLA_thalamus",
         "GPi",
@@ -125,7 +123,6 @@ def test_approved_formal_and_test_yaml_counts() -> None:
         "VLP_thalamus",
         "VA_thalamus",
         "Pf_thalamus",
-        "preSMA",
         "SMA",
         "posterior_putamen",
         "CM_thalamus",
@@ -135,21 +132,6 @@ def test_approved_formal_and_test_yaml_counts() -> None:
         "DLPFC",
         "RN",
     ]
-    assert formal.execution.maximum_seedwide_streamlines == 100_000_000
-    assert len(test.subjects) == 2
-    assert [len(seed.targets) for seed in test.atlas.seeds] == [2, 2]
-    assert test.execution.generation_chunk_streamlines == 50_000
-    assert test.execution.maximum_seedwide_streamlines == 50_000
-
-
-def test_approved_all_subject_fixed_sampling_yaml_starts_with_corrected_four() -> None:
-    path = Path(
-        "/Volumes/VAL/STNSNr/config/"
-        "mrtrix_seed_target_fixed300k_017_020_022_026.yaml"
-    )
-    if not path.is_file():
-        pytest.skip("approved corrected-subject fixed-sampling YAML is unavailable")
-    config = load_config(path)
     assert [subject.subject_id for subject in config.subjects] == [
         "sub-SNr017",
         "sub-SNr020",
@@ -173,7 +155,11 @@ def test_approved_all_subject_fixed_sampling_yaml_starts_with_corrected_four() -
     assert config.execution.subject_workers == 4
     assert config.execution.generation_chunk_streamlines == 50_000
     assert config.execution.maximum_seedwide_streamlines == 2_000_000
-    assert [len(seed.targets) for seed in config.atlas.seeds] == [18, 18]
+    assert config.visualization.target_fiber_display_budget == 3000
+    assert config.visualization.target_colormap == "hsv"
+    assert config.visualization.seed_wireframe_color == pytest.approx(
+        (217 / 255, 217 / 255, 217 / 255)
+    )
 
 
 def test_code_identity_layers_do_not_cross_invalidate_scientific_work() -> None:

@@ -1,12 +1,15 @@
-schema_version: dual_frequency_workflow_v1 # Generic execution-policy schema.
 profile_type: dual_frequency_workflow # Identifies the configured runner workflow.
 
 model_profiles: # Scientific profiles resolved relative to this file.
   direct_voxel: direct_voxel_model.yaml # Reference/add-on direct-voxel contract.
   normative_fiber: normative_fiber_model.yaml # Reference/add-on fiber contract.
+  individualized_seed_target: individualized_seed_target_model.yaml # Reference/add-on patient-specific target contract.
+
+output: # Single formal result root shared by all model domains.
+  root: /Volumes/VAL/STNSNr/summary/spot
 
 selection: # Defaults may select model domains, but never clinical scales.
-  models: [all] # Run all four model families unless CLI narrows the set.
+  models: [all] # Run all configured model families unless CLI narrows the set.
   connectomes: [all] # Use every connectome declared by the fiber profile.
 
 execution: # Runtime controls do not change the scientific model definition.

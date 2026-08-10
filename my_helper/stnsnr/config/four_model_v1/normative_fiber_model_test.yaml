@@ -1,9 +1,4 @@
-schema_version: normative_fiber_model_v1 # Uses the production schema and semantics.
 profile_type: normative_fiber_model # Identifies the normative-fiber domain.
-model_set_id: dual_frequency_four_model_test_v1 # Matches the configured direct-voxel test model set.
-
-output: # Test publications must remain outside the production summary tree.
-  root: /Volumes/VAL/STNSNr/validation/spot # Base directory for code-path acceptance.
 
 scales: # Two distinct scales verify equal endpoint handling.
   - mds_updrs_iii_score # First scale-equality acceptance row.
@@ -75,12 +70,6 @@ formal_resampling: # Minimal counts exercise loops without inferential meaning.
 
 sensitivity: # Keep scientific sensitivity definitions unchanged.
   selected_source_tau_multipliers: [0.9, 1.1] # Keep production neighborhood semantics.
-  high_threshold:
-    tau_v_per_m: 1500 # Keep the production high-threshold definition.
-    coverage_subjects_min: 5 # Keep the production high-threshold Coverage.
-  fixed_outer_library:
-    sweet_count: 1500 # Keep the production fixed positive count.
-    sour_count: 500 # Keep the production fixed negative count.
 
 oss: # Minimal inference count; model and pPAM semantics remain production-identical.
   model: OSS-DBSv2 # Biophysical activation backend.

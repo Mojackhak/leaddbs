@@ -380,6 +380,7 @@ class BootstrapComputation:
     replicate_valid_weight_count: np.ndarray
     replicate_support_code: np.ndarray
     finite_replicate_count: int
+    replicate_weights: np.ndarray | None = None
     nonestimable_replicates: tuple[dict[str, Any], ...] = ()
     nuisance_evidence: tuple[dict[str, Any], ...] = ()
     sweet_selection_frequency: np.ndarray | None = None
@@ -419,6 +420,28 @@ class BootstrapComputation:
                 "bootstrap outputs must have exact and consistent feature/resample shapes"
             )
         replicate_count = next(iter(replicate_lengths))
+        replicate_weights = self.replicate_weights
+        if replicate_weights is not None:
+            replicate_weights = np.array(
+                replicate_weights,
+                dtype=np.float64,
+                copy=True,
+            )
+            if (
+                replicate_weights.shape
+                != (replicate_count, next(iter(feature_lengths)))
+                or np.any(np.isinf(replicate_weights))
+            ):
+                raise FormalBackendError(
+                    "bootstrap replicate_weights must be replicate-by-feature "
+                    "without infinite values"
+                )
+            replicate_weights.flags.writeable = False
+            object.__setattr__(
+                self,
+                "replicate_weights",
+                replicate_weights,
+            )
         evidence: list[dict[str, Any]] = []
         evidence_replicates: set[int] = set()
         for item in self.nuisance_evidence:
@@ -491,6 +514,7 @@ class BootstrapBlockComputation:
     replicate_candidate_count: np.ndarray
     replicate_valid_weight_count: np.ndarray
     replicate_support_code: np.ndarray
+    replicate_weights: np.ndarray | None = None
     require_complete_nuisance_evidence: bool = False
     nuisance_evidence: tuple[dict[str, Any], ...] = ()
     nonestimable_replicates: tuple[dict[str, Any], ...] = ()
@@ -593,6 +617,27 @@ class BootstrapBlockComputation:
             )
         if np.any(~np.isin(self.replicate_support_code, (0, 1, 2))):
             raise FormalBackendError("bootstrap block support codes are invalid")
+        replicate_weights = self.replicate_weights
+        if replicate_weights is not None:
+            replicate_weights = np.array(
+                replicate_weights,
+                dtype=np.float64,
+                copy=True,
+            )
+            if (
+                replicate_weights.shape != (self.block.count, feature_count)
+                or np.any(np.isinf(replicate_weights))
+            ):
+                raise FormalBackendError(
+                    "bootstrap block replicate_weights must be "
+                    "block-by-feature without infinite values"
+                )
+            replicate_weights.flags.writeable = False
+            object.__setattr__(
+                self,
+                "replicate_weights",
+                replicate_weights,
+            )
 
         evidence_indices: set[int] = set()
         evidence: list[dict[str, Any]] = []
@@ -1087,7 +1132,14 @@ def bootstrap_sample_indices(count: int, resamples: int, seed: int) -> np.ndarra
 class StreamingBootstrapAccumulator:
     """Accumulate B-by-F bootstrap evidence using O(B + F) memory."""
 
-    def __init__(self, *, resamples: int, n_features: int, track_selection: bool) -> None:
+    def __init__(
+        self,
+        *,
+        resamples: int,
+        n_features: int,
+        track_selection: bool,
+        retain_replicate_weights: bool = False,
+    ) -> None:
         if type(resamples) is not int or resamples < 1:
             raise FormalBackendInputError("resamples must be a positive integer")
         if type(n_features) is not int or n_features < 1:
@@ -1095,6 +1147,11 @@ class StreamingBootstrapAccumulator:
         self.resamples = resamples
         self.n_features = n_features
         self._track_selection = bool(track_selection)
+        self._replicate_weights = (
+            np.full((resamples, n_features), np.nan, dtype=np.float64)
+            if retain_replicate_weights
+            else None
+        )
         self._seen = np.zeros(resamples, dtype=bool)
         self._weight_sum = np.zeros(n_features, dtype=np.float64)
         self._weight_square_sum = np.zeros(n_features, dtype=np.float64)
@@ -1196,6 +1253,8 @@ class StreamingBootstrapAccumulator:
         self._replicate_candidate_count[replicate] = int(np.count_nonzero(candidate))
         self._replicate_valid_count[replicate] = int(np.count_nonzero(finite))
         self._replicate_support_code[replicate] = support_code
+        if self._replicate_weights is not None:
+            self._replicate_weights[replicate] = values
         if nuisance_evidence is not None:
             provenance = nuisance_evidence.rebuild_provenance
             self._nuisance_evidence[replicate] = {
@@ -1259,6 +1318,11 @@ class StreamingBootstrapAccumulator:
             replicate_support_code=self._replicate_support_code[
                 block.start : block.stop
             ],
+            replicate_weights=(
+                None
+                if self._replicate_weights is None
+                else self._replicate_weights[block.start : block.stop]
+            ),
             require_complete_nuisance_evidence=(
                 require_complete_nuisance_evidence
             ),
@@ -1325,6 +1389,7 @@ class StreamingBootstrapAccumulator:
             replicate_valid_weight_count=self._replicate_valid_count,
             replicate_support_code=self._replicate_support_code,
             finite_replicate_count=finite_replicates,
+            replicate_weights=self._replicate_weights,
             nonestimable_replicates=nonestimable,
             nuisance_evidence=evidence,
             sweet_selection_frequency=(
@@ -1385,20 +1450,26 @@ def combine_bootstrap_blocks(
     nuisance_evidence_modes = {
         item.require_complete_nuisance_evidence for item in ordered
     }
+    replicate_weight_modes = {
+        item.replicate_weights is not None for item in ordered
+    }
     if (
         len(feature_counts) != 1
         or len(selection_modes) != 1
         or len(nuisance_evidence_modes) != 1
+        or len(replicate_weight_modes) != 1
     ):
         raise FormalBackendInputError(
             "bootstrap blocks have inconsistent feature or selection state"
         )
     n_features = next(iter(feature_counts))
     track_selection = next(iter(selection_modes))
+    retain_replicate_weights = next(iter(replicate_weight_modes))
     merged = StreamingBootstrapAccumulator(
         resamples=schedule.descriptor.replicate_count,
         n_features=n_features,
         track_selection=track_selection,
+        retain_replicate_weights=retain_replicate_weights,
     )
     merged._seen[:] = True
     for item in ordered:
@@ -1420,6 +1491,12 @@ def combine_bootstrap_blocks(
             item.replicate_valid_weight_count
         )
         merged._replicate_support_code[interval] = item.replicate_support_code
+        if retain_replicate_weights:
+            assert (
+                merged._replicate_weights is not None
+                and item.replicate_weights is not None
+            )
+            merged._replicate_weights[interval] = item.replicate_weights
         for evidence in item.nuisance_evidence:
             merged._nuisance_evidence[int(evidence["replicate"])] = evidence
         for evidence in item.nonestimable_replicates:

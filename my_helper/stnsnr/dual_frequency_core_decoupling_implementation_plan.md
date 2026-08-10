@@ -297,6 +297,11 @@ argument parsing, output discovery, and project naming.
 - Create: `my_helper/fiber/projects/stnsnr/migration/four_model_v1_mapping.yaml`
 - Create: `my_helper/fiber/projects/stnsnr/migration/convert_four_model_v1.py`
 - Create: `my_helper/fiber/projects/stnsnr/migration/tests/test_convert_four_model_v1.py`
+
+The review-only migration drafts follow the current formal YAML boundary:
+generated workflow and model profiles contain neither `schema_version` nor
+`model_set_id`. The migration mapping retains its own schema tag because it is
+a separate conversion-tool input, not a formal workflow profile.
 - Modify: `my_helper/stnsnr/four_model_execution_implementation_notes.md`
 
 **Interfaces:**

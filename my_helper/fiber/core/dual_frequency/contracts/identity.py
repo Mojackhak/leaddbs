@@ -15,8 +15,10 @@ MODEL_FAMILIES = frozenset(
     {
         "reference_voxel",
         "reference_fiber",
+        "reference_individualized",
         "addon_voxel",
         "addon_fiber",
+        "addon_individualized",
     }
 )
 
@@ -85,9 +87,20 @@ class EndpointKey:
             object.__setattr__(self, field, _token(getattr(self, field), field))
         if self.model_family not in MODEL_FAMILIES:
             raise ValueError(f"unsupported model_family {self.model_family!r}")
-        if self.model_family.endswith("voxel") and self.connectome_id != "none":
-            raise ValueError("direct-voxel endpoint identities cannot declare a connectome")
-        if self.model_family.endswith("fiber") and self.connectome_id == "none":
+        if self.model_family in {
+            "reference_voxel",
+            "addon_voxel",
+            "reference_individualized",
+            "addon_individualized",
+        } and self.connectome_id != "none":
+            raise ValueError(
+                "direct-voxel and individualized endpoint identities cannot "
+                "declare a connectome"
+            )
+        if self.model_family in {
+            "reference_fiber",
+            "addon_fiber",
+        } and self.connectome_id == "none":
             raise ValueError("normative-fiber endpoint identities require a connectome")
 
     def as_dict(self) -> dict[str, str]:

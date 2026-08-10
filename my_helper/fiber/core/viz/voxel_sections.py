@@ -19,9 +19,10 @@ from .plugin.default import get_voxel_section_cfg
 
 try:
     import nibabel as nib
-    from scipy.ndimage import map_coordinates
+    from scipy.ndimage import distance_transform_edt, map_coordinates
 except ImportError:  # pragma: no cover - checked by the public entry point
     nib = None
+    distance_transform_edt = None
     map_coordinates = None
 
 
@@ -53,7 +54,7 @@ _PLANE_AXES = {
 
 
 def _require_dependencies() -> None:
-    if nib is None or map_coordinates is None:
+    if nib is None or distance_transform_edt is None or map_coordinates is None:
         raise ImportError(
             "voxel section visualization requires nibabel and scipy"
         )
@@ -92,6 +93,59 @@ def _load_volume(image: ImageInput, *, dtype: np.dtype = np.dtype(np.float32)) -
     data = np.asarray(canonical.get_fdata(dtype=dtype))
     affine = np.asarray(canonical.affine, dtype=float)
     return _Volume(data=data, affine=affine, inverse_affine=np.linalg.inv(affine))
+
+
+def _signed_distance_outline_volume(
+    mask: _Volume,
+    *,
+    threshold: float,
+) -> tuple[_Volume, dict[str, Any]]:
+    foreground = np.isfinite(mask.data) & (mask.data > float(threshold))
+    if not np.any(foreground):
+        raise ValueError("mask_image must contain positive outline voxels")
+
+    xlo, xhi, ylo, yhi, zlo, zhi = _bbox(foreground)
+    lower = np.asarray((xlo, ylo, zlo), dtype=int)
+    upper = np.asarray((xhi, yhi, zhi), dtype=int)
+    slices = tuple(
+        slice(int(lo), int(hi) + 1)
+        for lo, hi in zip(lower, upper, strict=True)
+    )
+    cropped = foreground[slices]
+    halo_voxels = 1
+    local_mask = np.pad(
+        cropped,
+        halo_voxels,
+        mode="constant",
+        constant_values=False,
+    )
+    voxel_sizes = np.asarray(nib.affines.voxel_sizes(mask.affine), dtype=float)
+    signed_distance = (
+        distance_transform_edt(~local_mask, sampling=voxel_sizes)
+        - distance_transform_edt(local_mask, sampling=voxel_sizes)
+    ).astype(np.float32)
+
+    translation = np.eye(4, dtype=float)
+    translation[:3, 3] = lower - halo_voxels
+    affine = np.asarray(mask.affine @ translation, dtype=float)
+    volume = _Volume(
+        data=signed_distance,
+        affine=affine,
+        inverse_affine=np.linalg.inv(affine),
+    )
+    metadata = {
+        "representation": "physical_signed_distance",
+        "source_threshold": float(threshold),
+        "distance_units": "mm",
+        "contour_level": 0.0,
+        "contour_units": "mm",
+        "roi_source_index_lower": [int(value) for value in lower],
+        "roi_source_index_upper": [int(value) for value in upper],
+        "roi_shape": [int(value) for value in signed_distance.shape],
+        "halo_voxels": halo_voxels,
+        "halo_mm": [float(value) for value in voxel_sizes],
+    }
+    return volume, metadata
 
 
 def _bbox(mask: np.ndarray) -> tuple[int, int, int, int, int, int]:
@@ -641,8 +695,10 @@ def plot_signed_voxel_sections(
     *,
     background_image: ImageInput,
     mask_image: ImageInput,
+    outline_image: ImageInput | None = None,
     geometry_image: ImageInput | None = None,
     geometry_threshold: float = 0.0,
+    symmetric_color_limit: float | None = None,
     style_config: Mapping[str, Any] | None = None,
     output_paths: Sequence[str | Path] = (),
 ) -> plt.Figure:
@@ -652,7 +708,22 @@ def plot_signed_voxel_sections(
     style = get_voxel_section_cfg(style_config)
     font = _configure_fonts(str(style["font_family"]))
     heat = _load_volume(heat_image)
-    mask = _load_volume(mask_image)
+    if outline_image is None:
+        mask, mask_metadata = _signed_distance_outline_volume(
+            _load_volume(mask_image),
+            threshold=float(style["mask_threshold"]),
+        )
+        mask_fill = float(min(mask_metadata["halo_mm"]))
+    else:
+        mask = _load_volume(outline_image)
+        mask_metadata = {
+            "representation": "continuous_atlas",
+            "source_threshold": None,
+            "distance_units": None,
+            "contour_level": float(style["mask_threshold"]),
+            "contour_units": "atlas_value",
+        }
+        mask_fill = 0.0
     geometry_volume = heat
     geometry_support = None
     slice_support_source = "finite_heatmap"
@@ -733,8 +804,8 @@ def plot_signed_voxel_sections(
                 x_limits,
                 y_limits,
                 resolution,
-                order=0,
-                fill=0.0,
+                order=1,
+                fill=mask_fill,
             )
             if np.isfinite(anatomy_slice).any():
                 background_values.append(anatomy_slice[np.isfinite(anatomy_slice)])
@@ -745,9 +816,16 @@ def plot_signed_voxel_sections(
     if not heat_values:
         raise ValueError("sampled panels contain no finite heatmap values")
     joined_heat = np.concatenate(heat_values)
-    absolute_limit = float(np.max(np.abs(joined_heat)))
-    if absolute_limit <= np.finfo(float).eps:
-        absolute_limit = 1.0
+    if symmetric_color_limit is None:
+        absolute_limit = float(np.max(np.abs(joined_heat)))
+        if absolute_limit <= np.finfo(float).eps:
+            absolute_limit = 1.0
+    else:
+        absolute_limit = float(symmetric_color_limit)
+        if not np.isfinite(absolute_limit) or absolute_limit <= 0.0:
+            raise ValueError(
+                "symmetric_color_limit must be a positive finite value"
+            )
     heat_limits = (-absolute_limit, absolute_limit)
     if background_values:
         joined_background = np.concatenate(background_values)
@@ -797,15 +875,15 @@ def plot_signed_voxel_sections(
                 cmap=cmap,
                 vmin=heat_limits[0],
                 vmax=heat_limits[1],
-                interpolation="nearest",
+                interpolation="bilinear",
                 alpha=style["heat_alpha"],
                 zorder=2,
             )
-            threshold = float(style["mask_threshold"])
-            if np.nanmin(mask_slice) <= threshold < np.nanmax(mask_slice):
+            contour_level = float(mask_metadata["contour_level"])
+            if np.nanmin(mask_slice) <= contour_level < np.nanmax(mask_slice):
                 axis.contour(
                     mask_slice,
-                    levels=[threshold],
+                    levels=[contour_level],
                     colors=[style["mask_color"]],
                     linewidths=[style["mask_linewidth_pt"]],
                     alpha=style["mask_alpha"],
@@ -931,6 +1009,11 @@ def plot_signed_voxel_sections(
         "background_crop_count": len(unique_background_crops),
         "background_full_float_loaded": False,
         "mask_threshold": style["mask_threshold"],
+        "mask_sampling_order": 1,
+        "mask_sampling_representation": mask_metadata["representation"],
+        "mask_distance_units": mask_metadata["distance_units"],
+        "mask_contour_level": mask_metadata["contour_level"],
+        "mask_contour_units": mask_metadata["contour_units"],
         "mask_color": style["mask_color"],
         "mask_alpha": style["mask_alpha"],
         "mask_linewidth_pt": style["mask_linewidth_pt"],
@@ -938,6 +1021,7 @@ def plot_signed_voxel_sections(
         "facets": list(facets),
         "percent_list": list(style["percent_list"]),
         "resolution_mm": style["resolution_mm"],
+        "heat_raster_interpolation": "bilinear",
         "boxsize_mm": list(style["boxsize"]),
         "global_box_span_mm": (
             None
@@ -952,6 +1036,20 @@ def plot_signed_voxel_sections(
         "label_right_bg_color": style["label_right_bg_color"],
         "strip_background_alpha": 1.0,
     }
+    if mask_metadata["representation"] == "physical_signed_distance":
+        metadata.update(
+            {
+                "mask_roi_source_index_lower": mask_metadata[
+                    "roi_source_index_lower"
+                ],
+                "mask_roi_source_index_upper": mask_metadata[
+                    "roi_source_index_upper"
+                ],
+                "mask_roi_shape": mask_metadata["roi_shape"],
+                "mask_roi_halo_voxels": mask_metadata["halo_voxels"],
+                "mask_roi_halo_mm": mask_metadata["halo_mm"],
+            }
+        )
     setattr(figure, "_mh_viz_voxel_section_metadata", metadata)
     setattr(figure, "_mh_viz_panel_axes", tuple(axes.ravel()))
     setattr(figure, "_mh_viz_style", dict(style))

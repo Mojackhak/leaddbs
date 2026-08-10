@@ -3,6 +3,7 @@
 from .loader import ConfigurationError, load_workflow, validate_study_compatibility
 from .models import (
     DirectVoxelModelProfile,
+    IndividualizedSeedTargetModelProfile,
     NormativeFiberModelProfile,
     ResolvedWorkflow,
     WorkflowOverrides,
@@ -12,6 +13,7 @@ from .models import (
 __all__ = [
     "ConfigurationError",
     "DirectVoxelModelProfile",
+    "IndividualizedSeedTargetModelProfile",
     "NormativeFiberModelProfile",
     "ResolvedWorkflow",
     "WorkflowOverrides",

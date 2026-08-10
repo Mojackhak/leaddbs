@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import platform
 import re
 import shutil
 import signal
@@ -14,6 +15,7 @@ from typing import Callable, Mapping, Sequence
 import psutil
 
 from .errors import ExecutionInterrupted, ToolError, ValidationError
+from .identity import file_sha256
 from .models import BatchConfig, ToolIdentity
 
 
@@ -151,6 +153,29 @@ def resolve_tool_identities(config: BatchConfig) -> Mapping[str, ToolIdentity]:
         name="matlab",
         executable=matlab.resolve(),
         version=matlab_version,
+    )
+    repo_root = Path(__file__).resolve().parents[4]
+    system = platform.system()
+    machine = platform.machine().lower()
+    if system == "Darwin":
+        suffix = "maca64" if machine in {"arm64", "aarch64"} else "maci64"
+    elif system == "Linux":
+        suffix = "glnxa64"
+    elif system == "Windows":
+        suffix = "exe"
+    else:
+        raise ValidationError(
+            f"unsupported platform for antsApplyTransformsToPoints: {system} {machine}"
+        )
+    ants = repo_root / "ext_libs" / "ANTs" / f"antsApplyTransformsToPoints.{suffix}"
+    if not ants.is_file() or not os.access(ants, os.X_OK):
+        raise ValidationError(
+            f"bundled antsApplyTransformsToPoints is not executable: {ants}"
+        )
+    identities["antsApplyTransformsToPoints"] = ToolIdentity(
+        name="antsApplyTransformsToPoints",
+        executable=ants.resolve(),
+        version=f"sha256:{file_sha256(ants)}",
     )
     return identities
 

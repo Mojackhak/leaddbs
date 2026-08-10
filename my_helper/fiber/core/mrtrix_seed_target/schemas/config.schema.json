@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "atlas", "subjects", "tracking", "execution"],
+  "required": ["schema_version", "atlas", "subjects", "tracking", "execution", "visualization"],
   "properties": {
     "schema_version": {"const": 1},
     "atlas": {
@@ -11,7 +11,7 @@
       "required": ["name", "space", "root", "seeds"],
       "properties": {
         "name": {"type": "string", "minLength": 1},
-        "space": {"const": "MNI152NLin2009bAsym"},
+        "space": {"$ref": "#/$defs/safeId"},
         "root": {"type": "string", "minLength": 1},
         "seeds": {
           "type": "array",
@@ -82,6 +82,23 @@
         "matlab_executable": {"type": "string", "minLength": 1},
         "mrtrix_path_prefix": {"type": "string"}
       }
+    },
+    "visualization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_fiber_display_budget",
+        "target_colormap",
+        "seed_wireframe_color"
+      ],
+      "properties": {
+        "target_fiber_display_budget": {"type": "integer", "minimum": 1},
+        "target_colormap": {"type": "string", "minLength": 1},
+        "seed_wireframe_color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        }
+      }
     }
   },
   "$defs": {
@@ -133,9 +150,12 @@
             "brain_mask": {"type": "string", "minLength": 1},
             "tracking_mask": {"type": "string", "minLength": 1},
             "anchor_native_reference": {"type": "string", "minLength": 1},
-            "mni_to_anchor_transform": {"type": "string", "minLength": 1},
-            "anchor_to_dwi_transform": {"type": "string", "minLength": 1},
-            "coregistration_method_log": {"type": "string", "minLength": 1}
+            "b0_to_anchor_transform": {"type": "string", "minLength": 1},
+            "anchor_to_b0_transform": {"type": "string", "minLength": 1},
+            "target_to_anchor_image_deformation": {"type": "string", "minLength": 1},
+            "anchor_to_target_image_deformation": {"type": "string", "minLength": 1},
+            "coregistration_method_log": {"type": "string", "minLength": 1},
+            "normalization_method_log": {"type": "string", "minLength": 1}
           }
         }
       }

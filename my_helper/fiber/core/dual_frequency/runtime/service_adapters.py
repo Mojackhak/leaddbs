@@ -24,6 +24,7 @@ from ..backends.activation.ppam import (
     validate_ten_sample_probabilities,
 )
 from ..backends.delta_reference import (
+    build_delta_reference_individualized_target,
     build_delta_reference_fiber,
     build_delta_reference_voxel,
 )
@@ -35,6 +36,7 @@ from ..backends.direct_voxel.reference import ReferenceDirectVoxelBackend
 from ..backends.formal import (
     DirectVoxelFormalBackend,
     FinalInSampleBackend,
+    IndividualizedTargetFormalBackend,
     NormativeFiberFormalBackend,
     compute_direct_voxel_bootstrap_block,
     compute_normative_fiber_bootstrap_block,
@@ -51,6 +53,10 @@ from ..backends.interaction.branch_resolver import (
     NO_DELTA_BRANCH,
     branch_failure_record,
     branch_record_from_observed,
+)
+from ..backends.individualized_target import (
+    IndividualizedTargetBackend,
+    IndividualizedTargetDesignError,
 )
 from ..backends.normative_fiber.addon import AddonFiberBackend, AddonFiberDesignError
 from ..backends.normative_fiber.reference import ReferenceFiberBackend
@@ -69,6 +75,8 @@ from ..backends.sensitivity import (
     SpatialJitterRequest,
     SpatialJitterSettings,
     SpatialJitterStrategy,
+    IndividualizedTargetJitterRequest,
+    IndividualizedTargetSpatialJitterBackend,
     SupportDiagnosticInput,
     TauNeighborhoodRequest,
     TauNeighborhoodStrategy,
@@ -105,6 +113,8 @@ from ..contracts import (
     SensitivityResult,
     ScientificArrayRef,
     SourceRecord,
+    PreparedTargetExposureRecord,
+    TargetObservedRequest,
 )
 from ..contracts.records import ACCEPTED_SOURCE_STATUSES
 from ..workflow.executor import ServiceResult, TaskExecutionRequest
@@ -114,6 +124,10 @@ from .activation_provider import OSSActivationProvider, OSSActivationRuntimeRequ
 from .bootstrap_provider import (
     StudyBootstrapNuisanceProvider,
     StudyBootstrapNuisanceProviderError,
+)
+from .target_bootstrap_provider import (
+    StudyTargetBootstrapNuisanceProvider,
+    StudyTargetBootstrapNuisanceProviderError,
 )
 from .formal_operator_workspace import (
     formal_operator_scratch_record,
@@ -137,6 +151,7 @@ from .jitter_blocks import (
     prepare_jitter_exposure_block,
 )
 from .jitter_provider import StudyJitterReplicateProvider
+from .target_jitter_provider import StudyTargetJitterReplicateProvider
 from .oss_shared_omega import (
     omega_ids_for_shared_group,
     prepare_oss_omega_max_rows,
@@ -283,6 +298,23 @@ def _prepared_exposure_record(
     return matches[0]
 
 
+def _prepared_target_exposure_record(
+    request: TaskExecutionRequest,
+    endpoint_id: str,
+) -> PreparedTargetExposureRecord:
+    matches = tuple(
+        record
+        for record in _records(request, PreparedTargetExposureRecord)
+        if record.endpoint.identifier == endpoint_id
+    )
+    if len(matches) != 1:
+        raise ServiceAdapterError(
+            f"task {request.task.task_id!r} requires exactly one "
+            f"PreparedTargetExposureRecord for endpoint {endpoint_id!r}"
+        )
+    return matches[0]
+
+
 def _endpoint(request: TaskExecutionRequest) -> EndpointRecord:
     endpoint = _provider(request).endpoint(request.task.endpoint_id)
     if endpoint.endpoint_id != request.task.endpoint_id:
@@ -333,6 +365,8 @@ def _selected_tau_coverage(
 
 
 def _final_estimator(model_family: str) -> str:
+    if model_family.endswith("individualized"):
+        return "target_activation_burden"
     return (
         "continuous_dose_signed_peak"
         if model_family.endswith("fiber")
@@ -440,7 +474,11 @@ def _run_reference_observed(
     model_family: str,
 ) -> ServiceResult:
     endpoint_input = _one_record(request, EndpointInputRecord)
-    prepared = _one_record(request, PreparedExposureRecord)
+    prepared = (
+        _one_record(request, PreparedTargetExposureRecord)
+        if model_family == "reference_individualized"
+        else _one_record(request, PreparedExposureRecord)
+    )
     assert endpoint_input is not None and prepared is not None
     observed_request = _provider(request).observed_request(
         endpoint_input,
@@ -455,6 +493,11 @@ def _run_reference_observed(
         ).run(observed_request)
     elif model_family == "reference_fiber":
         result = ReferenceFiberBackend(
+            publisher,
+            artifact_store=request.artifact_store,
+        ).run(observed_request)
+    elif model_family == "reference_individualized":
+        result = IndividualizedTargetBackend(
             publisher,
             artifact_store=request.artifact_store,
         ).run(observed_request)
@@ -564,7 +607,7 @@ def _bind_reference_dependency(request: TaskExecutionRequest) -> ServiceResult:
 
 
 def _invalid_delta_from_preparation(
-    prepared: PreparedExposureRecord,
+    prepared: PreparedExposureRecord | PreparedTargetExposureRecord,
     reference: SourceRecord | SensitiveRecord,
 ) -> DeltaReferenceBundle:
     tau, coverage = _selected_tau_coverage(reference)
@@ -601,7 +644,14 @@ def _build_delta_reference(
 ) -> ServiceResult:
     endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
     dependency = _one_record(request, ReferenceDependencyRecord)
-    prepared = _prepared_exposure_record(request, request.task.endpoint_id)
+    prepared = (
+        _prepared_target_exposure_record(
+            request,
+            request.task.endpoint_id,
+        )
+        if model_family == "addon_individualized"
+        else _prepared_exposure_record(request, request.task.endpoint_id)
+    )
     assert endpoint_input is not None and dependency is not None and prepared is not None
     reference_input = _endpoint_input_record(
         request,
@@ -613,13 +663,15 @@ def _build_delta_reference(
     if prepared.delta_reference_input_status != "ready":
         invalid = _invalid_delta_from_preparation(prepared, reference)
         return ServiceResult.from_record(invalid, facts={"delta_inputs_valid": False})
-    if (
-        endpoint_input.subject_axis is None
-        or reference_input.subject_axis is None
-        or prepared.reference_condition_exposure is None
+    if endpoint_input.subject_axis is None or reference_input.subject_axis is None:
+        raise ServiceAdapterError("DeltaReferenceScore prepared artifacts are incomplete")
+    if isinstance(prepared, PreparedExposureRecord) and (
+        prepared.reference_condition_exposure is None
         or prepared.addon_reference_component_exposure is None
     ):
-        raise ServiceAdapterError("DeltaReferenceScore prepared artifacts are incomplete")
+        raise ServiceAdapterError(
+            "DeltaReferenceScore prepared artifacts are incomplete"
+        )
 
     configuration = _configuration(request)
     publisher = _publisher(request)
@@ -647,6 +699,7 @@ def _build_delta_reference(
             artifact_store=store,
         )
     elif model_family == "addon_fiber":
+        assert isinstance(prepared, PreparedExposureRecord)
         reference_prepared = _prepared_exposure_record(
             request,
             dependency.matched_reference_endpoint_id,
@@ -675,6 +728,49 @@ def _build_delta_reference(
             publisher=publisher,
             artifact_store=store,
         )
+    elif model_family == "addon_individualized":
+        if not isinstance(reference, SourceRecord):
+            raise ServiceAdapterError(
+                "add-on individualized target requires a SourceRecord dependency"
+            )
+        if not isinstance(prepared, PreparedTargetExposureRecord):
+            raise ServiceAdapterError(
+                "add-on individualized target requires prepared target exposure"
+            )
+        if (
+            prepared.reference_condition_patient_burdens is None
+            or prepared.addon_reference_component_patient_burdens is None
+            or prepared.addon_reference_component_patient_support is None
+        ):
+            raise ServiceAdapterError(
+                "individualized target DeltaReferenceScore inputs are incomplete"
+            )
+        profile = configuration.individualized_seed_target
+        record = build_delta_reference_individualized_target(
+            matched_reference_endpoint_id=(
+                dependency.matched_reference_endpoint_id
+            ),
+            reference_source=reference,
+            reference_condition_burdens=(
+                prepared.reference_condition_patient_burdens
+            ),
+            addon_reference_component_burdens=(
+                prepared.addon_reference_component_patient_burdens
+            ),
+            addon_reference_component_support=(
+                prepared.addon_reference_component_patient_support
+            ),
+            subject_axis=endpoint_input.subject_axis,
+            reference_subject_axis=reference_input.subject_axis,
+            target_axis=prepared.target_axis,
+            tau_axis=prepared.tau_axis,
+            tau_values=profile.source.tau_values,
+            addon_subject_ids=endpoint_input.included_subject_ids,
+            reference_subject_ids=reference_input.included_subject_ids,
+            support_profile=profile.delta_reference_support,
+            publisher=publisher,
+            artifact_store=store,
+        )
     else:
         raise ServiceAdapterError(f"unsupported Delta model family {model_family!r}")
     return ServiceResult.from_record(record, facts={"delta_inputs_valid": record.valid})
@@ -688,7 +784,11 @@ def _run_addon_branch(
 ) -> ServiceResult:
     endpoint_input = _one_record(request, EndpointInputRecord)
     dependency = _one_record(request, ReferenceDependencyRecord)
-    prepared = _one_record(request, PreparedExposureRecord)
+    prepared = (
+        _one_record(request, PreparedTargetExposureRecord)
+        if model_family == "addon_individualized"
+        else _one_record(request, PreparedExposureRecord)
+    )
     delta = _one_record(request, DeltaReferenceBundle, required=False)
     assert endpoint_input is not None and dependency is not None and prepared is not None
     branch = request.task.key.branch
@@ -724,9 +824,18 @@ def _run_addon_branch(
                 publisher,
                 artifact_store=request.artifact_store,
             ).run(observed_request)
+        elif model_family == "addon_individualized":
+            observed = IndividualizedTargetBackend(
+                publisher,
+                artifact_store=request.artifact_store,
+            ).run(observed_request)
         else:
             raise ServiceAdapterError(f"unsupported add-on model family {model_family!r}")
-    except (AddonDirectVoxelDesignError, AddonFiberDesignError) as exc:
+    except (
+        AddonDirectVoxelDesignError,
+        AddonFiberDesignError,
+        IndividualizedTargetDesignError,
+    ) as exc:
         record = branch_failure_record(
             endpoint_input.endpoint,
             branch,
@@ -909,7 +1018,14 @@ def _formal_request(
     resampling_kind: str,
 ):
     endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
-    prepared = _prepared_exposure_record(request, request.task.endpoint_id)
+    prepared = (
+        _prepared_target_exposure_record(
+            request,
+            request.task.endpoint_id,
+        )
+        if request.task.model_family.endswith("individualized")
+        else _prepared_exposure_record(request, request.task.endpoint_id)
+    )
     delta = _one_record(request, DeltaReferenceBundle, required=False)
     selection = _final_selection(request)
     assert endpoint_input is not None and prepared is not None
@@ -1010,6 +1126,41 @@ def _run_formal_permutation_block(
     request: TaskExecutionRequest,
 ) -> ServiceResult:
     formal_request = _formal_permutation_request(request)
+    if formal_request.final_model.endpoint.model_family.endswith(
+        "individualized"
+    ):
+        schedule_record = _one_record(request, ResamplingScheduleRecord)
+        assert schedule_record is not None
+        schedule = load_formal_resampling_schedule(
+            schedule_record,
+            formal_request,
+            request.artifact_store,
+        )
+        try:
+            block_index = int(
+                request.task.execution_parameter("block_index")
+            )
+            if block_index < 0:
+                raise ValueError("block index is negative")
+            block = schedule.blocks()[block_index]
+        except (IndexError, TypeError, ValueError) as error:
+            raise ServiceAdapterError(
+                "formal permutation block_index is invalid"
+            ) from error
+        result = IndividualizedTargetFormalBackend(
+            _publisher(request),
+            artifact_store=request.artifact_store,
+        ).run_permutation_block(
+            formal_request,
+            schedule,
+            block,
+        )
+        record = publish_formal_permutation_block(
+            result,
+            schedule_record,
+            _publisher(request),
+        )
+        return ServiceResult.from_record(record)
     schedule_record, schedule, descriptor = _formal_permutation_predecessors(
         request,
         formal_request,
@@ -1042,6 +1193,42 @@ def _aggregate_formal_permutation(
     request: TaskExecutionRequest,
 ) -> ServiceResult:
     formal_request = _formal_permutation_request(request)
+    if formal_request.final_model.endpoint.model_family.endswith(
+        "individualized"
+    ):
+        schedule_record = _one_record(request, ResamplingScheduleRecord)
+        assert schedule_record is not None
+        schedule = load_formal_resampling_schedule(
+            schedule_record,
+            formal_request,
+            request.artifact_store,
+        )
+        block_records = _records(request, ResamplingBlockRecord)
+        if not block_records:
+            raise ServiceAdapterError(
+                "formal permutation aggregate requires block records"
+            )
+        blocks = tuple(
+            load_formal_permutation_block(
+                record,
+                schedule_record,
+                request.artifact_store,
+            )
+            for record in block_records
+        )
+        result = IndividualizedTargetFormalBackend(
+            _publisher(request),
+            artifact_store=request.artifact_store,
+        ).aggregate_permutation(
+            formal_request,
+            schedule,
+            blocks,
+            schedule_record.schedule,
+        )
+        return ServiceResult.from_record(
+            result,
+            facts={"formal_complete": True},
+        )
     schedule_record, schedule, descriptor = _formal_permutation_predecessors(
         request,
         formal_request,
@@ -1114,19 +1301,56 @@ def _bootstrap_nuisance_provider(
     delta_reference = _one_record(request, DeltaReferenceBundle)
     assert dependency is not None and delta_reference is not None
     addon_input = _endpoint_input_record(request, request.task.endpoint_id)
-    addon_prepared = _prepared_exposure_record(
-        request,
-        request.task.endpoint_id,
+    is_target = formal_request.final_model.endpoint.model_family.endswith(
+        "individualized"
+    )
+    addon_prepared = (
+        _prepared_target_exposure_record(
+            request,
+            request.task.endpoint_id,
+        )
+        if is_target
+        else _prepared_exposure_record(
+            request,
+            request.task.endpoint_id,
+        )
     )
     reference_input = _endpoint_input_record(
         request,
         dependency.matched_reference_endpoint_id,
     )
-    reference_prepared = _prepared_exposure_record(
-        request,
-        dependency.matched_reference_endpoint_id,
+    reference_prepared = (
+        _prepared_target_exposure_record(
+            request,
+            dependency.matched_reference_endpoint_id,
+        )
+        if is_target
+        else _prepared_exposure_record(
+            request,
+            dependency.matched_reference_endpoint_id,
+        )
     )
     try:
+        if is_target:
+            assert isinstance(
+                addon_prepared,
+                PreparedTargetExposureRecord,
+            )
+            assert isinstance(
+                reference_prepared,
+                PreparedTargetExposureRecord,
+            )
+            return StudyTargetBootstrapNuisanceProvider(
+                runtime_provider,
+                _artifact_store(request),
+                formal_request,
+                addon_input,
+                addon_prepared,
+                reference_input,
+                reference_prepared,
+                dependency,
+                delta_reference,
+            )
         return StudyBootstrapNuisanceProvider(
             runtime_provider,
             _artifact_store(request),
@@ -1138,7 +1362,10 @@ def _bootstrap_nuisance_provider(
             dependency,
             delta_reference,
         )
-    except StudyBootstrapNuisanceProviderError as error:
+    except (
+        StudyBootstrapNuisanceProviderError,
+        StudyTargetBootstrapNuisanceProviderError,
+    ) as error:
         raise ServiceAdapterError(str(error)) from error
 
 
@@ -1157,6 +1384,12 @@ def _formal_bootstrap_backend(
         )
     if model_family.endswith("fiber"):
         return NormativeFiberFormalBackend(
+            publisher,
+            artifact_store=request.artifact_store,
+            bootstrap_nuisance_provider=nuisance_provider,
+        )
+    if model_family.endswith("individualized"):
+        return IndividualizedTargetFormalBackend(
             publisher,
             artifact_store=request.artifact_store,
             bootstrap_nuisance_provider=nuisance_provider,
@@ -1342,10 +1575,28 @@ def _run_formal_bootstrap_block(
             "formal bootstrap block_index is invalid"
         ) from error
     nuisance_provider = _bootstrap_nuisance_provider(request, formal_request)
+    model_family = formal_request.final_model.endpoint.model_family
+    if model_family.endswith("individualized"):
+        result = IndividualizedTargetFormalBackend(
+            _publisher(request),
+            artifact_store=request.artifact_store,
+            bootstrap_nuisance_provider=nuisance_provider,
+        ).run_bootstrap_block(
+            formal_request,
+            schedule,
+            block,
+        )
+        record = publish_formal_bootstrap_block(
+            result,
+            schedule_record,
+            formal_request.feature_axis,
+            formal_request.exposure_space,
+            _publisher(request),
+        )
+        return ServiceResult.from_record(record)
     exposure, fiber_ids, outcome, baseline, delta_full, delta_folds = (
         _formal_bootstrap_inputs(request, formal_request)
     )
-    model_family = formal_request.final_model.endpoint.model_family
     if model_family.endswith("voxel"):
         result = compute_direct_voxel_bootstrap_block(
             formal_request,
@@ -1409,6 +1660,21 @@ def _aggregate_formal_bootstrap(
         )
         for record in block_records
     )
+    if formal_request.final_model.endpoint.model_family.endswith(
+        "individualized"
+    ):
+        formal_result = IndividualizedTargetFormalBackend(
+            _publisher(request),
+            artifact_store=request.artifact_store,
+        ).aggregate_bootstrap(
+            formal_request,
+            schedule,
+            blocks,
+        )
+        return ServiceResult.from_record(
+            formal_result,
+            facts={"formal_complete": True},
+        )
     result = combine_bootstrap_blocks(schedule, blocks)
     backend = _formal_bootstrap_backend(request, formal_request, None)
     formal_result = backend._publish_bootstrap(formal_request, result)
@@ -1455,7 +1721,14 @@ def _run_in_sample(
     model_family: str,
 ) -> ServiceResult:
     endpoint_input = _endpoint_input_record(request, request.task.endpoint_id)
-    prepared = _prepared_exposure_record(request, request.task.endpoint_id)
+    prepared = (
+        _prepared_target_exposure_record(
+            request,
+            request.task.endpoint_id,
+        )
+        if model_family.endswith("individualized")
+        else _prepared_exposure_record(request, request.task.endpoint_id)
+    )
     delta = _one_record(request, DeltaReferenceBundle, required=False)
     selection = _final_selection(request)
     loocv_results = tuple(
@@ -1469,18 +1742,33 @@ def _run_in_sample(
         )
     if selection.final_model.endpoint.model_family != model_family:
         raise ServiceAdapterError("in-sample service model family does not match final")
-    method = getattr(request.provider, "in_sample_request", None)
+    method_name = (
+        "target_in_sample_request"
+        if model_family.endswith("individualized")
+        else "in_sample_request"
+    )
+    method = getattr(request.provider, method_name, None)
     if not callable(method):
         raise ServiceAdapterCapabilityError(
-            "provider does not expose the typed in_sample_request capability"
+            f"provider does not expose the typed {method_name} capability"
         )
-    in_sample_request = method(
-        selection.final_model,
-        endpoint_input,
-        prepared,
-        loocv_results[0],
-        delta_reference=delta,
-    )
+    if model_family.endswith("individualized"):
+        in_sample_request = method(
+            selection.final_model,
+            endpoint_input,
+            prepared,
+            loocv_results[0],
+            _publisher(request),
+            delta_reference=delta,
+        )
+    else:
+        in_sample_request = method(
+            selection.final_model,
+            endpoint_input,
+            prepared,
+            loocv_results[0],
+            delta_reference=delta,
+        )
     result = FinalInSampleBackend(
         _publisher(request),
         artifact_store=_artifact_store(request),
@@ -1635,8 +1923,6 @@ def _run_tau_neighborhood(request: TaskExecutionRequest) -> ServiceResult:
 
 def _run_reference_fiber_control(
     request: TaskExecutionRequest,
-    *,
-    cheap: bool,
 ) -> ServiceResult:
     endpoint_input = _one_record(request, EndpointInputRecord)
     prepared = _one_record(request, PreparedExposureRecord)
@@ -1648,21 +1934,9 @@ def _run_reference_fiber_control(
         branch="reference",
     )
     diagnostic_observed = ObservedResult(source=None, artifacts=observed.artifacts)
-    configuration = _configuration(request)
-    sensitivity = configuration.normative_fiber.sensitivity
     control_request = ObservedFiberControlRequest(
         observed_request=observed_request,
         observed_result=diagnostic_observed,
-        high_threshold_tau=(sensitivity.high_threshold.tau if cheap else None),
-        high_threshold_coverage=(
-            sensitivity.high_threshold.coverage if cheap else None
-        ),
-        fixed_sweet_count=(
-            sensitivity.fixed_outer_library.sweet_count if cheap else None
-        ),
-        fixed_sour_count=(
-            sensitivity.fixed_outer_library.sour_count if cheap else None
-        ),
     )
     result = ObservedFiberControlStrategy(
         _publisher(request),
@@ -1892,6 +2166,84 @@ def _addon_exposure_sensitivity(request: TaskExecutionRequest) -> ServiceResult:
             total_exposure_request=total_request,
             support_input=support_input,
             collinearity_input=collinearity_input,
+        )
+    )
+    return ServiceResult.from_record(result)
+
+
+def _run_target_jitter(request: TaskExecutionRequest) -> ServiceResult:
+    if not isinstance(request.provider, StudyRuntimeInputProvider):
+        raise ServiceAdapterCapabilityError(
+            "individualized target jitter requires StudyRuntimeInputProvider"
+        )
+    configuration = _configuration(request)
+    profile = configuration.individualized_seed_target.formal_resampling
+    settings = SpatialJitterSettings(
+        replicates=profile.jitter_resamples,
+        seed=profile.seed,
+        translation_fwhm_mm=profile.jitter_translation_fwhm_mm,
+    )
+    endpoint_input = _endpoint_input_record(
+        request,
+        request.task.endpoint_id,
+    )
+    prepared = _prepared_target_exposure_record(
+        request,
+        request.task.endpoint_id,
+    )
+    selection = _final_selection(request)
+    final = selection.final_model
+    if final is None:
+        raise ServiceAdapterError(
+            "individualized target jitter requires a realized final"
+        )
+    dependency = _one_record(
+        request,
+        ReferenceDependencyRecord,
+        required=False,
+    )
+    reference_input = (
+        None
+        if dependency is None
+        else _endpoint_input_record(
+            request,
+            dependency.matched_reference_endpoint_id,
+        )
+    )
+    original_delta = _one_record(
+        request,
+        DeltaReferenceBundle,
+        required=False,
+    )
+    original_request = request.provider.observed_request(
+        endpoint_input,
+        prepared,
+        branch=final.final_key.final_branch,
+        delta_reference=original_delta,
+    )
+    if not isinstance(original_request, TargetObservedRequest):
+        raise ServiceAdapterError(
+            "individualized target jitter requires TargetObservedRequest"
+        )
+    replicate_provider = StudyTargetJitterReplicateProvider(
+        provider=request.provider,
+        endpoint_input=endpoint_input,
+        reference_input=reference_input,
+        reference_dependency=dependency,
+        final_model=final,
+        original_request=original_request,
+        artifact_store=_artifact_store(request),
+        settings=settings,
+    )
+    result = IndividualizedTargetSpatialJitterBackend(
+        _publisher(request),
+        artifact_store=replicate_provider.array_provider,
+    ).run(
+        IndividualizedTargetJitterRequest(
+            final_model=final,
+            observed_request=original_request,
+            settings=settings,
+            replicate_provider=replicate_provider,
         )
     )
     return ServiceResult.from_record(result)
@@ -2688,12 +3040,31 @@ def _run_reference_fiber_observed(request: TaskExecutionRequest) -> ServiceResul
     return _run_reference_observed(request, model_family="reference_fiber")
 
 
+def _run_reference_individualized_observed(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    return _run_reference_observed(
+        request,
+        model_family="reference_individualized",
+    )
+
+
 def _run_addon_voxel_branch(request: TaskExecutionRequest) -> ServiceResult:
     return _run_addon_branch(request, model_family="addon_voxel", sensitive=False)
 
 
 def _run_addon_fiber_branch(request: TaskExecutionRequest) -> ServiceResult:
     return _run_addon_branch(request, model_family="addon_fiber", sensitive=False)
+
+
+def _run_addon_individualized_branch(
+    request: TaskExecutionRequest,
+) -> ServiceResult:
+    return _run_addon_branch(
+        request,
+        model_family="addon_individualized",
+        sensitive=False,
+    )
 
 
 PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
@@ -2772,15 +3143,29 @@ PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
     ),
     (
         "run_reference_fiber_plain_control",
-        partial(_run_reference_fiber_control, cheap=False),
-    ),
-    (
-        "run_reference_fiber_cheap_sensitivity",
-        partial(_run_reference_fiber_control, cheap=True),
+        _run_reference_fiber_control,
     ),
     ("run_reference_fiber_activation", _run_activation),
     ("run_reference_fiber_jitter", _run_jitter),
     ("evaluate_sensitive_connectome_at_formal_source", _evaluate_sensitive_reference),
+    ("validate_reference_individualized_input", _validate_endpoint_input),
+    ("prepare_reference_individualized_exposure", _prepare_exposure),
+    (
+        "run_reference_individualized_observed_grid",
+        _run_reference_individualized_observed,
+    ),
+    (
+        "resolve_reference_individualized_source",
+        _resolve_reference_source,
+    ),
+    (
+        "run_reference_individualized_formal_in_sample",
+        partial(
+            _run_in_sample,
+            model_family="reference_individualized",
+        ),
+    ),
+    ("run_reference_individualized_jitter", _run_target_jitter),
     ("validate_addon_voxel_input", _validate_endpoint_input),
     ("bind_reference_dependency", _bind_reference_dependency),
     ("prepare_addon_voxel_exposure", _prepare_exposure),
@@ -2847,6 +3232,27 @@ PRODUCTION_SERVICE_HANDLERS: tuple[tuple[str, ServiceHandler], ...] = (
     ("run_addon_fiber_jitter", _run_jitter),
     ("run_sensitive_addon_fiber_branch", _run_sensitive_addon_branch),
     ("evaluate_sensitive_addon_at_formal_final", _evaluate_sensitive_addon),
+    ("validate_addon_individualized_input", _validate_endpoint_input),
+    ("prepare_addon_individualized_exposure", _prepare_exposure),
+    (
+        "run_addon_individualized_branch",
+        _run_addon_individualized_branch,
+    ),
+    (
+        "build_individualized_delta_reference_input",
+        partial(
+            _build_delta_reference,
+            model_family="addon_individualized",
+        ),
+    ),
+    (
+        "run_addon_individualized_formal_in_sample",
+        partial(
+            _run_in_sample,
+            model_family="addon_individualized",
+        ),
+    ),
+    ("run_addon_individualized_jitter", _run_target_jitter),
 )
 
 

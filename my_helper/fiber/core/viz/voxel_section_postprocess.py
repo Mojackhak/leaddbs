@@ -18,8 +18,10 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
+from .artifacts import create_display_nifti
 from .plugin.default import get_voxel_section_cfg
 from .published_artifacts import PublicationCatalog, PublishedArtifact
+from .spatial_result_config import load_spatial_result_config
 from .voxel_sections import plot_signed_voxel_sections
 
 
@@ -36,15 +38,6 @@ _ROLE_SPECS = (
     _RoleSpec(role="reference", mask_key="reference_mask"),
     _RoleSpec(role="addon", mask_key="addon_mask"),
 )
-
-_DISPLAY_MAPS = (
-    "benefit_map.nii.gz",
-    "benefit_map_smooth_fwhm1mm.nii.gz",
-    "benefit_map_smooth_fwhm2mm.nii.gz",
-)
-
-_REPORT_DISPLAY_MAPS = _DISPLAY_MAPS[1:]
-
 
 def _read_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -92,7 +85,7 @@ def _resource_record(path: str | Path, kind: str) -> dict[str, Any]:
 
 def _references(scale_id: str, role: str) -> dict[str, dict[str, str]]:
     base = f"{scale_id}/{role}"
-    references = {
+    return {
         "final_model": {
             "publication": "direct_voxel_main",
             "relative_path": f"{base}/final_model.json",
@@ -102,12 +95,6 @@ def _references(scale_id: str, role: str) -> dict[str, dict[str, str]]:
             "relative_path": f"{base}/report/summary.json",
         },
     }
-    for filename in _REPORT_DISPLAY_MAPS:
-        references[filename] = {
-            "publication": "direct_voxel_main",
-            "relative_path": f"{base}/report/display/{filename}",
-        }
-    return references
 
 
 def _selected_benefit_map_relative_path(
@@ -229,21 +216,23 @@ def _write_readme(root: Path, scale_id: str) -> None:
     text = f"""# PDQ-39 Direct-Voxel Spatial Postprocess
 
 This checkpoint contains only the accepted direct-voxel section figures for
-`{scale_id}`. It includes the reference and add-on final models and three
-published maps per model: raw right-sided, FWHM 1 mm, and FWHM 2 mm.
+`{scale_id}`. It includes the reference and add-on final models. Each model
+uses its selected scientific benefit map to create one display-only map with
+the configured Gaussian smoothing, output voxel size, and support threshold.
 It does not contain another scale or a fiber-density projection.
 
-Browse the six figures under:
+Browse the two figures under:
 
 ```text
 scales/{scale_id}/reference/voxel/
 scales/{scale_id}/addon/voxel/
 ```
 
-Every figure has PNG, PDF, and JSON files. The JSON binds the canonical
-publication source, final-model identity, anatomy, right-sided mask, slice
-coordinates, display limits, and rendering parameters. `figure_index.csv`
-provides a compact cross-figure index.
+Every role has `maps/display.nii.gz` and `figures/display.png`,
+`figures/display.pdf`, and `figures/result.json`. The JSON binds the canonical
+publication source, display transform, final-model identity, anatomy,
+right-sided mask, slice coordinates, display limits, and rendering parameters.
+`figure_index.csv` provides a compact cross-figure index.
 """
     (root / "README.md").write_text(text, encoding="utf-8")
 
@@ -254,6 +243,7 @@ def render_voxel_section_components(
     output_root: str | Path,
     catalog: PublicationCatalog,
     resources: Mapping[str, Mapping[str, Any]],
+    display_map: Mapping[str, Any],
     style: Mapping[str, Any],
     force: bool = False,
 ) -> list[dict[str, Any]]:
@@ -295,20 +285,11 @@ def render_voxel_section_components(
         )
         for role_spec in _ROLE_SPECS:
             leaf = root / "scales" / scale_id / role_spec.role / "voxel"
-            result_paths = {
-                filename: (
-                    leaf
-                    / f"{filename.removesuffix('.nii.gz')}_sections.json"
-                )
-                for filename in _DISPLAY_MAPS
-            }
-            if not force and all(
-                _result_reusable(path) for path in result_paths.values()
-            ):
-                for path in result_paths.values():
-                    restored = _read_json(path)
-                    restored["resume_status"] = "reused"
-                    results.append(restored)
+            result_path = leaf / "figures" / "result.json"
+            if not force and _result_reusable(result_path):
+                restored = _read_json(result_path)
+                restored["resume_status"] = "reused"
+                results.append(restored)
                 continue
             references = _references(scale_id, role_spec.role)
             try:
@@ -318,122 +299,121 @@ def render_voxel_section_components(
                 _validate_final_model(
                     scale_id, role_spec.role, final_model, report_summary
                 )
-                sources["benefit_map.nii.gz"] = catalog.resolve_relative(
+                sources["benefit_map"] = catalog.resolve_relative(
                     "direct_voxel_main",
                     _selected_benefit_map_relative_path(final_model),
                 )
             except Exception as error:  # noqa: BLE001 - role-local failure is recorded
-                for filename in _DISPLAY_MAPS:
-                    stem = filename.removesuffix(".nii.gz") + "_sections"
-                    result_path = result_paths[filename]
-                    if not force and _result_reusable(result_path):
-                        restored = _read_json(result_path)
-                        restored["resume_status"] = "reused"
-                        results.append(restored)
-                        continue
-                    item = {
-                        "schema_version": SCHEMA_VERSION,
-                        "status": "failed",
-                        "scale_id": scale_id,
-                        "scale_display_name": scale_display_name,
-                        "study_scale_definition": study_scale_definition,
-                        "colorbar_semantic_label": colorbar_semantic_label,
-                        "model_role": role_spec.role,
-                        "display_artifact_kind": filename.removesuffix(".nii.gz"),
-                        "result_path": result_path.relative_to(root).as_posix(),
-                        "error_type": type(error).__name__,
-                        "error_message": str(error),
-                    }
-                    _write_json_atomic(result_path, item)
-                    results.append(item)
-                continue
-
-            shared_source_records = {
-                name: artifact.as_manifest_record()
-                for name, artifact in sources.items()
-                if name in {"final_model", "report_summary"}
-            }
-            for filename in _DISPLAY_MAPS:
-                stem = filename.removesuffix(".nii.gz") + "_sections"
-                result_path = result_paths[filename]
-                heat_artifact = sources[filename]
-                source_records = {
-                    **shared_source_records,
-                    "heatmap": heat_artifact.as_manifest_record(),
-                }
-                item: dict[str, Any] = {
+                item = {
                     "schema_version": SCHEMA_VERSION,
-                    "status": "running",
+                    "status": "failed",
                     "scale_id": scale_id,
                     "scale_display_name": scale_display_name,
                     "study_scale_definition": study_scale_definition,
                     "colorbar_semantic_label": colorbar_semantic_label,
                     "model_role": role_spec.role,
-                    "model_unit": "voxel",
-                    "display_artifact_kind": filename.removesuffix(".nii.gz"),
+                    "display_artifact_kind": "display",
                     "result_path": result_path.relative_to(root).as_posix(),
+                    "error_type": type(error).__name__,
+                    "error_message": str(error),
                 }
-                if not force and _result_reusable(result_path):
-                    restored = _read_json(result_path)
-                    restored["resume_status"] = "reused"
-                    results.append(restored)
-                    continue
-                try:
-                    output_paths = [
-                        leaf / f"{stem}.{str(extension).lower().lstrip('.')}"
-                        for extension in style["formats"]
-                    ]
-                    relative_outputs = [
-                        path.relative_to(root).as_posix() for path in output_paths
-                    ]
-                    figure = plot_signed_voxel_sections(
-                        heat_artifact.path,
-                        background_image=resources["background"]["path"],
-                        mask_image=resources[role_spec.mask_key]["path"],
-                        style_config=scale_style,
-                        output_paths=output_paths,
-                    )
-                    render_metadata = getattr(
-                        figure, "_mh_viz_voxel_section_metadata"
-                    )
-                    plt.close(figure)
-                    item.update(
-                        {
-                            "status": "complete",
-                            "final_model_id": final_model.get("final_model_id"),
-                            "final_branch": final_model.get(
-                                "realized_final_branch",
-                                final_model.get("final_branch"),
-                            ),
-                            "selected_tau": final_model.get("selected_tau_v_per_m"),
-                            "selected_coverage": final_model.get(
-                                "selected_coverage_subjects_min"
-                            ),
-                            "source_artifacts": source_records,
-                            "resources": {
-                                "background": dict(resources["background"]),
-                                "mask": dict(resources[role_spec.mask_key]),
-                            },
-                            "style": scale_style,
-                            "render_metadata": render_metadata,
-                            "outputs": relative_outputs,
-                        }
-                    )
-                except Exception as error:  # noqa: BLE001 - figure-local failure is recorded
-                    item.update(
-                        {
-                            "status": "failed",
-                            "error_type": type(error).__name__,
-                            "error_message": str(error),
-                        }
-                    )
                 _write_json_atomic(result_path, item)
-                if item["status"] == "complete":
-                    _write_json_atomic(
-                        _completion_marker(result_path),
-                        {"status": "complete"},
-                    )
                 results.append(item)
+                continue
+
+            source_records = {
+                name: artifact.as_manifest_record()
+                for name, artifact in sources.items()
+            }
+            display_path = leaf / "maps" / "display.nii.gz"
+            item: dict[str, Any] = {
+                "schema_version": SCHEMA_VERSION,
+                "status": "running",
+                "scale_id": scale_id,
+                "scale_display_name": scale_display_name,
+                "study_scale_definition": study_scale_definition,
+                "colorbar_semantic_label": colorbar_semantic_label,
+                "model_role": role_spec.role,
+                "model_unit": "voxel",
+                "display_artifact_kind": "display",
+                "result_path": result_path.relative_to(root).as_posix(),
+            }
+            try:
+                _, display_transform = create_display_nifti(
+                    sources["benefit_map"].path,
+                    display_path,
+                    fwhm_mm=float(display_map["fwhm_mm"]),
+                    voxel_size_mm=float(display_map["voxel_size_mm"]),
+                    support_weight_threshold=float(
+                        display_map["support_weight_threshold"]
+                    ),
+                    force=force,
+                )
+                output_paths = [
+                    leaf
+                    / "figures"
+                    / f"display.{str(extension).lower().lstrip('.')}"
+                    for extension in style["formats"]
+                ]
+                figure = plot_signed_voxel_sections(
+                    display_path,
+                    background_image=resources["background"]["path"],
+                    mask_image=resources[role_spec.mask_key]["path"],
+                    outline_image=resources[role_spec.mask_key]["path"],
+                    style_config=scale_style,
+                    output_paths=output_paths,
+                )
+                render_metadata = getattr(
+                    figure, "_mh_viz_voxel_section_metadata"
+                )
+                plt.close(figure)
+                item.update(
+                    {
+                        "status": "complete",
+                        "final_model_id": final_model.get("final_model_id"),
+                        "final_branch": final_model.get(
+                            "realized_final_branch",
+                            final_model.get("final_branch"),
+                        ),
+                        "selected_tau": final_model.get("selected_tau_v_per_m"),
+                        "selected_coverage": final_model.get(
+                            "selected_coverage_subjects_min"
+                        ),
+                        "source_artifacts": source_records,
+                        "display_map": _resource_record(
+                            display_path, "display_heatmap"
+                        ),
+                        "display_transform": display_transform,
+                        "resources": {
+                            "background": dict(resources["background"]),
+                            "mask": dict(resources[role_spec.mask_key]),
+                        },
+                        "style": scale_style,
+                        "render_metadata": render_metadata,
+                        "outputs": [
+                            display_path.relative_to(root).as_posix(),
+                            *(
+                                path.relative_to(root).as_posix()
+                                for path in output_paths
+                            ),
+                        ],
+                    }
+                )
+            except Exception as error:  # noqa: BLE001 - figure-local failure is recorded
+                item.update(
+                    {
+                        "status": "failed",
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                    }
+                )
+            _write_json_atomic(result_path, item)
+            if item["status"] == "complete":
+                _write_json_atomic(
+                    _completion_marker(result_path),
+                    {"status": "complete"},
+                )
+            results.append(item)
     return results
 
 
@@ -442,13 +422,11 @@ def run_single_scale_voxel_section_postprocess(
     scale_id: str,
     output_root: str | Path,
     direct_voxel_publication_root: str | Path,
-    background_path: str | Path,
-    reference_mask_path: str | Path,
-    addon_mask_path: str | Path,
+    spatial_config_path: str | Path,
     style_overrides: Mapping[str, Any] | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
-    """Render the six accepted direct-voxel section figures for one scale."""
+    """Render the two accepted direct-voxel section figures for one scale."""
 
     normalized_scale = str(scale_id).strip()
     if not normalized_scale or "/" in normalized_scale or ".." in normalized_scale:
@@ -481,10 +459,20 @@ def run_single_scale_voxel_section_postprocess(
         "Benefit-oriented partial Spearman ρ\n"
         f"with {scale_display_name}"
     )
+    spatial_config = load_spatial_result_config(spatial_config_path)
+    style["mask_threshold"] = float(
+        spatial_config["outline"]["continuous_isovalue"]
+    )
     resources = {
-        "background": _resource_record(background_path, "anatomy_background"),
-        "reference_mask": _resource_record(reference_mask_path, "reference_mask"),
-        "addon_mask": _resource_record(addon_mask_path, "addon_mask"),
+        "background": _resource_record(
+            spatial_config["background"]["path"], "anatomy_background"
+        ),
+        "reference_mask": _resource_record(
+            spatial_config["voxel"]["masks"]["reference"], "reference_mask"
+        ),
+        "addon_mask": _resource_record(
+            spatial_config["voxel"]["masks"]["addon"], "addon_mask"
+        ),
     }
     manifest_path = root / "manifest.json"
     manifest: dict[str, Any] = {
@@ -506,6 +494,7 @@ def run_single_scale_voxel_section_postprocess(
         output_root=root,
         catalog=catalog,
         resources=resources,
+        display_map=spatial_config["display_map"],
         style=style,
         force=force,
     )
@@ -530,9 +519,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--scale-id", default="pdq39_score")
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--direct-voxel-root", required=True)
-    parser.add_argument("--background", required=True)
-    parser.add_argument("--reference-mask", required=True)
-    parser.add_argument("--addon-mask", required=True)
+    parser.add_argument("--spatial-config", required=True)
     parser.add_argument("--force", action="store_true")
     return parser
 
@@ -543,9 +530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         scale_id=args.scale_id,
         output_root=args.output_root,
         direct_voxel_publication_root=args.direct_voxel_root,
-        background_path=args.background,
-        reference_mask_path=args.reference_mask,
-        addon_mask_path=args.addon_mask,
+        spatial_config_path=args.spatial_config,
         force=args.force,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -19,6 +19,7 @@ from ...contracts import (
     canonical_hash,
 )
 from ..direct_voxel.kernel import continuous_mean_score
+from ..individualized_target import score_target_operator
 from ..normative_fiber.coverage import candidate_mask, coverage_counts
 from ..normative_fiber.scoring import (
     FiberScoreResult,
@@ -31,6 +32,7 @@ from ..statistics import (
     average_rank,
     benefit_oriented_weights,
     linear_prediction,
+    partial_spearman_coefficients_and_pvalues,
     rank_columns,
     safe_correlation,
 )
@@ -179,6 +181,80 @@ def _candidate(
                 "final in-sample voxel source fails its full-sample feature minimum"
             )
     return indices, np.asarray(exposure[:, indices]), feature_ids[indices]
+
+
+def _target_candidate(
+    request: InSampleRequest,
+    exposure: np.ndarray,
+    support: np.ndarray,
+    target_ids: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    coverage = int(request.final_model.final_key.selected_coverage)
+    mask = np.count_nonzero(support, axis=0) >= coverage
+    indices = np.flatnonzero(mask).astype(np.int64)
+    minimum = request.hard_computability.n_features_full_min
+    if minimum is None or indices.size < minimum:
+        raise FormalBackendInputError(
+            "final in-sample target source fails its full-sample target minimum"
+        )
+    return indices, exposure[:, indices], target_ids[indices]
+
+
+def _target_fit(
+    request: InSampleRequest,
+    outcome: np.ndarray,
+    candidate_exposure: np.ndarray,
+    candidate_ids: np.ndarray,
+    nuisance: np.ndarray,
+) -> _Fit:
+    coefficients, _ = partial_spearman_coefficients_and_pvalues(
+        outcome,
+        candidate_exposure,
+        nuisance,
+    )
+    weights = benefit_oriented_weights(
+        coefficients,
+        request.outcome_direction,
+    )
+    training_rows = np.ones(outcome.size, dtype=bool)
+    scores, valid, _centers, _scales = score_target_operator(
+        candidate_exposure,
+        weights,
+        np.isfinite(weights),
+        training_rows,
+    )
+    support = {
+        "candidate_target_count": int(candidate_ids.size),
+        "valid_target_count": int(np.count_nonzero(valid)),
+    }
+    if (
+        not np.any(valid)
+        or not np.all(np.isfinite(scores))
+        or float(np.std(scores)) <= 0.0
+    ):
+        empty = np.full(outcome.shape, np.nan, dtype=np.float64)
+        return _Fit(empty, empty.copy(), scores, weights, support)
+    predictions, _ = linear_prediction(
+        outcome,
+        scores,
+        nuisance,
+        scores,
+        nuisance,
+    )
+    baseline_predictions, _ = linear_prediction(
+        outcome,
+        None,
+        nuisance,
+        None,
+        nuisance,
+    )
+    return _Fit(
+        np.asarray(predictions, dtype=np.float64),
+        np.asarray(baseline_predictions, dtype=np.float64),
+        scores,
+        weights,
+        support,
+    )
 
 
 def _fit(
@@ -419,7 +495,7 @@ def _optimism(
             1.0,
         ),
         "r2_optimism_gap": ("in_sample_r2", "loocv_r2", 1.0),
-        "relative_r2_q2_gap": (
+        "r2_q2_gap": (
             "in_sample_relative_r2",
             "loocv_q2",
             1.0,
@@ -467,18 +543,36 @@ class FinalInSampleBackend:
                 max_block_bytes=16 * 1024**3,
             ) as exposure:
                 return self._run_materialized(request, exposure)
-        exposure = finite_exposure(
-            materialize_array(
-                request.exposure,
-                name="exposure",
-                expected_axes=(request.subject_axis, request.feature_axis),
-                expected_units=request.exposure_units,
-                expected_space=request.exposure_space,
-                artifact_store=self.artifact_store,
-                memory_map=True,
-            ),
-            request,
+        exposure = materialize_array(
+            request.exposure,
+            name="exposure",
+            expected_axes=(request.subject_axis, request.feature_axis),
+            expected_units=request.exposure_units,
+            expected_space=request.exposure_space,
+            artifact_store=self.artifact_store,
+            memory_map=True,
         )
+        if request.final_model.endpoint.model_family.endswith(
+            "individualized"
+        ):
+            exposure = np.asanyarray(exposure)
+            if (
+                exposure.shape
+                != (
+                    request.subject_axis.count,
+                    request.feature_axis.count,
+                )
+                or exposure.dtype == object
+                or not np.issubdtype(exposure.dtype, np.number)
+                or np.iscomplexobj(exposure)
+                or np.any(np.isinf(exposure))
+            ):
+                raise FormalBackendInputError(
+                    "target exposure must be a real subject-by-target array "
+                    "without infinite values"
+                )
+        else:
+            exposure = finite_exposure(exposure, request)
         return self._run_materialized(request, exposure)
 
     def _run_materialized(
@@ -510,17 +604,63 @@ class FinalInSampleBackend:
             "baseline",
             request.subject_axis.count,
         )
-        feature_ids = canonical_fiber_ids(
-            materialize_array(
-                request.feature_ids,
-                name="feature_ids",
-                expected_axes=(request.feature_axis,),
-                expected_units=request.feature_ids.units,
-                expected_space=request.feature_ids.space,
-                artifact_store=self.artifact_store,
-            ),
-            request.feature_axis.count,
+        is_target = request.final_model.endpoint.model_family.endswith(
+            "individualized"
         )
+        if is_target:
+            if request.target_ids is None or request.target_support is None:
+                raise FormalBackendInputError(
+                    "individualized in-sample request lacks target inputs"
+                )
+            feature_ids = np.asarray(
+                materialize_array(
+                    request.target_ids,
+                    name="target_ids",
+                    expected_axes=(request.feature_axis,),
+                    expected_units=request.target_ids.units,
+                    expected_space=request.target_ids.space,
+                    artifact_store=self.artifact_store,
+                )
+            )
+            if (
+                feature_ids.shape != (request.feature_axis.count,)
+                or feature_ids.dtype.kind != "U"
+                or np.unique(feature_ids).size != feature_ids.size
+            ):
+                raise FormalBackendInputError(
+                    "target_ids must be a unique Unicode target axis"
+                )
+            target_support = np.asarray(
+                materialize_array(
+                    request.target_support,
+                    name="target_support",
+                    expected_axes=(
+                        request.subject_axis,
+                        request.feature_axis,
+                    ),
+                    expected_units="binary",
+                    expected_space=request.exposure_space,
+                    artifact_store=self.artifact_store,
+                ),
+                dtype=bool,
+            )
+        else:
+            if request.feature_ids is None:
+                raise FormalBackendInputError(
+                    "voxel or fiber in-sample request lacks feature IDs"
+                )
+            feature_ids = canonical_fiber_ids(
+                materialize_array(
+                    request.feature_ids,
+                    name="feature_ids",
+                    expected_axes=(request.feature_axis,),
+                    expected_units=request.feature_ids.units,
+                    expected_space=request.feature_ids.space,
+                    artifact_store=self.artifact_store,
+                ),
+                request.feature_axis.count,
+            )
+            target_support = None
         delta_full = (
             None
             if request.delta_reference_full is None
@@ -538,26 +678,46 @@ class FinalInSampleBackend:
             )
         )
         nuisance = _nuisance(request, baseline, delta_full)
-        candidate_indices, candidate_exposure, candidate_ids = _candidate(
-            request,
-            exposure,
-            feature_ids,
-        )
-        operator = _weight_operator(candidate_exposure, nuisance)
-        score_workspace = (
-            PrevalidatedFiberScoreWorkspace(candidate_exposure, candidate_ids)
-            if request.final_model.endpoint.model_family.endswith("fiber")
-            else None
-        )
-        observed = _fit(
-            request,
-            outcome,
-            candidate_exposure,
-            candidate_ids,
-            operator,
-            score_workspace,
-            retain_score_metadata=True,
-        )
+        if is_target:
+            assert target_support is not None
+            candidate_indices, candidate_exposure, candidate_ids = (
+                _target_candidate(
+                    request,
+                    np.asarray(exposure, dtype=np.float64),
+                    target_support,
+                    feature_ids,
+                )
+            )
+            operator = None
+            score_workspace = None
+            observed = _target_fit(
+                request,
+                outcome,
+                candidate_exposure,
+                candidate_ids,
+                nuisance,
+            )
+        else:
+            candidate_indices, candidate_exposure, candidate_ids = _candidate(
+                request,
+                exposure,
+                feature_ids,
+            )
+            operator = _weight_operator(candidate_exposure, nuisance)
+            score_workspace = (
+                PrevalidatedFiberScoreWorkspace(candidate_exposure, candidate_ids)
+                if request.final_model.endpoint.model_family.endswith("fiber")
+                else None
+            )
+            observed = _fit(
+                request,
+                outcome,
+                candidate_exposure,
+                candidate_ids,
+                operator,
+                score_workspace,
+                retain_score_metadata=True,
+            )
         in_sample_metrics, in_sample_mask = _metrics(
             outcome,
             observed.predictions,
@@ -581,14 +741,24 @@ class FinalInSampleBackend:
         null = np.full(request.resamples, np.nan, dtype=np.float64)
         for index in range(request.resamples):
             pseudo_outcome = fitted + residual[schedule[index]]
-            pseudo = _fit(
-                request,
-                pseudo_outcome,
-                candidate_exposure,
-                candidate_ids,
-                operator,
-                score_workspace,
-                retain_score_metadata=False,
+            pseudo = (
+                _target_fit(
+                    request,
+                    pseudo_outcome,
+                    candidate_exposure,
+                    candidate_ids,
+                    nuisance,
+                )
+                if is_target
+                else _fit(
+                    request,
+                    pseudo_outcome,
+                    candidate_exposure,
+                    candidate_ids,
+                    operator,
+                    score_workspace,
+                    retain_score_metadata=False,
+                )
             )
             rho, _ = safe_correlation(
                 pseudo_outcome,
@@ -609,7 +779,7 @@ class FinalInSampleBackend:
 
         final_key = request.final_model.final_key
         candidate_id_digest = hashlib.sha256(
-            np.ascontiguousarray(candidate_ids, dtype=np.int64).tobytes(order="C")
+            np.ascontiguousarray(candidate_ids).tobytes(order="C")
         ).hexdigest()
         candidate_axis = AxisRef(
             axis_id=(

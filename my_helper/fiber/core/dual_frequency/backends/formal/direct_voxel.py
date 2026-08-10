@@ -1041,6 +1041,17 @@ class DirectVoxelFormalBackend:
             )
             for filename, kind, values, units in replicate_outputs
         )
+        if result.replicate_weights is not None:
+            artifacts.append(
+                self._publisher.array(
+                    "formal_bootstrap_replicate_weights.npy",
+                    result.replicate_weights,
+                    kind="formal_bootstrap_replicate_weights",
+                    axes=(replicate_axis, feature_axis),
+                    units="coefficient",
+                    space=request.exposure_space,
+                )
+            )
         if result.nuisance_evidence or result.nonestimable_replicates:
             artifacts.append(
                 self._publisher.document(

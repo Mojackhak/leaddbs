@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.io import loadmat
+import yaml
 
 from my_helper.fiber.core.viz import (
     formal_postprocess,
@@ -23,7 +24,10 @@ from my_helper.fiber.core.viz import (
     scene_example_inputs,
     voxel_section_postprocess,
 )
-from my_helper.fiber.core.viz.artifacts import restore_voxel_vector_to_nifti
+from my_helper.fiber.core.viz.artifacts import (
+    create_display_nifti,
+    restore_voxel_vector_to_nifti,
+)
 from my_helper.fiber.core.viz.layout import build_figure_layout
 from my_helper.fiber.core.viz.model_fit import plot_in_sample_loocv_fit
 from my_helper.fiber.core.viz.postprocess import SCHEMA_VERSION, run_postprocess
@@ -37,7 +41,14 @@ from my_helper.fiber.core.viz.scene_example_inputs import (
     prepare_scene_example_input,
 )
 from my_helper.fiber.core.viz.spatial import plot_sweet_sour_slices
-from my_helper.fiber.core.viz.voxel_sections import plot_signed_voxel_sections
+from my_helper.fiber.core.viz.spatial_result_config import (
+    load_spatial_result_config,
+)
+from my_helper.fiber.core.viz.voxel_sections import (
+    _load_volume,
+    _signed_distance_outline_volume,
+    plot_signed_voxel_sections,
+)
 from my_helper.fiber.core.viz.voxel_section_postprocess import (
     _resource_record,
     render_voxel_section_components,
@@ -180,6 +191,64 @@ def _signed_voxel_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
     return heat_path, anatomy_path, mask_path
 
 
+def test_create_display_nifti_smooths_and_resamples_for_display(
+    tmp_path: Path,
+) -> None:
+    source_path, _, _ = _signed_voxel_inputs(tmp_path / "inputs")
+    output_path = tmp_path / "surface" / "display.nii.gz"
+
+    result, metadata = create_display_nifti(
+        source_path,
+        output_path,
+        fwhm_mm=1.0,
+        voxel_size_mm=0.1,
+        support_weight_threshold=0.5,
+    )
+
+    assert result == output_path
+    source = nib.load(source_path)
+    output = nib.load(output_path)
+    source_data = np.asarray(source.dataobj)
+    output_data = np.asarray(output.dataobj)
+    finite_coordinates = np.argwhere(np.isfinite(source_data))
+    sigma_voxels = np.repeat(1.0 / 2.354820045 / 0.5, 3)
+    padding = np.ceil(4.0 * sigma_voxels).astype(int)
+    expected_lower = np.maximum(finite_coordinates.min(axis=0) - padding, 0)
+    assert np.allclose(output.header.get_zooms()[:3], (0.1, 0.1, 0.1))
+    assert np.allclose(
+        output.affine[:3, 3],
+        nib.affines.apply_affine(source.affine, expected_lower),
+    )
+    assert np.isfinite(output_data).any()
+    assert np.isnan(output_data[0, 0, 0])
+    assert float(np.nanmin(output_data)) >= float(np.nanmin(source_data))
+    assert float(np.nanmax(output_data)) <= float(np.nanmax(source_data))
+
+    assert metadata["display_only"] is True
+    assert metadata["fwhm_mm"] == 1.0
+    assert metadata["support_weight_threshold"] == 0.5
+    assert metadata["output_voxel_size_mm"] == [0.1, 0.1, 0.1]
+    assert metadata["scalar_interpolation"] == (
+        "masked_normalized_gaussian_then_linear"
+    )
+    assert metadata["support_interpolation"] == (
+        "linear_gaussian_weight_threshold"
+    )
+    assert metadata["source_halo_voxels"] == padding.tolist()
+    assert metadata["source_halo_is_final_support"] is False
+    assert not Path(f"{output_path}.metadata.json").exists()
+
+    reused_path, reused = create_display_nifti(
+        source_path,
+        output_path,
+        fwhm_mm=1.0,
+        voxel_size_mm=0.1,
+        support_weight_threshold=0.5,
+    )
+    assert reused_path == output_path
+    assert reused["resume_status"] == "reused"
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -191,7 +260,7 @@ def _write_publication(
     manifest: dict[str, object] | None = None,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
-    payload = {"final_status": "completed", "model_set_id": root.name, **(manifest or {})}
+    payload = {"final_status": "completed", **(manifest or {})}
     (root / "model_manifest.json").write_text(json.dumps(payload), encoding="utf-8")
     rows = []
     for relative_path, (path, kind) in artifacts.items():
@@ -280,8 +349,7 @@ def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
     nib.save(nib.Nifti1Image(benefit_data, affine), benefit_map)
     display_map = (
         direct_root
-        / "pdq39_score/reference/report/display/"
-        "benefit_map_smooth_fwhm1mm.nii.gz"
+        / "pdq39_score/reference/visualization/spatial_2d/maps/display.nii.gz"
     )
     display_map.parent.mkdir(parents=True)
     display_data = np.full(shape, np.nan, dtype=np.float32)
@@ -315,9 +383,9 @@ def _scene_example_publications(tmp_path: Path) -> tuple[Path, Path]:
                 "benefit_map",
             ),
             (
-                "pdq39_score/reference/report/display/"
-                "benefit_map_smooth_fwhm1mm.nii.gz"
-            ): (display_map, "benefit_map_smooth_fwhm1mm"),
+                "pdq39_score/reference/visualization/"
+                "spatial_2d/maps/display.nii.gz"
+            ): (display_map, "display"),
         },
         manifest=common_manifest,
     )
@@ -431,8 +499,7 @@ def _voxel_section_publication(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         )
 
         report_root = root / "pdq39_score" / role / "report"
-        display_root = report_root / "display"
-        display_root.mkdir(parents=True, exist_ok=True)
+        report_root.mkdir(parents=True, exist_ok=True)
         summary_path = report_root / "summary.json"
         summary_path.write_text(
             json.dumps(
@@ -452,38 +519,6 @@ def _voxel_section_publication(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
             summary_path,
             "report_summary",
         )
-        for name in (
-            "benefit_map_smooth_fwhm1mm.nii.gz",
-            "benefit_map_smooth_fwhm2mm.nii.gz",
-        ):
-            target = display_root / name
-            nib.save(nib.load(heat_path), target)
-            relative = f"pdq39_score/{role}/report/display/{name}"
-            artifacts[relative] = (
-                target,
-                name.removesuffix(".nii.gz"),
-            )
-            fwhm = 1.0 if "fwhm1mm" in name else 2.0
-            metadata = {
-                "schema_version": "dual_frequency_derived_artifact_metadata_v1",
-                "artifact_kind": "benefit_map_smooth",
-                "published_relative_path": relative,
-                "payload_sha256": _sha256(target),
-                "size_bytes": target.stat().st_size,
-                "provenance": {
-                    "source_record_id": f"source_{role}",
-                    "input_relative_path": raw_relative,
-                    "fwhm_mm": fwhm,
-                    "algorithm": "masked_normalized_gaussian_original_roi_v2",
-                    "support_policy": "original_finite_benefit_roi",
-                    "input_finite_voxels": 27,
-                    "output_finite_voxels": 27,
-                },
-            }
-            Path(f"{target}.metadata.json").write_text(
-                json.dumps(metadata),
-                encoding="utf-8",
-            )
     study_base_path = root / "study_base.json"
     study_base_path.write_text(
         json.dumps(
@@ -507,6 +542,63 @@ def _voxel_section_publication(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         },
     )
     return root, anatomy_path, mask_path, mask_path
+
+
+def _write_spatial_visualization_config(
+    tmp_path: Path,
+    *,
+    anatomy: Path,
+    reference_mask: Path,
+    addon_mask: Path,
+) -> Path:
+    repository_root = Path(__file__).resolve().parents[5]
+    source = (
+        repository_root
+        / "my_helper/stnsnr/config/four_model_v1/"
+        "spatial_result_visualization.yaml"
+    )
+    config = yaml.safe_load(source.read_text(encoding="utf-8"))
+    config["background"]["path"] = str(anatomy)
+    config["voxel"]["masks"] = {
+        "reference": str(reference_mask),
+        "addon": str(addon_mask),
+    }
+    path = tmp_path / "spatial_result_visualization.yaml"
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def test_spatial_config_accepts_optional_outline_path_and_rejects_blank(
+    tmp_path: Path,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[5]
+    source = (
+        repository_root
+        / "my_helper/stnsnr/config/four_model_v1/"
+        "spatial_result_visualization.yaml"
+    )
+    config = yaml.safe_load(source.read_text(encoding="utf-8"))
+    for role in ("reference", "addon"):
+        config["fiber"]["seeds"][role].pop("outline_path")
+    optional_path = tmp_path / "optional.yaml"
+    optional_path.write_text(
+        yaml.safe_dump(config, sort_keys=False),
+        encoding="utf-8",
+    )
+    loaded = load_spatial_result_config(optional_path)
+    assert "outline_path" not in loaded["fiber"]["seeds"]["reference"]
+
+    config["fiber"]["seeds"]["reference"]["outline_path"] = " "
+    invalid_path = tmp_path / "invalid.yaml"
+    invalid_path.write_text(
+        yaml.safe_dump(config, sort_keys=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        ValueError,
+        match="fiber.seeds.reference.outline_path must be a nonempty path",
+    ):
+        load_spatial_result_config(invalid_path)
 
 
 def test_layout_preserves_inner_boxsize() -> None:
@@ -1013,7 +1105,7 @@ def test_scene_example_prepares_and_reuses_voxel_input(
     assert first["input_path"] == second["input_path"]
     assert first["scale_display_name"] == "PDQ39 score"
     assert first["selected_tau"] == 200.0
-    assert first["details"]["display_smoothing_fwhm_mm"] == 1.0
+    assert first["details"]["display_artifact_kind"] == "display"
     assert first["details"]["display_only"] is True
     data = nib.load(first["input_path"]).get_fdata()
     finite = data[np.isfinite(data)]
@@ -1242,6 +1334,12 @@ def test_signed_voxel_sections_match_the_accepted_layer_and_layout_contract(
     assert metadata["mask_layer"] == "top"
     assert metadata["mask_color"] == "#000000"
     assert metadata["mask_linewidth_pt"] == 1.0
+    assert metadata["mask_sampling_order"] == 1
+    assert metadata["mask_sampling_representation"] == "physical_signed_distance"
+    assert metadata["mask_distance_units"] == "mm"
+    assert metadata["mask_contour_level"] == 0.0
+    assert metadata["mask_contour_units"] == "mm"
+    assert metadata["mask_roi_halo_voxels"] == 1
     assert metadata["colorbar_label"] == "Benefit-oriented partial Spearman ρ"
     assert metadata["global_box_span_mm"] == [12.0, 10.0]
     assert metadata["font_family"] == "Arial"
@@ -1281,20 +1379,57 @@ def test_signed_voxel_sections_match_the_accepted_layer_and_layout_contract(
     plt.close(figure)
 
 
-def test_single_scale_voxel_section_postprocess_writes_and_reuses_six_figures(
+def test_signed_distance_outline_uses_local_roi_with_one_voxel_halo(
+    tmp_path: Path,
+) -> None:
+    _, _, mask_path = _signed_voxel_inputs(tmp_path)
+    source = _load_volume(mask_path)
+    outline, metadata = _signed_distance_outline_volume(
+        source,
+        threshold=0.5,
+    )
+
+    foreground = source.data > 0.5
+    xlo, xhi, ylo, yhi, zlo, zhi = (
+        value
+        for axis in np.where(foreground)
+        for value in (int(axis.min()), int(axis.max()))
+    )
+    expected_shape = (
+        xhi - xlo + 3,
+        yhi - ylo + 3,
+        zhi - zlo + 3,
+    )
+    assert outline.data.shape == expected_shape
+    assert np.all(outline.data[[0, -1], :, :] > 0.0)
+    assert np.all(outline.data[:, [0, -1], :] > 0.0)
+    assert np.all(outline.data[:, :, [0, -1]] > 0.0)
+    assert np.min(outline.data) < 0.0
+    assert metadata["representation"] == "physical_signed_distance"
+    assert metadata["contour_level"] == 0.0
+    assert metadata["contour_units"] == "mm"
+    assert metadata["halo_voxels"] == 1
+    assert metadata["halo_mm"] == pytest.approx([0.1, 0.1, 0.1])
+
+
+def test_single_scale_voxel_section_postprocess_writes_and_reuses_two_figures(
     tmp_path: Path,
 ) -> None:
     publication, anatomy, reference_mask, addon_mask = _voxel_section_publication(
         tmp_path
     )
     output_root = tmp_path / "postprocess"
+    config_path = _write_spatial_visualization_config(
+        tmp_path,
+        anatomy=anatomy,
+        reference_mask=reference_mask,
+        addon_mask=addon_mask,
+    )
     arguments = {
         "scale_id": "pdq39_score",
         "output_root": output_root,
         "direct_voxel_publication_root": publication,
-        "background_path": anatomy,
-        "reference_mask_path": reference_mask,
-        "addon_mask_path": addon_mask,
+        "spatial_config_path": config_path,
         "style_overrides": {
             "dpi": 72,
             "resolution_mm": 0.5,
@@ -1304,47 +1439,60 @@ def test_single_scale_voxel_section_postprocess_writes_and_reuses_six_figures(
     }
     first = run_single_scale_voxel_section_postprocess(**arguments)
     assert first["status"] == "complete"
-    assert first["completed_count"] == 6
+    assert first["completed_count"] == 2
     assert first["failed_count"] == 0
     assert first["reused_count"] == 0
 
     for role in ("reference", "addon"):
         leaf = output_root / "scales" / "pdq39_score" / role / "voxel"
-        for stem in (
-            "benefit_map_sections",
-            "benefit_map_smooth_fwhm1mm_sections",
-            "benefit_map_smooth_fwhm2mm_sections",
-        ):
-            for extension in ("png", "pdf", "json"):
-                assert (leaf / f"{stem}.{extension}").is_file()
-            assert (
-                leaf
-                / "completion"
-                / "voxel_2d"
-                / stem
-                / "complete.json"
-            ).is_file()
-            result = json.loads((leaf / f"{stem}.json").read_text(encoding="utf-8"))
-            assert result["status"] == "complete"
-            assert result["model_role"] == role
-            assert result["scale_display_name"] == "PDQ39 score"
-            assert result["colorbar_semantic_label"] == (
-                "Benefit-oriented partial Spearman ρ with PDQ39 score"
-            )
-            assert result["style"]["colorbar_label"] == (
-                "Benefit-oriented partial Spearman ρ\nwith PDQ39 score"
-            )
-            assert result["render_metadata"]["background_full_float_loaded"] is False
-            assert result["render_metadata"]["mask_layer"] == "top"
-            if stem == "benefit_map_sections":
-                relative = result["source_artifacts"]["heatmap"]["relative_path"]
-                assert relative.endswith("/resolver/benefit_map.nii.gz")
-                assert "bilateral" not in relative
+        display_path = leaf / "maps" / "display.nii.gz"
+        for extension in ("png", "pdf"):
+            assert (leaf / "figures" / f"display.{extension}").is_file()
+        result_path = leaf / "figures" / "result.json"
+        assert (
+            leaf
+            / "figures"
+            / "completion"
+            / "voxel_2d"
+            / "result"
+            / "complete.json"
+        ).is_file()
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        assert result["status"] == "complete"
+        assert result["model_role"] == role
+        assert result["scale_display_name"] == "PDQ39 score"
+        assert result["colorbar_semantic_label"] == (
+            "Benefit-oriented partial Spearman ρ with PDQ39 score"
+        )
+        assert result["style"]["colorbar_label"] == (
+            "Benefit-oriented partial Spearman ρ\nwith PDQ39 score"
+        )
+        assert result["render_metadata"]["background_full_float_loaded"] is False
+        assert result["render_metadata"]["mask_layer"] == "top"
+        assert result["render_metadata"]["mask_sampling_representation"] == (
+            "continuous_atlas"
+        )
+        assert result["render_metadata"]["mask_contour_level"] == 0.05
+        assert result["render_metadata"]["mask_contour_units"] == "atlas_value"
+        assert result["render_metadata"]["heat_raster_interpolation"] == "bilinear"
+        assert display_path.is_file()
+        assert result["display_map"]["path"] == str(display_path)
+        assert result["display_transform"]["fwhm_mm"] == 1.0
+        assert result["display_transform"]["support_weight_threshold"] == 0.5
+        assert np.allclose(
+            nib.load(display_path).header.get_zooms()[:3],
+            (0.1, 0.1, 0.1),
+        )
+        assert not Path(f"{display_path}.metadata.json").exists()
+        assert display_path.relative_to(output_root).as_posix() in result["outputs"]
+        relative = result["source_artifacts"]["benefit_map"]["relative_path"]
+        assert relative.endswith("/resolver/benefit_map.nii.gz")
+        assert "bilateral" not in relative
 
     second = run_single_scale_voxel_section_postprocess(**arguments)
     assert second["status"] == "complete"
     assert second["failed_count"] == 0
-    assert second["reused_count"] == 6
+    assert second["reused_count"] == 2
 
 
 def test_voxel_components_do_not_write_formal_root_metadata(
@@ -1383,9 +1531,14 @@ def test_voxel_components_do_not_write_formal_root_metadata(
         output_root=output_root,
         catalog=catalog,
         resources=resources,
+        display_map={
+            "fwhm_mm": 1.0,
+            "voxel_size_mm": 0.1,
+            "support_weight_threshold": 0.5,
+        },
         style=style,
     )
-    assert len(first) == 6
+    assert len(first) == 2
     assert all(item["status"] == "complete" for item in first)
     assert not (output_root / "manifest.json").exists()
     assert not (output_root / "figure_index.csv").exists()
@@ -1403,12 +1556,17 @@ def test_voxel_components_do_not_write_formal_root_metadata(
         output_root=output_root,
         catalog=catalog,
         resources=resources,
+        display_map={
+            "fwhm_mm": 1.0,
+            "voxel_size_mm": 0.1,
+            "support_weight_threshold": 0.5,
+        },
         style=style,
     )
     assert all(item.get("resume_status") == "reused" for item in second)
 
 
-def test_formal_voxel_preflight_requires_v2_smoothing_metadata(
+def test_formal_voxel_preflight_uses_only_selected_scientific_map(
     tmp_path: Path,
 ) -> None:
     publication, _, _, _ = _voxel_section_publication(tmp_path)
@@ -1431,27 +1589,10 @@ def test_formal_voxel_preflight_requires_v2_smoothing_metadata(
         role="reference",
         final_model=final_model,
     )
-    assert (
-        sources["benefit_map_smooth_fwhm1mm_metadata"].artifact_kind
-        == "benefit_map_smooth_metadata"
+    assert set(sources) == {"report_summary", "benefit_map"}
+    assert sources["benefit_map"].relative_path.endswith(
+        "/resolver/benefit_map.nii.gz"
     )
-
-    derivative = (
-        publication
-        / "pdq39_score/reference/report/display"
-        / "benefit_map_smooth_fwhm1mm.nii.gz"
-    )
-    metadata_path = Path(f"{derivative}.metadata.json")
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata["provenance"]["algorithm"] = "masked_normalized_gaussian_v1"
-    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
-    with pytest.raises(ValueError, match="display smoothing v2 contract differs"):
-        formal_postprocess._voxel_spatial_sources(
-            catalog,
-            scale_id="pdq39_score",
-            role="reference",
-            final_model=final_model,
-        )
 
 
 def test_legacy_matlab_visualization_functions_are_merged() -> None:
@@ -1495,9 +1636,15 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
     addon_voxel_example = (
         viz_root / "examples" / "open_pdq39_addon_voxel_scene.m"
     ).read_text(encoding="utf-8")
-    assert "spec.VoxelSampleDepthMm = 1.0;" in voxel_example
-    assert "spec.VoxelSampleDepthMm = 1.0;" in addon_voxel_example
-    assert "spec.VoxelSampleDepthMm = 1.0;" in voxel_exporter
+    assert "spec.VoxelSampleDepthMm = 0.25;" in voxel_example
+    assert "spec.VoxelSampleDepthMm = 0.25;" in addon_voxel_example
+    assert "spec.VoxelSampleDepthMm = 0.25;" in voxel_exporter
+    assert "display.nii.gz" in voxel_example
+    assert "display.nii.gz" in addon_voxel_example
+    assert "display.nii.gz" in voxel_exporter
+    assert "'spatial_2d', 'maps'" in voxel_example
+    assert "'spatial_2d', 'maps'" in addon_voxel_example
+    assert "'spatial_2d', ..." in voxel_exporter
     prepare_scene_helper = (
         viz_root / "mh_viz_prepare_scene_example_input.m"
     ).read_text(encoding="utf-8")
@@ -1507,7 +1654,10 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
     assert "spec.AtlasRoiIndices = 2;" in voxel_example
     assert "spec.ViewStruct = modelViews.reference{1};" in voxel_example
     assert "spec.AtlasEdgeAlpha = 0.15;" in voxel_example
-    assert "Benefit-oriented partial Spearman ρ with %s" in voxel_example
+    assert (
+        "Benefit-oriented partial Spearman ρ with PDQ39 score"
+        in voxel_example
+    )
     fiber_example = (
         viz_root / "examples" / "open_pdq39_reference_fiber_scene.m"
     ).read_text(encoding="utf-8")
@@ -1534,7 +1684,13 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
         addon_example = (
             viz_root / "examples" / f"open_pdq39_addon_{scene_kind}_scene.m"
         ).read_text(encoding="utf-8")
-        assert f"publicationRoot, '{model_family}'" in addon_example
+        if scene_kind == "voxel":
+            assert (
+                "'pdq39_score', 'addon', 'visualization'"
+                in addon_example
+            )
+        else:
+            assert f"publicationRoot, '{model_family}'" in addon_example
         assert "spec.AtlasRoiIndices = 1;" in addon_example
         if scene_kind == "voxel":
             assert "spec.ViewStruct = modelViews.addon{1};" in addon_example
@@ -1544,6 +1700,11 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
         encoding="utf-8"
     )
     assert "defaults.VoxelSampleDepthMm = 1.0;" in scene_source
+    nifti_source = (
+        viz_root / "surface" / "render" / "ea_nifti2patch.m"
+    ).read_text(encoding="utf-8")
+    assert "numerator ./ max(weight, eps)" in nifti_source
+    assert "vq(weight <= 0) = NaN;" in nifti_source
     assert "defaults.AtlasName = 'Custom_STNSNr';" in scene_source
     assert "defaults.AtlasReduceFactor = 0.5;" in scene_source
     assert "defaults.AtlasEdgeAlpha = 0.15;" in scene_source
@@ -1675,6 +1836,12 @@ def test_legacy_matlab_visualization_functions_are_merged() -> None:
     )
     assert "local_draw_vector_fiber_legend(compFig, fiberLegendSpecs(i));" in (
         mixed_pdf_exporter
+    )
+    assert mixed_pdf_exporter.index(
+        "local_draw_raster_layer(compFig, rasterSpecs(i));",
+        mixed_pdf_exporter.index("for i = triadIdx(:)'")
+    ) < mixed_pdf_exporter.index(
+        "local_draw_vector_colorbar(compFig, colorbarSpecs(i));"
     )
     assert "local_capture_vector_fiber_layers" not in mixed_pdf_exporter
     assert "convertDataSpaceCoordsToViewerCoords" not in mixed_pdf_exporter

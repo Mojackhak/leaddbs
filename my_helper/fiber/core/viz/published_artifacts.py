@@ -172,7 +172,6 @@ class PublicationCatalog:
                     "alias": alias,
                     "root": str(publication.root),
                     "manifest": str(publication.manifest_path),
-                    "model_set_id": publication.manifest.get("model_set_id"),
                     "extension_id": publication.manifest.get("extension_id"),
                     "status": _completed_manifest_status(publication.manifest),
                 }

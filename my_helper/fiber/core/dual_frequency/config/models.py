@@ -126,9 +126,6 @@ class DeltaReferenceSupportProfile:
 
 @dataclass(frozen=True)
 class DirectVoxelModelProfile:
-    schema_version: str
-    model_set_id: str
-    output: OutputProfile
     scales: tuple[str, ...]
     endpoint_pair: EndpointPair
     frequency_classes: FrequencyClasses
@@ -163,16 +160,8 @@ class FiberScoreProfile:
 
 
 @dataclass(frozen=True)
-class FixedOuterLibraryProfile:
-    sweet_count: int
-    sour_count: int
-
-
-@dataclass(frozen=True)
 class FiberSensitivityProfile:
     selected_source_tau_multipliers: tuple[float, ...]
-    high_threshold: SourceCell
-    fixed_outer_library: FixedOuterLibraryProfile
 
 
 @dataclass(frozen=True)
@@ -194,9 +183,6 @@ class OssProfile:
 
 @dataclass(frozen=True)
 class NormativeFiberModelProfile:
-    schema_version: str
-    model_set_id: str
-    output: OutputProfile
     scales: tuple[str, ...]
     endpoint_pair: EndpointPair
     frequency_classes: FrequencyClasses
@@ -212,6 +198,51 @@ class NormativeFiberModelProfile:
     @property
     def formal_connectome(self) -> ConnectomeProfile:
         return next(item for item in self.connectomes if item.role == "formal")
+
+
+@dataclass(frozen=True)
+class TractographyProfile:
+    tracking_config: Path
+    space: str
+    subject_root_pattern: str
+    seed_id: str
+    sides: tuple[str, ...]
+    target_ids: tuple[str, ...]
+    target_membership: str
+    overlapping_targets: str
+
+
+@dataclass(frozen=True)
+class TargetExposureProfile:
+    measure: str
+    threshold_inclusive: bool
+    activated_fiber_count_min: int
+    activated_fiber_fraction_min: float
+    patient_support: str
+    bilateral_score: str
+    missing_total_fibers: str
+
+
+@dataclass(frozen=True)
+class TargetScoreProfile:
+    coefficient: str
+    exposure_scaling: str
+    normalization: str
+    fdr_use: str
+
+
+@dataclass(frozen=True)
+class IndividualizedSeedTargetModelProfile:
+    scales: tuple[str, ...]
+    endpoint_pair: EndpointPair
+    frequency_classes: FrequencyClasses
+    tractography: TractographyProfile
+    source: SourceResolverProfile
+    target_exposure: TargetExposureProfile
+    hard_computability: HardComputabilityProfile
+    score: TargetScoreProfile
+    formal_resampling: FormalResamplingProfile
+    delta_reference_support: DeltaReferenceSupportProfile
 
 
 @dataclass(frozen=True)
@@ -241,6 +272,8 @@ class StorageProfile:
 class WorkflowProfile:
     direct_voxel_model_path: Path
     normative_fiber_model_path: Path
+    individualized_seed_target_model_path: Path
+    output: OutputProfile
     selection: WorkflowSelection
     execution: ExecutionProfile
     storage: StorageProfile
@@ -250,6 +283,7 @@ class WorkflowProfile:
 class ResolvedWorkflow:
     direct_voxel: DirectVoxelModelProfile
     normative_fiber: NormativeFiberModelProfile
+    individualized_seed_target: IndividualizedSeedTargetModelProfile
     workflow: WorkflowProfile
     selected_scales: tuple[str, ...]
     selected_models: tuple[str, ...]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from scipy.stats import pearsonr, rankdata, spearmanr
+from scipy.stats import pearsonr, rankdata, spearmanr, t as student_t
 
 
 class StatisticsError(ValueError):
@@ -204,6 +204,102 @@ def partial_spearman_weights(
     return _partial_spearman_weights_scalar(y, x, covariates)
 
 
+def partial_spearman_coefficients_and_pvalues(
+    outcome: np.ndarray,
+    exposure: np.ndarray,
+    nuisance: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute finite-row partial Spearman coefficients and two-sided p values."""
+
+    y = _real_array(outcome, "outcome", 1)
+    x = _real_array(exposure, "exposure", 2)
+    covariates = _real_array(nuisance, "nuisance", 2)
+    if y.shape[0] != x.shape[0] or y.shape[0] != covariates.shape[0]:
+        raise StatisticsError("outcome, exposure, and nuisance must share subjects")
+
+    coefficients = np.full(x.shape[1], np.nan, dtype=np.float64)
+    pvalues = np.full(x.shape[1], np.nan, dtype=np.float64)
+    for column in range(x.shape[1]):
+        finite = (
+            np.isfinite(y)
+            & np.isfinite(x[:, column])
+            & np.all(np.isfinite(covariates), axis=1)
+        )
+        finite_count = int(finite.sum())
+        if finite_count < 3:
+            continue
+        ranked_y = np.asarray(
+            rankdata(y[finite], method="average"),
+            dtype=np.float64,
+        )
+        ranked_x = np.asarray(
+            rankdata(x[finite, column], method="average"),
+            dtype=np.float64,
+        )
+        ranked_covariates = np.asarray(
+            rankdata(covariates[finite], method="average", axis=0),
+            dtype=np.float64,
+        )
+        design = np.column_stack(
+            [np.ones(finite_count, dtype=np.float64), ranked_covariates]
+        )
+        design_rank = int(np.linalg.matrix_rank(design))
+        degrees_of_freedom = finite_count - design_rank - 1
+        if degrees_of_freedom < 1:
+            continue
+        try:
+            outcome_beta, *_ = np.linalg.lstsq(design, ranked_y, rcond=None)
+            exposure_beta, *_ = np.linalg.lstsq(design, ranked_x, rcond=None)
+        except np.linalg.LinAlgError:
+            continue
+        outcome_residual = ranked_y - design @ outcome_beta
+        exposure_residual = ranked_x - design @ exposure_beta
+        denominator = math.sqrt(
+            float(np.sum(outcome_residual**2))
+            * float(np.sum(exposure_residual**2))
+        )
+        if not math.isfinite(denominator) or denominator <= 0:
+            continue
+        coefficient = float(
+            np.sum(outcome_residual * exposure_residual) / denominator
+        )
+        coefficient = min(1.0, max(-1.0, coefficient))
+        coefficients[column] = coefficient
+        if abs(coefficient) >= 1.0:
+            pvalues[column] = 0.0
+            continue
+        statistic = abs(coefficient) * math.sqrt(
+            degrees_of_freedom / (1.0 - coefficient**2)
+        )
+        pvalues[column] = float(
+            2.0 * student_t.sf(statistic, degrees_of_freedom)
+        )
+    return coefficients, pvalues
+
+
+def benjamini_hochberg(pvalues: np.ndarray) -> np.ndarray:
+    """Return Benjamini-Hochberg q values for the finite input tests."""
+
+    values = _real_array(pvalues, "pvalues", 1)
+    output = np.full(values.shape, np.nan, dtype=np.float64)
+    finite_indices = np.flatnonzero(np.isfinite(values))
+    if finite_indices.size == 0:
+        return output
+    finite_values = values[finite_indices]
+    if np.any((finite_values < 0.0) | (finite_values > 1.0)):
+        raise StatisticsError("finite pvalues must be between zero and one")
+    order = np.argsort(finite_values, kind="mergesort")
+    ordered = finite_values[order]
+    ranks = np.arange(1, ordered.size + 1, dtype=np.float64)
+    adjusted = ordered * ordered.size / ranks
+    adjusted = np.minimum.accumulate(adjusted[::-1])[::-1]
+    adjusted = np.minimum(adjusted, 1.0)
+    finite_output = np.empty(adjusted.shape, dtype=np.float64)
+    finite_output[order] = adjusted
+    output[finite_indices] = finite_output
+    return output
+
+
 def benefit_oriented_weights(
     coefficients: np.ndarray,
     outcome_direction: str,
@@ -299,9 +395,11 @@ def linear_prediction(
 __all__ = [
     "StatisticsError",
     "average_rank",
+    "benjamini_hochberg",
     "benefit_oriented_weights",
     "classify_prediction_status",
     "linear_prediction",
+    "partial_spearman_coefficients_and_pvalues",
     "partial_spearman_weights",
     "partial_spearman_weights_complete",
     "pearson_columns",

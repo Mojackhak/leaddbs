@@ -39,12 +39,18 @@ def _resolved_subject(subject_dir: Path) -> ResolvedSubjectInputs:
         brain_mask=dummy,
         tracking_mask=dummy,
         anchor_native_reference=dummy,
-        mni_to_anchor_transform=dummy,
-        anchor_to_dwi_transform=dummy,
+        b0_to_anchor_transform=dummy,
+        anchor_to_b0_transform=dummy,
+        target_to_anchor_image_deformation=dummy,
+        anchor_to_target_image_deformation=dummy,
         coregistration_method_log=dummy,
         coregistration_method="SPM (Friston 2007)",
         coregistration_method_token="spm",
         coregistration_approved=True,
+        normalization_method_log=dummy,
+        normalization_method="EasyReg (Iglesias 2023)",
+        normalization_approval=1.0,
+        target_space="MNI152NLin2009bAsym",
     )
 
 
@@ -100,7 +106,7 @@ def test_fresh_publication_and_unchanged_reuse_preserve_tck_mtime(
         seed_results={"lh/Seed": result},
         run_provenance=RUN_PROVENANCE,
     )
-    assert first["status"] == "complete"
+    assert first["status"] == "native_complete"
     state = publication_module.read_json(
         subject.output_root / "work" / "state.json"
     )
@@ -111,9 +117,16 @@ def test_fresh_publication_and_unchanged_reuse_preserve_tck_mtime(
     assert state["seed_results"]["lh/Seed"]["targets"] == [
         {"key": "lh/Target", "streamline_count": 1, "hit_fraction": 1.0}
     ]
-    final = subject.output_root / "tractograms" / "lh" / "Seed" / "seedwide.tck"
+    final = (
+        subject.output_root
+        / "tractograms"
+        / "native"
+        / "lh"
+        / "Seed"
+        / "seedwide.tck"
+    )
     first_mtime = final.stat().st_mtime_ns
-    sidecar = subject.output_root / "tractograms" / "lh" / "._Seed"
+    sidecar = subject.output_root / "tractograms" / "native" / "lh" / "._Seed"
     sidecar.write_bytes(b"appledouble")
     trashed: list[str] = []
 
@@ -147,7 +160,14 @@ def test_unknown_final_collision_is_never_overwritten(tmp_path: Path) -> None:
     document["subjects"][0]["subject_dir"] = str(tmp_path / "sub-001")
     config = resolve_config(document, source_path=tmp_path / "config.yaml")
     subject = _resolved_subject(tmp_path / "sub-001")
-    final = subject.output_root / "tractograms" / "lh" / "Seed" / "seedwide.tck"
+    final = (
+        subject.output_root
+        / "tractograms"
+        / "native"
+        / "lh"
+        / "Seed"
+        / "seedwide.tck"
+    )
     final.parent.mkdir(parents=True, exist_ok=True)
     final.write_bytes(b"unknown")
     with pytest.raises(PublicationError, match="non-tool-owned final path"):
@@ -166,7 +186,7 @@ def test_unknown_extra_public_file_blocks_publication(tmp_path: Path) -> None:
     document["subjects"][0]["subject_dir"] = str(tmp_path / "sub-001")
     config = resolve_config(document, source_path=tmp_path / "config.yaml")
     subject = _resolved_subject(tmp_path / "sub-001")
-    unknown = subject.output_root / "tractograms" / "unknown.tck"
+    unknown = subject.output_root / "tractograms" / "native" / "unknown.tck"
     unknown.parent.mkdir(parents=True, exist_ok=True)
     unknown.write_bytes(b"unknown")
     with pytest.raises(PublicationError, match="non-tool-owned stale path"):
@@ -198,6 +218,7 @@ def test_stale_tool_owned_target_is_transactionally_retired(
     stale = (
         subject.output_root
         / "tractograms"
+        / "native"
         / "lh"
         / "Seed"
         / "targets"
@@ -253,6 +274,7 @@ def test_stale_target_is_restored_when_new_publication_validation_fails(
     stale = (
         subject.output_root
         / "tractograms"
+        / "native"
         / "lh"
         / "Seed"
         / "targets"

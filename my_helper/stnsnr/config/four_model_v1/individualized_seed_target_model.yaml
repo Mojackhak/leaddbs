@@ -1,0 +1,131 @@
+profile_type: individualized_seed_target_model
+
+scales:
+  - adl
+  - bdi_score
+  - bradykinesia_subscore_med_off
+  - cccs
+  - dsfs
+  - eat_10
+  - ess
+  - fogq_score
+  - fss
+  - hama
+  - hamd
+  - kpps_score
+  - madrs_score
+  - maes
+  - mds_udprs_ii
+  - mds_updrs_i
+  - mds_updrs_iii_axial_score
+  - mds_updrs_iii_score
+  - mds_updrs_iv
+  - odq
+  - pdq39_score
+  - rbdsq
+  - rbdsq_hk
+  - rigidity_subscore_med_off
+  - scopa_aut
+  - sdq
+  - se_adl_score
+  - tremor_subscore_med_off
+
+endpoint_pair:
+  baseline:
+    phase_id: T0
+    program_id: 0
+  reference:
+    phase_id: T2
+    program_id: 1
+  addon:
+    phase_id: T3
+    program_id: 2
+
+frequency_classes:
+  reference:
+    lower: 100
+    lower_inclusive: false
+    upper: null
+    upper_inclusive: false
+  addon:
+    lower: 0
+    lower_inclusive: false
+    upper: 50
+    upper_inclusive: false
+
+tractography:
+  tracking_config: /Volumes/VAL/STNSNr/config/spot/mrtrix_seed_target.yaml
+  subject_root_pattern: /Volumes/VAL/STNSNr/derivatives/leaddbs/sub-{subject_id}/connectomics/dMRI/mrtrix_seed_target
+  seed_id: STNSNrplus
+  sides: [lh, rh]
+  target_ids:
+    - GPe
+    - GPi
+    - caudate
+    - posterior_putamen
+    - VLP_thalamus
+    - VLA_thalamus
+    - RN
+    - VA_thalamus
+    - VM_thalamus
+    - PPN
+    - SMA
+    - M1
+    - sPf_thalamus
+    - premotor
+    - CM_thalamus
+    - DLPFC
+    - Pf_thalamus
+  target_membership: target_specific_tck
+  overlapping_targets: independent_binary
+
+source:
+  pre_specified:
+    tau_v_per_m: 400
+    coverage_subjects_min: 5
+  scan:
+    tau_v_per_m: [200, 350, 400, 450, 600, 800]
+    coverage_subjects_min: [5, 6, 7, 8, 10, 12]
+  minimum_adjacent_passing_cells: 2
+
+target_exposure:
+  measure: thresholded_mean_peak_e
+  threshold_inclusive: true
+  activated_fiber_count_min: 20
+  activated_fiber_fraction_min: 0.01
+  patient_support: any_side
+  bilateral_score: mean_actual_side_burdens
+  missing_total_fibers: exclude_patient_target
+
+hard_computability:
+  n_subjects_min: 12
+  full_candidate_targets_min: 1
+  fold_candidate_targets_min: 1
+
+score:
+  coefficient: benefit_oriented_partial_spearman
+  exposure_scaling: training_fold_zscore
+  normalization: sum_absolute_target_weights
+  fdr_use: report_only
+
+formal_resampling:
+  seed: 42
+  permutation_resamples: 10000
+  bootstrap_resamples: 10000
+  jitter_resamples: 1000
+  jitter_translation_fwhm_mm: 2.0
+
+addon:
+  overlap_exclusion:
+    denominator: all_valid_target_fibers
+    numerator: addon_active_and_reference_inactive
+  delta_reference_support:
+    adequate:
+      cohort_median_out_support_max: 0.20
+      subject_out_support_threshold: 0.50
+      subject_fraction_max: 0.25
+    invalid:
+      cohort_median_out_support_min_exclusive: 0.50
+      subject_out_support_threshold: 0.80
+      subject_fraction_min_exclusive: 0.25
+      individual_out_support_min_exclusive: 0.95

@@ -1,27 +1,39 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://leaddbs.org/schemas/dual_frequency_workflow_v1.schema.json",
+  "$id": "https://leaddbs.org/schemas/dual_frequency_workflow.schema.json",
   "title": "Dual-frequency workflow profile",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version",
     "profile_type",
     "model_profiles",
+    "output",
     "selection",
     "execution",
     "storage"
   ],
   "properties": {
-    "schema_version": {"const": "dual_frequency_workflow_v1"},
     "profile_type": {"const": "dual_frequency_workflow"},
     "model_profiles": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["direct_voxel", "normative_fiber"],
+      "required": [
+        "direct_voxel",
+        "normative_fiber",
+        "individualized_seed_target"
+      ],
       "properties": {
         "direct_voxel": {"type": "string", "minLength": 1},
-        "normative_fiber": {"type": "string", "minLength": 1}
+        "normative_fiber": {"type": "string", "minLength": 1},
+        "individualized_seed_target": {"type": "string", "minLength": 1}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root"],
+      "properties": {
+        "root": {"type": "string", "pattern": "^/", "minLength": 2}
       }
     },
     "selection": {
@@ -38,8 +50,10 @@
               "all",
               "reference_voxel",
               "reference_fiber",
+              "reference_individualized",
               "addon_voxel",
-              "addon_fiber"
+              "addon_fiber",
+              "addon_individualized"
             ]
           }
         },

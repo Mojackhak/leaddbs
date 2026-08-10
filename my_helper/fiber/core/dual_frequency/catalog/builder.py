@@ -13,8 +13,10 @@ from ..contracts.study_base import ProgramRecord, ScaleDefinition, StudyBaseReco
 MODEL_FAMILY_ORDER = (
     "reference_voxel",
     "reference_fiber",
+    "reference_individualized",
     "addon_voxel",
     "addon_fiber",
+    "addon_individualized",
 )
 
 
@@ -131,6 +133,8 @@ def _required_model_families(selected: tuple[str, ...]) -> tuple[str, ...]:
         required.add("reference_voxel")
     if "addon_fiber" in required:
         required.add("reference_fiber")
+    if "addon_individualized" in required:
+        required.add("reference_individualized")
     return tuple(item for item in MODEL_FAMILY_ORDER if item in required)
 
 
@@ -243,6 +247,31 @@ def build_endpoint_catalog(
                     )
                 )
 
+        if "reference_individualized" in families:
+            key = _endpoint_key(
+                study.study_id,
+                scale_id,
+                "reference_individualized",
+                reference_binding_id,
+            )
+            reference_ids[("reference_individualized", "none")] = key.identifier
+            records.append(
+                EndpointRecord(
+                    key=key,
+                    scale_label=scale.label,
+                    scale_direction=scale.direction,
+                    baseline_binding_id=_binding_id("baseline", pair.baseline),
+                    outcome_binding_id=reference_binding_id,
+                    matched_reference_endpoint_id=None,
+                    connectome_role="none",
+                    final_eligible=True,
+                    requested="reference_individualized" in requested_families,
+                    subject_ids=reference_subjects,
+                    minimum_subjects=minimum_subjects,
+                    status=_status(reference_subjects, minimum_subjects),
+                )
+            )
+
         if "addon_voxel" in families:
             key = _endpoint_key(
                 study.study_id,
@@ -293,5 +322,31 @@ def build_endpoint_catalog(
                         status=_status(addon_subjects, minimum_subjects),
                     )
                 )
+
+        if "addon_individualized" in families:
+            key = _endpoint_key(
+                study.study_id,
+                scale_id,
+                "addon_individualized",
+                addon_binding_id,
+            )
+            records.append(
+                EndpointRecord(
+                    key=key,
+                    scale_label=scale.label,
+                    scale_direction=scale.direction,
+                    baseline_binding_id=reference_binding_id,
+                    outcome_binding_id=addon_binding_id,
+                    matched_reference_endpoint_id=reference_ids[
+                        ("reference_individualized", "none")
+                    ],
+                    connectome_role="none",
+                    final_eligible=True,
+                    requested="addon_individualized" in requested_families,
+                    subject_ids=addon_subjects,
+                    minimum_subjects=minimum_subjects,
+                    status=_status(addon_subjects, minimum_subjects),
+                )
+            )
 
     return tuple(records)

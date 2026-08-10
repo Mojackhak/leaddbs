@@ -162,7 +162,13 @@ def prepare_rois(
         f"'{_matlab_quote(manifest_path)}');"
     )
     run_command(
-        [matlab.executable, "-batch", batch],
+        [
+            matlab.executable,
+            "-noFigureWindows",
+            "-nosplash",
+            "-batch",
+            batch,
+        ],
         log_path=log_dir / "matlab_roi_preparation.log",
         memory_observer=memory_observer,
     )
@@ -183,7 +189,7 @@ def prepare_rois(
         voxel_count = resample_anchor_mask_to_b0(
             anchor_output,
             subject.b0,
-            subject.anchor_to_dwi_transform,
+            subject.anchor_to_b0_transform,
             source_to_dwi[source],
         )
         if voxel_count == 0:

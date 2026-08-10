@@ -28,12 +28,17 @@ def _desired_artifacts(
     for seed in seeds:
         result = seed_results[seed.key]
         output_root = (
-            subject.output_root / "tractograms" / seed.side / seed.roi_id
+            subject.output_root
+            / "tractograms"
+            / "native"
+            / seed.side
+            / seed.roi_id
         )
         mother = result["outputs"]["mother"]
         artifacts.append(
             {
                 "semantic_key": f"{seed.key}/seedwide",
+                "coordinate_space": "native",
                 "source_path": mother["path"],
                 "path": str(output_root / "seedwide.tck"),
                 "sha256": mother["sha256"],
@@ -45,6 +50,7 @@ def _desired_artifacts(
             artifacts.append(
                 {
                     "semantic_key": f"{seed.key}/target/{target['key']}",
+                    "coordinate_space": "native",
                     "source_path": target["path"],
                     "path": str(
                         output_root
@@ -128,7 +134,7 @@ def publish_subject(
     desired = _desired_artifacts(subject, config.atlas.seeds, seed_results)
     owned = _owned_records(prior)
     desired_paths = {artifact["path"] for artifact in desired}
-    public_root = (subject.output_root / "tractograms").resolve()
+    public_root = (subject.output_root / "tractograms" / "native").resolve()
 
     if public_root.is_dir():
         for existing in sorted(
@@ -268,7 +274,7 @@ def publish_subject(
 
     complete_state = {
         "owner": OWNER,
-        "status": "complete",
+        "status": "native_complete",
         "transaction_id": transaction_id,
         "configuration_hash": config.configuration_hash,
         "subject_id": subject.subject_id,
@@ -315,7 +321,7 @@ def publish_subject(
         except Exception:
             cleanup_pending.append(str(rollback))
     appledouble_trashed, appledouble_failed = _trash_appledouble_sidecars(
-        subject.output_root / "tractograms"
+        subject.output_root / "tractograms" / "native"
     )
     cleanup_pending.extend(appledouble_failed)
     if cleanup_pending:

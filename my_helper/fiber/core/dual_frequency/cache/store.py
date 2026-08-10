@@ -25,6 +25,11 @@ from .identity import CacheIdentityError, ScientificCacheKey, sha256_file, sha25
 MANIFEST_NAME = "manifest.json"
 
 
+def _artifact_dtype(value: np.dtype) -> str:
+    dtype = np.dtype(value)
+    return dtype.str if dtype.kind in {"U", "S"} else dtype.name
+
+
 class CacheError(RuntimeError):
     """Base error for cache publication and materialization failures."""
 
@@ -1516,7 +1521,7 @@ class RunScopedArtifactPublisher:
                 payload_sha256=payload_hash,
                 kind=kind,
                 schema_version="dual_frequency_array_v1",
-                dtype=np.dtype(array.dtype).name,
+                dtype=_artifact_dtype(array.dtype),
                 shape=tuple(int(dimension) for dimension in array.shape),
                 axes=axes,
                 units=units,
@@ -1530,7 +1535,7 @@ class RunScopedArtifactPublisher:
             schema_version="dual_frequency_array_v1",
             uri=target.as_uri(),
             sha256=payload_hash,
-            dtype=np.dtype(array.dtype).name,
+            dtype=_artifact_dtype(array.dtype),
             shape=tuple(int(dimension) for dimension in array.shape),
             axis_refs=axes,
             axis_hashes=tuple(axis.sha256 for axis in axes),

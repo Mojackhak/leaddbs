@@ -335,7 +335,7 @@ class WorkflowService:
             if execution.resume
             else self._configuration_sources(validated)
         )
-        output_root = configuration.direct_voxel.output.root
+        output_root = configuration.workflow.output.root
         cache_root = configuration.workflow.storage.cache_root
         output_root.mkdir(parents=True, exist_ok=True)
         cache_root.mkdir(parents=True, exist_ok=True)
@@ -417,10 +417,6 @@ class WorkflowService:
                 typed_records=typed_records,
                 run_id=store.run_id,
                 study_id=validated.study.study_id,
-                model_set_ids={
-                    "direct_voxel": configuration.direct_voxel.model_set_id,
-                    "normative_fiber": configuration.normative_fiber.model_set_id,
-                },
                 cache_root=cache_root,
                 output_root=output_root,
                 source_identities=tuple(
@@ -433,6 +429,9 @@ class WorkflowService:
                     ),
                     "normative_fiber": _plain(
                         configuration.normative_fiber.formal_resampling
+                    ),
+                    "individualized_seed_target": _plain(
+                        configuration.individualized_seed_target.formal_resampling
                     ),
                 },
             )
@@ -474,7 +473,7 @@ class WorkflowService:
                 replace(request, base_run=rebuilt, rebuild_request=None)
             )
         configuration = validated.configuration
-        output_root = configuration.direct_voxel.output.root
+        output_root = configuration.workflow.output.root
         cache_root = configuration.workflow.storage.cache_root
         target = (
             configuration.workflow.storage.run_root
@@ -919,6 +918,10 @@ class WorkflowService:
             },
             "direct_voxel": _plain(configuration.direct_voxel),
             "normative_fiber": _plain(configuration.normative_fiber),
+            "individualized_seed_target": _plain(
+                configuration.individualized_seed_target
+            ),
+            "output": _plain(configuration.workflow.output),
             "selection": {
                 "models": list(configuration.selected_models),
                 "connectomes": list(configuration.selected_connectomes),
@@ -943,6 +946,12 @@ class WorkflowService:
             "workflow_profile": validated.request.workflow_profile,
             "direct_voxel_model": validated.request.direct_voxel_model,
             "normative_fiber_model": validated.request.normative_fiber_model,
+            "mrtrix_seed_target": (
+                validated.configuration.individualized_seed_target.tractography.tracking_config
+            ),
+            "individualized_seed_target_model": (
+                validated.configuration.workflow.individualized_seed_target_model_path
+            ),
         }
         root = Path(run_root).resolve() / "inputs"
         root.mkdir(parents=True, exist_ok=True)
@@ -956,6 +965,22 @@ class WorkflowService:
         for role, source in sources.items():
             target = root / source.name
             content = source.read_bytes()
+            if role == "individualized_seed_target_model":
+                profile = yaml.safe_load(content)
+                if not isinstance(profile, dict) or not isinstance(
+                    profile.get("tractography"), dict
+                ):
+                    raise ApplicationError(
+                        "individualized input bundle profile is invalid"
+                    )
+                profile["tractography"]["tracking_config"] = sources[
+                    "mrtrix_seed_target"
+                ].name
+                content = yaml.safe_dump(
+                    profile,
+                    sort_keys=False,
+                    allow_unicode=False,
+                ).encode("utf-8")
             if not target.exists():
                 descriptor, name = tempfile.mkstemp(prefix=f".{target.name}.", dir=root)
                 temporary = Path(name)
@@ -1222,9 +1247,8 @@ class WorkflowService:
             if not domain_rows:
                 continue
             root = (
-                profile.output.root
+                validated.configuration.workflow.output.root
                 / model_type
-                / profile.model_set_id
                 / "extensions"
                 / request.run_id
             )

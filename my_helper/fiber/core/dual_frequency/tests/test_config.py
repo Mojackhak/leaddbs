@@ -34,6 +34,30 @@ class ConfigTest(unittest.TestCase):
             all(item.fold_candidate_fibers_min == 1 for item in resolved.normative_fiber.connectomes)
         )
         self.assertEqual(resolved.normative_fiber.hard_computability.n_subjects_min, 12)
+        self.assertEqual(
+            resolved.individualized_seed_target.tractography.target_ids[-1],
+            "Pf_thalamus",
+        )
+        self.assertEqual(
+            len(resolved.individualized_seed_target.tractography.target_ids),
+            17,
+        )
+        self.assertEqual(
+            resolved.individualized_seed_target.tractography.space,
+            "MNI152NLin2009bAsym",
+        )
+        self.assertIn(
+            resolved.individualized_seed_target.tractography.tracking_config,
+            resolved.source_paths,
+        )
+        self.assertNotIn(
+            "preSMA",
+            resolved.individualized_seed_target.tractography.target_ids,
+        )
+        self.assertEqual(
+            resolved.individualized_seed_target.target_exposure.patient_support,
+            "any_side",
+        )
         self.assertEqual(resolved.workflow.execution.workers, 3)
         self.assertFalse(resolved.workflow.storage.delete_run_cache_on_success)
         self.assertEqual(len(resolved.configuration_hash), 64)
@@ -45,13 +69,20 @@ class ConfigTest(unittest.TestCase):
         workflow = self._workflow_document()
         direct = self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml")
         fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
+        individualized = self._yaml_document(
+            CONFIG_ROOT / "individualized_seed_target_model.yaml"
+        )
         self.assertEqual(
             workflow["model_profiles"],
             {
                 "direct_voxel": "direct_voxel_model.yaml",
                 "normative_fiber": "normative_fiber_model.yaml",
+                "individualized_seed_target": "individualized_seed_target_model.yaml",
             },
         )
+        for document in (workflow, direct, fiber, individualized):
+            self.assertNotIn("schema_version", document)
+            self.assertNotIn("model_set_id", document)
         self.assertFalse(workflow["storage"]["delete_run_cache_on_success"])
 
         direct_source = direct["shared"]["source"]
@@ -92,6 +123,133 @@ class ConfigTest(unittest.TestCase):
                 for entry in fiber["connectomes"]["entries"]
             ],
             [1, 1, 1],
+        )
+        self.assertEqual(
+            set(fiber["sensitivity"]),
+            {"selected_source_tau_multipliers"},
+        )
+        self.assertEqual(
+            individualized["target_exposure"]["measure"],
+            "thresholded_mean_peak_e",
+        )
+        self.assertEqual(
+            individualized["target_exposure"]["bilateral_score"],
+            "mean_actual_side_burdens",
+        )
+
+    def test_individualized_tractogram_space_is_read_from_tracking_config(self) -> None:
+        individualized = self._yaml_document(
+            CONFIG_ROOT / "individualized_seed_target_model.yaml"
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            tracking_config = Path(temporary_directory) / "tracking.yaml"
+            tracking_config.write_text(
+                yaml.safe_dump({"atlas": {"space": "configuredTargetSpace"}}),
+                encoding="utf-8",
+            )
+            individualized["tractography"]["tracking_config"] = str(
+                tracking_config
+            )
+            resolved = self._load_modified_profiles(
+                individualized=individualized,
+            )
+            tracking_config.write_text(
+                "# Formatting does not change the parsed space.\n"
+                "atlas:\n  space: configuredTargetSpace\n",
+                encoding="utf-8",
+            )
+            formatting_only = self._load_modified_profiles(
+                individualized=individualized,
+            )
+            tracking_config.write_text(
+                yaml.safe_dump({"atlas": {"space": "differentTargetSpace"}}),
+                encoding="utf-8",
+            )
+            changed_space = self._load_modified_profiles(
+                individualized=individualized,
+            )
+        self.assertEqual(
+            resolved.individualized_seed_target.tractography.space,
+            "configuredTargetSpace",
+        )
+        self.assertEqual(
+            resolved.scientific_configuration_hash,
+            formatting_only.scientific_configuration_hash,
+        )
+        self.assertNotEqual(
+            resolved.scientific_configuration_hash,
+            changed_space.scientific_configuration_hash,
+        )
+
+    def test_relative_tracking_config_resolves_from_individualized_profile(self) -> None:
+        direct = self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml")
+        fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
+        individualized = self._yaml_document(
+            CONFIG_ROOT / "individualized_seed_target_model.yaml"
+        )
+        workflow = self._workflow_document()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            tracking = root / "tracking.yaml"
+            tracking.write_text(
+                yaml.safe_dump({"atlas": {"space": "portableTargetSpace"}}),
+                encoding="utf-8",
+            )
+            individualized["tractography"]["tracking_config"] = tracking.name
+            paths = {
+                "direct_voxel": root / "direct.yaml",
+                "normative_fiber": root / "fiber.yaml",
+                "individualized_seed_target": root / "individualized.yaml",
+            }
+            paths["direct_voxel"].write_text(
+                yaml.safe_dump(direct, sort_keys=False), encoding="utf-8"
+            )
+            paths["normative_fiber"].write_text(
+                yaml.safe_dump(fiber, sort_keys=False), encoding="utf-8"
+            )
+            paths["individualized_seed_target"].write_text(
+                yaml.safe_dump(individualized, sort_keys=False), encoding="utf-8"
+            )
+            workflow["model_profiles"] = {
+                role: path.name for role, path in paths.items()
+            }
+            workflow_path = root / "workflow.yaml"
+            workflow_path.write_text(
+                yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8"
+            )
+            resolved = load_workflow(
+                workflow_path,
+                WorkflowOverrides(all_available=True),
+            )
+
+        self.assertEqual(
+            resolved.individualized_seed_target.tractography.tracking_config,
+            tracking.resolve(),
+        )
+        self.assertEqual(
+            resolved.individualized_seed_target.tractography.space,
+            "portableTargetSpace",
+        )
+
+    def test_tracking_config_path_does_not_change_scientific_hash(self) -> None:
+        individualized = self._yaml_document(
+            CONFIG_ROOT / "individualized_seed_target_model.yaml"
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            tracking_a = root / "tracking_a.yaml"
+            tracking_b = root / "tracking_b.yaml"
+            content = yaml.safe_dump({"atlas": {"space": "sameTargetSpace"}})
+            tracking_a.write_text(content, encoding="utf-8")
+            tracking_b.write_text(content, encoding="utf-8")
+            individualized["tractography"]["tracking_config"] = str(tracking_a)
+            first = self._load_modified_profiles(individualized=individualized)
+            individualized["tractography"]["tracking_config"] = str(tracking_b)
+            second = self._load_modified_profiles(individualized=individualized)
+
+        self.assertEqual(
+            first.scientific_configuration_hash,
+            second.scientific_configuration_hash,
         )
 
     def test_requires_explicit_scale_selection(self) -> None:
@@ -193,7 +351,31 @@ class ConfigTest(unittest.TestCase):
             workflow["model_profiles"] = {
                 "direct_voxel": str(CONFIG_ROOT / "direct_voxel_model_test.yaml"),
                 "normative_fiber": str(CONFIG_ROOT / "normative_fiber_model_test.yaml"),
+                "individualized_seed_target": str(
+                    CONFIG_ROOT / "individualized_seed_target_model.yaml"
+                ),
             }
+            individualized = self._yaml_document(
+                CONFIG_ROOT / "individualized_seed_target_model.yaml"
+            )
+            individualized["scales"] = [
+                "mds_updrs_iii_score",
+                "mds_updrs_iv",
+            ]
+            individualized["endpoint_pair"] = self._yaml_document(
+                CONFIG_ROOT / "direct_voxel_model_test.yaml"
+            )["endpoint_pair"]
+            workflow["output"]["root"] = "/Volumes/VAL/STNSNr/validation/spot"
+            individualized_path = (
+                Path(temporary_directory) / "individualized.yaml"
+            )
+            individualized_path.write_text(
+                yaml.safe_dump(individualized, sort_keys=False),
+                encoding="utf-8",
+            )
+            workflow["model_profiles"]["individualized_seed_target"] = str(
+                individualized_path
+            )
             path = Path(temporary_directory) / "workflow.yaml"
             path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
             resolved = load_workflow(path, WorkflowOverrides(all_available=True))
@@ -211,7 +393,7 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ConfigurationError, "smoke_permutations"):
             self._load_modified_profiles(direct=direct)
 
-    def test_rejects_changes_to_fixed_v1_oss_scientific_contract(self) -> None:
+    def test_rejects_changes_to_fixed_oss_scientific_contract(self) -> None:
         mutations = (
             (("oss", "model"), "other"),
             (("oss", "activation_model"), "deterministic"),
@@ -229,12 +411,26 @@ class ConfigTest(unittest.TestCase):
             with self.subTest(keys=keys), self.assertRaises(ConfigurationError):
                 self._load_modified_profiles(fiber=fiber)
 
-    def test_rejects_legacy_schema_and_project_role_aliases(self) -> None:
+    def test_rejects_removed_version_and_sensitivity_fields(self) -> None:
         workflow = self._workflow_document()
-        workflow["schema_version"] = "four_model_v1"
-        with self.assertRaisesRegex(ConfigurationError, "dual_frequency_workflow_v1"):
+        workflow["schema_version"] = "legacy"
+        with self.assertRaisesRegex(ConfigurationError, "schema_version"):
             self._load_modified_profiles(workflow=workflow)
 
+        direct = self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml")
+        direct["model_set_id"] = "legacy"
+        with self.assertRaisesRegex(ConfigurationError, "model_set_id"):
+            self._load_modified_profiles(direct=direct)
+
+        fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
+        fiber["sensitivity"]["high_threshold"] = {
+            "tau_v_per_m": 1500,
+            "coverage_subjects_min": 5,
+        }
+        with self.assertRaisesRegex(ConfigurationError, "high_threshold"):
+            self._load_modified_profiles(fiber=fiber)
+
+    def test_rejects_project_role_aliases(self) -> None:
         workflow = self._workflow_document()
         workflow["selection"]["models"] = ["frequency_1_reference"]
         with self.assertRaisesRegex(ConfigurationError, "frequency_1_reference"):
@@ -244,8 +440,8 @@ class ConfigTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "workflow.yaml"
             path.write_text(
-                "schema_version: dual_frequency_workflow_v1\n"
-                "schema_version: dual_frequency_workflow_v1\n",
+                "profile_type: dual_frequency_workflow\n"
+                "profile_type: dual_frequency_workflow\n",
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ConfigurationError, "duplicate YAML key"):
@@ -313,11 +509,11 @@ class ConfigTest(unittest.TestCase):
             resume_only.scientific_configuration_hash,
         )
 
-        direct = self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml")
-        fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
-        direct["output"]["root"] = "/tmp/alternate-output"
-        fiber["output"]["root"] = "/tmp/alternate-output"
-        different_output = self._load_modified_profiles(direct=direct, fiber=fiber)
+        workflow = self._workflow_document()
+        workflow["output"]["root"] = "/tmp/alternate-output"
+        different_output = self._load_modified_profiles(
+            workflow=workflow,
+        )
         self.assertNotEqual(original.configuration_hash, different_output.configuration_hash)
         self.assertEqual(
             original.scientific_configuration_hash,
@@ -341,11 +537,6 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ConfigurationError, "must be distinct"):
             self._load_modified_profiles(direct=direct, fiber=fiber)
 
-    def test_high_threshold_sensitivity_is_independent_of_resolver_scan(self) -> None:
-        fiber = self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml")
-        fiber["sensitivity"]["high_threshold"]["tau_v_per_m"] = 1750
-        self._load_modified_profiles(fiber=fiber)
-
     @staticmethod
     def _yaml_document(path: Path) -> dict[str, object]:
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -360,21 +551,34 @@ class ConfigTest(unittest.TestCase):
         *,
         direct: dict[str, object] | None = None,
         fiber: dict[str, object] | None = None,
+        individualized: dict[str, object] | None = None,
         workflow: dict[str, object] | None = None,
     ):
         direct_document = copy.deepcopy(direct or self._yaml_document(CONFIG_ROOT / "direct_voxel_model.yaml"))
         fiber_document = copy.deepcopy(fiber or self._yaml_document(CONFIG_ROOT / "normative_fiber_model.yaml"))
+        individualized_document = copy.deepcopy(
+            individualized
+            or self._yaml_document(
+                CONFIG_ROOT / "individualized_seed_target_model.yaml"
+            )
+        )
         workflow_document = copy.deepcopy(workflow or self._workflow_document())
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             direct_path = root / "direct.yaml"
             fiber_path = root / "fiber.yaml"
+            individualized_path = root / "individualized.yaml"
             workflow_path = root / "workflow.yaml"
             direct_path.write_text(yaml.safe_dump(direct_document, sort_keys=False), encoding="utf-8")
             fiber_path.write_text(yaml.safe_dump(fiber_document, sort_keys=False), encoding="utf-8")
+            individualized_path.write_text(
+                yaml.safe_dump(individualized_document, sort_keys=False),
+                encoding="utf-8",
+            )
             workflow_document["model_profiles"] = {
                 "direct_voxel": direct_path.name,
                 "normative_fiber": fiber_path.name,
+                "individualized_seed_target": individualized_path.name,
             }
             workflow_path.write_text(yaml.safe_dump(workflow_document, sort_keys=False), encoding="utf-8")
             return load_workflow(workflow_path, WorkflowOverrides(all_available=True))

@@ -6,8 +6,7 @@ vizRoot = fileparts(exampleRoot);
 repoRoot = fileparts(fileparts(fileparts(fileparts(vizRoot))));
 addpath(genpath(repoRoot));
 
-publicationRoot = ['/Volumes/VAL/STNSNr/summary/spot/normative_fiber/', ...
-    'dual_frequency_four_model_v1'];
+publicationRoot = '/Volumes/VAL/STNSNr/summary/spot/normative_fiber';
 pdq39FiberInput = mh_viz_prepare_scene_example_input( ...
     publicationRoot, 'addon_fiber', 'ScaleId', 'pdq39_score');
 

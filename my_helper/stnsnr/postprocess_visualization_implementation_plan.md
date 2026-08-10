@@ -7,6 +7,16 @@
 > Their formal outputs are now integrated below the matching model, scale, and
 > role. Any standalone postprocess result root, root aggregate index, or
 > versioned output wrapper described later in this document is historical.
+>
+> **Current spatial-display decision.**
+> Voxel and fiber spatial output now reads
+> `my_helper/stnsnr/config/four_model_v1/spatial_result_visualization.yaml`.
+> Shared display generation uses 1 mm FWHM masked-normalized smoothing,
+> 0.1 mm output voxels, and interpolated Gaussian weight greater than 0.5.
+> Each semantic spatial view publishes one `display.nii.gz`, one PNG, one PDF,
+> and one `result.json`. References later in this document to raw, 1 mm, and
+> 2 mm figure families or to `fiber_spatial_projection.yaml` describe
+> historical checkpoints and do not override this decision.
 
 The cross-plan production evidence ledger is
 `my_helper/stnsnr/task17_three_plan_acceptance_audit.md`. It records terminal
@@ -788,8 +798,9 @@ does not meet the publication requirement that no graphics window becomes
 visible.
 
 All-scale 3-D publication is parallel across scale IDs. The launcher starts
-independent `MATLAB -nodisplay -batch` processes, assigns one scale to each
-process, and keeps scale assignments disjoint. Its default concurrency is half
+independent `MATLAB -nodisplay -batch` processes, partitions the pending scales
+into disjoint process-local groups, and processes each group sequentially. The
+groups run in parallel, and the default maximum concurrency is half
 of the host logical CPU count, rounded down with a minimum of one process.
 This execution default is derived locally and is not exposed as a model or
 workflow parameter because it cannot change a scientific result. Each scale
@@ -1013,7 +1024,15 @@ percent positions of the finite signed heatmap support along the row's fixed
 world axis. All panels use canonical RAS world coordinates, equal physical
 spatial aspect, one shared fixed field of view, and the 30 by 25 mm inner
 Boxsize. Sampling resolution is 0.1 mm. Continuous anatomy and heat use linear
-world-space sampling; the binary mask uses nearest-neighbour sampling.
+world-space sampling. When a role defines a continuous `outline_path`, that
+atlas is sampled linearly on the panel grid and its boundary is drawn at the
+configured 0.05 isovalue. The fiber seed remains the source of projection
+membership, slice positions, and panel geometry. Without `outline_path`, the
+native binary seed is thresholded, cropped to its positive-voxel bounding box
+with one native-voxel background halo, and converted to a physical
+signed-distance field. The fallback field is sampled linearly and drawn at the
+0 mm isovalue. It remains an in-memory rendering intermediate. Neither path
+applies Gaussian shape smoothing or changes a scientific atlas.
 Every cell uses one fixed 12 by 10 mm MNI field of view centered on that
 slice's finite heatmap support. This field preserves the 30 by 25 mm page
 Boxsize ratio and one-to-one physical spatial scaling while providing more
@@ -1027,13 +1046,13 @@ floating-point array. The renderer reads only the required spatial crop or
 slice data while preserving the reference pixels. Anatomy is always rendered
 before the mask and heatmap and never receives the `vik` colormap.
 
-The reference figure uses
-`/Volumes/VAL/STNSNr/config/atlas/STN_rh_mask.nii.gz`; the add-on figure uses
-`/Volumes/VAL/STNSNr/config/atlas/SNr_rh_mask.nii.gz`. The mask threshold is
-0.05. Masks are
-not filled: their boundaries are drawn after the voxel heatmap with a solid,
-fully opaque black 1 point stroke, so the boundary remains visible over every
-heat color.
+The current reference outline uses the continuous right STN atlas and the
+add-on outline uses the continuous right SNr atlas declared in
+`spatial_result_visualization.yaml`. Both are drawn at the configured 0.05
+isovalue. A binary seed used as fallback is thresholded at 0.5 before
+signed-distance conversion. Outlines are not filled: their boundaries are drawn after the
+voxel heatmap with a solid, fully opaque black 1 point stroke, so the boundary
+remains visible over every heat color.
 
 Both smoothed heatmaps are constrained to the exact finite support of their
 selected unsmoothed `benefit_map.nii.gz`. Smoothing remains masked-normalized
@@ -1190,7 +1209,7 @@ connectome has no independent quantitative streamline weight, so both target
 scoring and voxel composition use `q_i = q_j = 1`.
 
 The explicit spatial catalog is
-`my_helper/stnsnr/config/four_model_v1/fiber_spatial_projection.yaml`. It fixes
+`my_helper/stnsnr/config/four_model_v1/spatial_result_visualization.yaml`. It fixes
 the full 7 T Edlow anatomy, one right-sided seed per role, the shared ordered
 right-sided target catalog, segment-aware intersection, independent binary
 target hits, coverage-qualified primary target scoring, selected-library
@@ -1209,12 +1228,10 @@ primary all-coverage scoring, selected sweet-and-sour sensitivity scoring,
 whole-connectome composition, tables, rainclouds, and every raw or smoothed
 target-conditioned map.
 
-The accepted display family produces raw, 1 mm FWHM, and 2 mm FWHM versions of
-the direct streamline derivative and both target-conditioned branches for each
-model role. This gives eighteen independent spatial figures: three direct
-streamline-score means, three primary all-coverage target-conditioned scores,
-and three selected sweet-and-sour sensitivity target-conditioned scores for
-reference, plus the same nine figures for add-on.
+The current display family produces one `display.nii.gz` for the direct
+streamline derivative and each target-conditioned branch for each model role.
+All share the configured display transform. The former raw, 1 mm, and 2 mm
+figure variants are historical and are not regenerated.
 
 All eighteen figures reuse the accepted direct-voxel layout and aesthetics: three
 rows for Ax, Cor, and Sag; 25, 50, and 75 percent seed positions; one fixed 12

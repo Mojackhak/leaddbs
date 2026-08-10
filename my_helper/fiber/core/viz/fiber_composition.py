@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Mapping, Sequence
 
 import numpy as np
@@ -35,6 +35,9 @@ class SeedPatternCounts:
     voxel_pattern_indptr: np.ndarray
     pattern_bits: np.ndarray
     pattern_counts: np.ndarray
+    fiber_ids: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64)
+    )
 
 
 @dataclass(frozen=True)
@@ -388,6 +391,7 @@ def _merge_pattern_parts(
     target_count: int,
     code_parts: Sequence[np.ndarray],
     count_parts: Sequence[np.ndarray],
+    fiber_id_parts: Sequence[np.ndarray],
 ) -> SeedPatternCounts:
     if code_parts:
         codes = np.concatenate(code_parts)
@@ -413,7 +417,12 @@ def _merge_pattern_parts(
     indptr[0] = 0
     np.cumsum(entry_counts, out=indptr[1:])
     seed_indices = np.asarray(seed.flat_voxel_indices, dtype=np.int64)
-    for value in (seed_indices, indptr, patterns, merged_counts):
+    fiber_ids = (
+        np.concatenate(fiber_id_parts).astype(np.int64, copy=False)
+        if fiber_id_parts
+        else np.empty(0, dtype=np.int64)
+    )
+    for value in (seed_indices, indptr, patterns, merged_counts, fiber_ids):
         value.setflags(write=False)
     return SeedPatternCounts(
         role=role,
@@ -421,6 +430,7 @@ def _merge_pattern_parts(
         voxel_pattern_indptr=indptr,
         pattern_bits=patterns,
         pattern_counts=merged_counts,
+        fiber_ids=fiber_ids,
     )
 
 
@@ -447,6 +457,9 @@ def build_whole_connectome_composition(
     seed_grids = {role: _seed_grid(seeds[role]) for role in role_order}
     code_parts: dict[str, list[np.ndarray]] = {role: [] for role in role_order}
     count_parts: dict[str, list[np.ndarray]] = {role: [] for role in role_order}
+    fiber_id_parts: dict[str, list[np.ndarray]] = {
+        role: [] for role in role_order
+    }
     metadata = connectome.metadata
     fiber_bits = np.zeros(metadata.n_fibers, dtype=np.uint32)
     seen_fibers = 0
@@ -476,6 +489,9 @@ def build_whole_connectome_composition(
             if codes.size:
                 code_parts[role].append(codes)
                 count_parts[role].append(counts)
+            role_hits = (np.diff(indptr) > 0) & (patterns != 0)
+            if np.any(role_hits):
+                fiber_id_parts[role].append(chunk_ids[role_hits])
         seen_fibers += int(chunk_ids.size)
         if progress_callback is not None:
             progress_callback(
@@ -502,6 +518,7 @@ def build_whole_connectome_composition(
             target_count=len(targets),
             code_parts=code_parts[role],
             count_parts=count_parts[role],
+            fiber_id_parts=fiber_id_parts[role],
         )
         for role in role_order
     )

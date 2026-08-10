@@ -8,7 +8,6 @@ import math
 import numpy as np
 
 from ...contracts import (
-    NormativeFiberScoreSettings,
     ObservedRequest,
     ObservedResult,
     SensitivityResult,
@@ -37,10 +36,6 @@ class ObservedFiberControlRequest:
     observed_request: ObservedRequest
     observed_result: ObservedResult
     peak_fraction: float = 0.05
-    high_threshold_tau: float | None = None
-    high_threshold_coverage: int | None = None
-    fixed_sweet_count: int | None = None
-    fixed_sour_count: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.observed_request, ObservedRequest):
@@ -60,32 +55,6 @@ class ObservedFiberControlRequest:
                 "observed fiber controls cannot consume a resolved source"
             )
         _validate_peak_fraction(self.peak_fraction)
-        high_values = (self.high_threshold_tau, self.high_threshold_coverage)
-        if (high_values[0] is None) != (high_values[1] is None):
-            raise SensitivityStrategyError(
-                "high-threshold tau and coverage must be configured together"
-            )
-        if high_values[0] is not None and (
-            not math.isfinite(float(high_values[0]))
-            or float(high_values[0]) <= 0
-            or type(high_values[1]) is not int
-            or int(high_values[1]) < 1
-        ):
-            raise SensitivityStrategyError(
-                "high-threshold tau and coverage must be positive"
-            )
-        fixed_values = (self.fixed_sweet_count, self.fixed_sour_count)
-        if (fixed_values[0] is None) != (fixed_values[1] is None):
-            raise SensitivityStrategyError(
-                "fixed sweet and sour counts must be configured together"
-            )
-        if fixed_values[0] is not None and (
-            type(fixed_values[0]) is not int
-            or type(fixed_values[1]) is not int
-            or int(fixed_values[0]) < 1
-            or int(fixed_values[1]) < 1
-        ):
-            raise SensitivityStrategyError("fixed outer-library counts must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,34 +204,6 @@ class ObservedFiberControlStrategy:
             coverage=coverage,
             array_provider=self.array_provider,
         )
-        high_threshold = None
-        if request.high_threshold_tau is not None:
-            high_threshold = evaluate_observed_fiber_cell(
-                observed,
-                tau=float(request.high_threshold_tau),
-                coverage=int(request.high_threshold_coverage),
-                array_provider=self.array_provider,
-            ).as_payload()
-        fixed_outer_library = None
-        if request.fixed_sweet_count is not None:
-            settings = observed.fiber_score_settings
-            if settings is None:
-                raise SensitivityStrategyError("fiber score settings are missing")
-            fixed_settings = NormativeFiberScoreSettings(
-                sweet_fraction=float(np.nextafter(0.0, 1.0)),
-                sour_fraction=float(np.nextafter(0.0, 1.0)),
-                weighted_peak_fraction=settings.weighted_peak_fraction,
-                sweet_selected_min_count=int(request.fixed_sweet_count),
-                sour_selected_min_count=int(request.fixed_sour_count),
-                weighted_peak_min_count=settings.weighted_peak_min_count,
-            )
-            fixed_outer_library = evaluate_observed_fiber_cell(
-                observed,
-                tau=tau,
-                coverage=coverage,
-                array_provider=self.array_provider,
-                score_settings=fixed_settings,
-            ).as_payload()
         artifacts = (
             self.publisher.array(
                 "observed_plain_touched_count.npy",
@@ -301,24 +242,6 @@ class ObservedFiberControlStrategy:
             "touched_count_median": float(np.median(touched)),
             "touched_count_maximum": int(np.max(touched)),
             "primary_cell_diagnostic": primary_cell.as_payload(),
-            "cheap_controls": {
-                "high_threshold": (
-                    high_threshold
-                    if high_threshold is not None
-                    else {
-                        "technical_status": "not_applicable",
-                        "reason": "not_configured",
-                    }
-                ),
-                "fixed_outer_library": (
-                    fixed_outer_library
-                    if fixed_outer_library is not None
-                    else {
-                        "technical_status": "not_applicable",
-                        "reason": "not_configured",
-                    }
-                ),
-            },
             "input_diagnostic_artifact_ids": [
                 artifact.identifier for artifact in request.observed_result.artifacts
             ],

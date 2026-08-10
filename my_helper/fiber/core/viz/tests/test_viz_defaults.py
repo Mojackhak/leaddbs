@@ -56,6 +56,7 @@ def test_voxel_section_cfg_matches_the_accepted_mylfp_contract() -> None:
     assert voxel_section_cfg["percent_list"] == (25.0, 50.0, 75.0)
     assert voxel_section_cfg["facets"] == ("Ax", "Cor", "Sag")
     assert voxel_section_cfg["resolution_mm"] == 0.1
+    assert voxel_section_cfg["mask_threshold"] == 0.5
     assert voxel_section_cfg["font_family"] == "Arial"
     assert voxel_section_cfg["background_percentiles"] == (0.0, 100.0)
     assert voxel_section_cfg["heat_scale_mode"] == "symmetric"

@@ -46,12 +46,16 @@ def _write_fixture(root: Path) -> WorkflowRequest:
 
     direct = yaml.safe_load((CONFIG_ROOT / "direct_voxel_model_test.yaml").read_text(encoding="utf-8"))
     fiber = yaml.safe_load((CONFIG_ROOT / "normative_fiber_model_test.yaml").read_text(encoding="utf-8"))
+    individualized = yaml.safe_load(
+        (CONFIG_ROOT / "individualized_seed_target_model.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
     workflow = yaml.safe_load((CONFIG_ROOT / "workflow.yaml").read_text(encoding="utf-8"))
     scales = ["scale_a", "scale_b"]
-    for profile in (direct, fiber):
-        profile["model_set_id"] = "synthetic_dual_frequency_v1"
-        profile["output"]["root"] = str(root / "outputs")
+    for profile in (direct, fiber, individualized):
         profile["scales"] = scales
+    individualized["endpoint_pair"] = copy.deepcopy(direct["endpoint_pair"])
     fiber["connectomes"]["entries"] = [
         {
             "connectome_id": "connectome_a",
@@ -63,14 +67,29 @@ def _write_fixture(root: Path) -> WorkflowRequest:
     ]
     direct_path = root / "direct_voxel_model.yaml"
     fiber_path = root / "normative_fiber_model.yaml"
+    individualized_path = root / "individualized_seed_target_model.yaml"
     workflow_path = root / "workflow.yaml"
     direct_path.write_text(yaml.safe_dump(direct, sort_keys=False), encoding="utf-8")
     fiber_path.write_text(yaml.safe_dump(fiber, sort_keys=False), encoding="utf-8")
+    individualized_path.write_text(
+        yaml.safe_dump(individualized, sort_keys=False),
+        encoding="utf-8",
+    )
     workflow["model_profiles"] = {
         "direct_voxel": direct_path.name,
         "normative_fiber": fiber_path.name,
+        "individualized_seed_target": individualized_path.name,
     }
-    workflow["selection"] = {"models": ["all"], "connectomes": ["all"]}
+    workflow["output"] = {"root": str(root / "outputs")}
+    workflow["selection"] = {
+        "models": [
+            "reference_voxel",
+            "reference_fiber",
+            "addon_voxel",
+            "addon_fiber",
+        ],
+        "connectomes": ["all"],
+    }
     workflow["execution"]["through"] = "observed"
     workflow["execution"]["allow_expensive_producers"] = False
     workflow["execution"]["workers"] = 2

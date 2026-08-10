@@ -29,6 +29,7 @@ from ..contracts import (
     OSSSharedOmegaGroupRecord,
     PPAMObservedWorkspaceRecord,
     PreparedExposureRecord,
+    PreparedTargetExposureRecord,
     PPAMPermutationBlockRecord,
     ReferenceDependencyRecord,
     ResamplingBlockRecord,
@@ -48,6 +49,7 @@ class RecordCodecError(ValueError):
 _ROOT_TYPES = {
     "EndpointInputRecord": EndpointInputRecord,
     "PreparedExposureRecord": PreparedExposureRecord,
+    "PreparedTargetExposureRecord": PreparedTargetExposureRecord,
     "ArtifactRef": ArtifactRef,
     "IndexedArrayView": IndexedArrayView,
     "BootstrapBlockRecord": BootstrapBlockRecord,
@@ -296,6 +298,29 @@ _PREPARED_EXPOSURE_FIELDS = frozenset(
         "addon_reference_component_exposure",
         "reference_overlap_mask",
         "total_exposure",
+    }
+)
+_PREPARED_TARGET_EXPOSURE_FIELDS = frozenset(
+    {
+        "endpoint",
+        "subject_axis",
+        "target_axis",
+        "side_axis",
+        "tau_axis",
+        "target_ids",
+        "side_total_counts",
+        "side_burdens",
+        "side_activated_counts",
+        "side_activated_fractions",
+        "patient_burdens",
+        "patient_support",
+        "delta_reference_input_status",
+        "delta_reference_reason_code",
+        "auxiliary_readiness",
+        "reference_condition_patient_burdens",
+        "reference_condition_patient_support",
+        "addon_reference_component_patient_burdens",
+        "addon_reference_component_patient_support",
     }
 )
 _SOURCE_FIELDS = frozenset(
@@ -788,6 +813,80 @@ def _decode_prepared_exposure(
             payload["total_exposure"],
             f"{location}.total_exposure",
             _decode_scientific_array,
+        ),
+    )
+
+
+def _decode_prepared_target_exposure(
+    value: object,
+    location: str,
+) -> PreparedTargetExposureRecord:
+    payload = _object(value, location, _PREPARED_TARGET_EXPOSURE_FIELDS)
+    optional_artifact = lambda field: _optional(
+        payload[field],
+        f"{location}.{field}",
+        _decode_artifact,
+    )
+    return PreparedTargetExposureRecord(
+        endpoint=_decode_endpoint(payload["endpoint"], f"{location}.endpoint"),
+        subject_axis=_decode_axis(
+            payload["subject_axis"],
+            f"{location}.subject_axis",
+        ),
+        target_axis=_decode_axis(
+            payload["target_axis"],
+            f"{location}.target_axis",
+        ),
+        side_axis=_decode_axis(payload["side_axis"], f"{location}.side_axis"),
+        tau_axis=_decode_axis(payload["tau_axis"], f"{location}.tau_axis"),
+        target_ids=_decode_artifact(
+            payload["target_ids"],
+            f"{location}.target_ids",
+        ),
+        side_total_counts=_decode_artifact(
+            payload["side_total_counts"],
+            f"{location}.side_total_counts",
+        ),
+        side_burdens=_decode_artifact(
+            payload["side_burdens"],
+            f"{location}.side_burdens",
+        ),
+        side_activated_counts=_decode_artifact(
+            payload["side_activated_counts"],
+            f"{location}.side_activated_counts",
+        ),
+        side_activated_fractions=_decode_artifact(
+            payload["side_activated_fractions"],
+            f"{location}.side_activated_fractions",
+        ),
+        patient_burdens=_decode_artifact(
+            payload["patient_burdens"],
+            f"{location}.patient_burdens",
+        ),
+        patient_support=_decode_artifact(
+            payload["patient_support"],
+            f"{location}.patient_support",
+        ),
+        delta_reference_input_status=_text(
+            payload["delta_reference_input_status"],
+            f"{location}.delta_reference_input_status",
+        ),
+        delta_reference_reason_code=_text(
+            payload["delta_reference_reason_code"],
+            f"{location}.delta_reference_reason_code",
+        ),
+        auxiliary_readiness=optional_artifact("auxiliary_readiness"),
+        reference_condition_patient_burdens=optional_artifact(
+            "reference_condition_patient_burdens"
+        ),
+        reference_condition_patient_support=optional_artifact(
+            "reference_condition_patient_support"
+        ),
+        addon_reference_component_patient_burdens=optional_artifact(
+            "addon_reference_component_patient_burdens"
+        ),
+        addon_reference_component_patient_support=optional_artifact(
+            "addon_reference_component_patient_support"
         ),
     )
 
@@ -1626,6 +1725,7 @@ def _decode_activation_artifact(
 _ROOT_DECODERS: dict[str, Callable[[object, str], object]] = {
     "EndpointInputRecord": _decode_endpoint_input,
     "PreparedExposureRecord": _decode_prepared_exposure,
+    "PreparedTargetExposureRecord": _decode_prepared_target_exposure,
     "ArtifactRef": _decode_artifact,
     "IndexedArrayView": _decode_indexed_array_view,
     "ObservedResult": _decode_observed_result,

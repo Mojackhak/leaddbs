@@ -529,6 +529,30 @@ class FinalDecisionTest(unittest.TestCase):
 
 
 class ReportingDocumentsTest(unittest.TestCase):
+    def test_individualized_endpoint_reports_its_own_representation(self) -> None:
+        endpoint = _endpoint(
+            "individualized",
+            "reference_individualized",
+            requested=True,
+        )
+        plan = ExecutionPlan(
+            configuration_hash="a" * 64,
+            scientific_configuration_hash="b" * 64,
+            through="report",
+            tasks=(),
+        )
+        summary = build_endpoint_summary(
+            plan,
+            (endpoint,),
+            RunResult("representation-run", (), 0),
+            {},
+        )
+
+        self.assertEqual(
+            summary["endpoints"][0]["representation"],
+            "individualized_seed_target",
+        )
+
     def test_endpoint_and_run_reports_use_reference_addon_vocabulary(self) -> None:
         fixture = _build_fixture()
         endpoint_summary = build_endpoint_summary(

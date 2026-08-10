@@ -12,7 +12,7 @@ unchanged until a validated candidate is explicitly installed.
 Existing run outputs, including logs, are moved to a timestamped `backups`
 folder before a new run writes replacements.
 
-## ZhangMing Example
+## SNr030 / ZhangMing Example
 
 Run from the Lead-DBS repository root:
 
@@ -23,19 +23,20 @@ Run from the Lead-DBS repository root:
 
 The example reads:
 
-- current reconstruction:
-  `/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-ZhangMing/reconstruction/sub-ZhangMing_desc-reconstruction.mat`
+- preserved pre-compatibility reconstruction:
+  `/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr030/bak/sub-SNr030_desc-reconstruction-bak.mat`
 - legacy cohort table:
   `/Volumes/VAL/STNSNr/summary/cohort/lead/contact_reco_space_locs.pkl`
-- current ANTs transforms under:
-  `/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-ZhangMing/normalization/transformations`
+- preserved pre-compatibility ANTs transforms under:
+  `/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr030/bak`
 
 It writes candidate outputs under:
 
-`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-ZhangMing/warpdrive/legacy_contact_compat`
+`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr030/warpdrive/legacy_contact_compat`
 
 At the end of a run, the example prints the ordinary Slicer-composed inverse
-validation and the `PointExact` inverse validation. The grid validation is the
+validation, the `PointExact` authoritative-field validation, and the validation
+of the numerically derived companion field. The grid validation is the
 highest-precision check of the written displacement field; the ANTs validation
 reports what Lead-DBS/ANTs point-transform tooling reads back from the same
 file.
@@ -51,34 +52,40 @@ the candidate transforms and legacy-compatible MNI reconstruction with:
 ```
 
 The installer is intentionally strict. It stops before changing official files
-unless the validated candidate forward transform, the `PointExact` inverse
-transform, the original transforms, and the reconstruction file all exist. It
-also requires `validation_summary.json` to report a rounded-exact
-`PointExact` grid validation with maximum error below `1e-6` mm.
+unless the validated numerically derived forward transform, the `PointExact`
+authoritative inverse transform, the original transforms, and the
+reconstruction file all exist. It also requires `validation_summary.json` to
+report a rounded-exact `PointExact` grid validation with maximum error below
+`1e-6` mm and a successful numerical-inversion validation.
 
 Original official files are moved into the subject-level `bak` folder before
 replacement. The installer creates this folder when needed:
 
-`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-ZhangMing/bak`
+`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr030/bak`
 
-- `sub-ZhangMing_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz`
-- `sub-ZhangMing_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz`
-- `sub-ZhangMing_desc-reconstruction-bak.mat`
+- `sub-SNr030_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz`
+- `sub-SNr030_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz`
+- `sub-SNr030_desc-reconstruction-bak.mat`
 
 If any of those backups already exists, installation aborts to avoid replacing
 the first backup. Recovery is a manual copy from the `bak` folder back to the
 original formal-file locations.
 
-The installed forward transform is the ordinary Slicer-composed candidate. The
-installed inverse transform is the `PointExact` inverse candidate. The
-reconstruction update only changes `reco.mni` contacts, markers, trajectories,
-and angles; `reco.native` and `reco.scrf` remain unchanged.
+The installed inverse transform is the `PointExact` candidate. The installed
+forward transform is its numerical inverse; the ordinary Slicer-composed
+forward is retained only as the numerical solver's initial estimate and as an
+auditable intermediate. The reconstruction update only changes `reco.mni`
+contacts, markers, trajectories, and angles; `reco.native` and `reco.scrf`
+remain unchanged.
 
-## HuangDan Build And Install
+## SNr029 / HuangDan Build And Install
 
 `Sub-HuangDan` uses the same legacy-contact compatibility strategy as
 `Sub-ZhangMing`: current Lead-DBS MNI contacts are the moving landmarks and the
 legacy cohort `MNI_x`, `MNI_y`, and `MNI_z` values are the fixed landmarks.
+Candidate rebuilding reads the preserved pre-compatibility reconstruction and
+EasyReg fields under `sub-SNr029/bak`; it must not fit residuals from the
+already legacy-compatible active reconstruction.
 
 Run from the Lead-DBS repository root:
 
@@ -89,20 +96,21 @@ Run from the Lead-DBS repository root:
 
 The script first builds candidates under:
 
-`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-HuangDan/warpdrive/legacy_contact_compat`
+`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr029/warpdrive/legacy_contact_compat`
 
 It installs the candidates only after the `PointExact` inverse grid validation
 is rounded-exact at seven decimal places and the maximum grid error is below
-`1e-6` mm. The installed forward transform is the ordinary Slicer-composed
-candidate, and the installed inverse transform is the `PointExact` candidate.
+`1e-6` mm. The installed inverse transform is the `PointExact` candidate, and
+the installed forward transform is derived by numerical inversion of that
+same field.
 
 Original official files are moved into:
 
-`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-HuangDan/bak`
+`/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr029/bak`
 
-- `sub-HuangDan_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz`
-- `sub-HuangDan_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz`
-- `sub-HuangDan_desc-reconstruction-bak.mat`
+- `sub-SNr029_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants-bak.nii.gz`
+- `sub-SNr029_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants-bak.nii.gz`
+- `sub-SNr029_desc-reconstruction-bak.mat`
 
 If any of those backups already exists, installation aborts. Recovery is a
 manual copy from the `bak` folder back to the original formal-file locations.
@@ -111,7 +119,7 @@ The reconstruction update only changes `reco.mni`; `reco.native` and
 
 ## Precision
 
-For `Sub-ZhangMing`, the legacy cohort `MNI_x`, `MNI_y`, and `MNI_z` values
+For `Sub-ZhangMing` / `sub-SNr030`, the legacy cohort `MNI_x`, `MNI_y`, and `MNI_z` values
 round-trip exactly at up to seven decimal places. Validation reports both full
 floating-point residuals and rounded agreement at the requested decimal places.
 
@@ -140,10 +148,60 @@ If a first candidate leaves sub-voxel residuals, `CompatPaths` may point
 the RBF fitting target. Final validation and the `PointExact` inverse still use
 the original legacy cohort coordinates as the expected coordinates.
 
-For contact-level numerical matching, the helper can also write a
-`PointExact` candidate inverse transform. This is a local grid correction on
+For contact-level numerical matching, the helper writes a `PointExact`
+candidate inverse transform. This is a local grid correction on
 top of the Slicer-composed inverse transform: it solves the trilinear grid
 weights around each native contact point so that the displacement field samples
 to the requested legacy MNI coordinate at those points. The Slicer-composed
-forward and inverse candidates remain available as auditable global transforms;
-the point-exact inverse is the contact-coordinate compatibility artifact.
+forward and inverse candidates remain available as auditable intermediates.
+The point-exact inverse is the authoritative contact-coordinate compatibility
+field. The final companion field is generated only by numerically inverting
+this authoritative field on the template grid; the independently fitted
+reverse RBF is never installed as its inverse.
+
+## Authoritative Direction And Numerical Inversion
+
+Lead-DBS transform filenames describe image-resampling direction. For point
+transforms, the file named `from-MNI...to-anchorNative` maps anchor-native RAS
+points to MNI RAS points. The legacy-contact compatibility contract therefore
+uses that `PointExact` field as the authoritative point map:
+
+```text
+anchor-native point -> legacy-compatible MNI point
+```
+
+The file named `from-anchorNative...to-MNI` is generated as the numerical
+inverse point map:
+
+```text
+legacy-compatible MNI point -> anchor-native point
+```
+
+The solver starts from the ordinary composed forward field and applies
+chunked Newton updates against the authoritative `PointExact` displacement
+field. If Newton does not converge at a candidate grid point, the solver
+restarts that point from the same initial estimate and applies a damped
+fixed-point iteration against the authoritative field. This second solver
+closes isolated Newton overshoot holes without installing values from the
+ordinary field. The ordinary field is only an initial estimate. Voxels whose
+initial estimate lies outside the authoritative field domain, or for which
+neither numerical solver finds a preimage, remain identity because the
+authoritative inverse is undefined there; no ordinary-field fallback is
+written into the final companion field.
+
+The output NIfTI stores displacement components in RAS order and uses NIfTI
+intent code 1006 (`displacement vector`). This is required because a raw
+SimpleITK vector NIfTI stores the x/y components with ITK's LPS convention;
+using those components as RAS would create an apparent left-right mirror.
+
+Acceptance requires all of the following:
+
+- the authoritative field reproduces all legacy contacts with maximum grid
+  error at or below `1e-6` mm;
+- the derived field maps the legacy contacts back to anchor-native contacts;
+- the pair passes round-trip limits of median `0.05` mm, 95th percentile
+  `0.2` mm, and maximum `0.5` mm on the validated spatial support;
+- in-process RAS sampling and `antsApplyTransformsToPoints` agree for both
+  fields;
+- numerical inversion reports no unconverged point inside the validated
+  support.

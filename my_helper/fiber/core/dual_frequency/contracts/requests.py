@@ -235,6 +235,29 @@ class NormativeFiberScoreSettings:
 
 
 @dataclass(frozen=True)
+class TargetScoreSettings:
+    """Individualized target-score construction parameters."""
+
+    exposure_scaling: str
+    normalization: str
+
+    def __post_init__(self) -> None:
+        scaling = _request_token(self.exposure_scaling, "exposure_scaling")
+        normalization = _request_token(self.normalization, "normalization")
+        if scaling != "training_fold_zscore":
+            raise RequestError(
+                "individualized target exposure_scaling must be training_fold_zscore"
+            )
+        if normalization != "sum_absolute_target_weights":
+            raise RequestError(
+                "individualized target normalization must be "
+                "sum_absolute_target_weights"
+            )
+        object.__setattr__(self, "exposure_scaling", scaling)
+        object.__setattr__(self, "normalization", normalization)
+
+
+@dataclass(frozen=True)
 class ObservedRequest:
     """Observed LOOCV request for one endpoint and candidate branch."""
 
@@ -344,6 +367,104 @@ class ObservedRequest:
             raise RequestError(
                 "normative-fiber requests require a fold candidate-fiber minimum"
             )
+
+
+@dataclass(frozen=True)
+class TargetObservedRequest:
+    """Tau-indexed individualized target request for observed LOOCV."""
+
+    endpoint: EndpointKey
+    branch: str
+    patient_burdens: ArtifactRef
+    patient_support: ArtifactRef
+    outcome: ArtifactRef
+    baseline: ArtifactRef
+    nuisance_inputs: tuple[ArtifactRef, ...]
+    subject_axis: AxisRef
+    target_axis: AxisRef
+    tau_axis: AxisRef
+    target_ids: ArtifactRef
+    source_grid: SourceGrid
+    outcome_direction: str
+    hard_computability: HardComputabilityLimits
+    score_settings: TargetScoreSettings
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.endpoint, EndpointKey):
+            raise RequestError("endpoint must be an EndpointKey")
+        if not self.endpoint.model_family.endswith("individualized"):
+            raise RequestError(
+                "TargetObservedRequest requires an individualized endpoint"
+            )
+        branch = _request_token(self.branch, "branch")
+        allowed = (
+            {"reference"}
+            if self.endpoint.model_family.startswith("reference_")
+            else {"no_delta_reference", "delta_reference_adjusted"}
+        )
+        if branch not in allowed:
+            raise RequestError(
+                f"branch {branch!r} is invalid for {self.endpoint.model_family!r}"
+            )
+        object.__setattr__(self, "branch", branch)
+        if not all(
+            isinstance(axis, AxisRef)
+            for axis in (self.subject_axis, self.target_axis, self.tau_axis)
+        ):
+            raise RequestError("target request axes must be AxisRef values")
+        expected = (self.tau_axis, self.subject_axis, self.target_axis)
+        for value, field in (
+            (self.patient_burdens, "patient_burdens"),
+            (self.patient_support, "patient_support"),
+        ):
+            _artifact_input(value, field)
+            if value.axis_refs != expected:
+                raise RequestError(f"{field} axes do not match the target request")
+        if self.patient_burdens.units != "V/m":
+            raise RequestError("patient_burdens must use V/m")
+        if self.patient_support.dtype != "bool":
+            raise RequestError("patient_support must use bool dtype")
+        _validate_vector(self.outcome, "outcome", self.subject_axis)
+        _validate_vector(self.baseline, "baseline", self.subject_axis)
+        nuisance = tuple(self.nuisance_inputs)
+        for index, value in enumerate(nuisance):
+            _validate_nuisance(
+                _artifact_input(value, f"nuisance_inputs[{index}]"),
+                f"nuisance_inputs[{index}]",
+                self.subject_axis,
+            )
+        object.__setattr__(self, "nuisance_inputs", nuisance)
+        _artifact_input(self.target_ids, "target_ids")
+        if self.target_ids.axis_refs != (self.target_axis,):
+            raise RequestError("target_ids must bind the target axis")
+        try:
+            target_dtype = np.dtype(self.target_ids.dtype)
+        except TypeError as exc:
+            raise RequestError("target_ids must use a Unicode string dtype") from exc
+        if target_dtype.kind != "U":
+            raise RequestError("target_ids must use a Unicode string dtype")
+        if not isinstance(self.source_grid, SourceGrid):
+            raise RequestError("source_grid must be a SourceGrid")
+        if self.tau_axis.count != len(self.source_grid.tau_values):
+            raise RequestError("tau axis count must match the source grid")
+        direction = _request_token(
+            self.outcome_direction,
+            "outcome_direction",
+        ).lower()
+        if direction not in {"lower", "higher"}:
+            raise RequestError("outcome_direction must be lower or higher")
+        object.__setattr__(self, "outcome_direction", direction)
+        if not isinstance(self.hard_computability, HardComputabilityLimits):
+            raise RequestError("hard_computability must be HardComputabilityLimits")
+        if (
+            self.hard_computability.n_features_full_min is None
+            or self.hard_computability.fold_n_features_min is None
+        ):
+            raise RequestError(
+                "individualized target requests require full and fold target minima"
+            )
+        if not isinstance(self.score_settings, TargetScoreSettings):
+            raise RequestError("score_settings must be TargetScoreSettings")
 
 
 @dataclass(frozen=True)
@@ -569,6 +690,9 @@ class FormalRequest:
     fiber_score_settings: NormativeFiberScoreSettings | None
     resamples: int
     seed: int
+    target_support: ArtifactRef | None = None
+    target_ids: ArtifactRef | None = None
+    target_score_settings: TargetScoreSettings | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.final_model, FinalModelRecord):
@@ -659,7 +783,8 @@ class FormalRequest:
                 "reference and no-delta formal requests cannot receive DeltaReferenceScore"
             )
 
-        if self.final_model.endpoint.model_family.endswith("voxel"):
+        model_family = self.final_model.endpoint.model_family
+        if model_family.endswith("voxel"):
             if role != "none":
                 raise RequestError("direct-voxel formal requests require connectome_role='none'")
             if self.feature_ids is not None or self.fiber_score_settings is not None:
@@ -673,7 +798,18 @@ class FormalRequest:
                 raise RequestError(
                     "direct-voxel formal requests require full and fold feature minima"
                 )
-        else:
+            if any(
+                value is not None
+                for value in (
+                    self.target_support,
+                    self.target_ids,
+                    self.target_score_settings,
+                )
+            ):
+                raise RequestError(
+                    "direct-voxel formal requests cannot declare target inputs"
+                )
+        elif model_family.endswith("fiber"):
             if role != "formal":
                 raise RequestError(
                     "normative-fiber formal requests require connectome_role='formal'"
@@ -733,6 +869,68 @@ class FormalRequest:
                 raise RequestError(
                     "normative-fiber formal requests require a fold feature minimum"
                 )
+            if any(
+                value is not None
+                for value in (
+                    self.target_support,
+                    self.target_ids,
+                    self.target_score_settings,
+                )
+            ):
+                raise RequestError(
+                    "normative-fiber formal requests cannot declare target inputs"
+                )
+        elif model_family.endswith("individualized"):
+            if (
+                role != "none"
+                or self.feature_ids is not None
+                or self.fiber_score_settings is not None
+            ):
+                raise RequestError(
+                    "individualized formal requests require no connectome or "
+                    "fiber inputs"
+                )
+            if (
+                not isinstance(self.target_support, ArtifactRef)
+                or not isinstance(self.target_ids, ArtifactRef)
+                or not isinstance(
+                    self.target_score_settings,
+                    TargetScoreSettings,
+                )
+            ):
+                raise RequestError(
+                    "individualized formal requests require target support, "
+                    "target IDs, and target score settings"
+                )
+            _validate_exposure(
+                self.target_support,
+                "target_support",
+                self.subject_axis,
+                self.feature_axis,
+            )
+            if self.target_support.dtype != "bool":
+                raise RequestError("target_support must use bool dtype")
+            _artifact_input(self.target_ids, "target_ids")
+            if self.target_ids.axis_refs != (self.feature_axis,):
+                raise RequestError("target_ids must bind the final target axis")
+            try:
+                target_dtype = np.dtype(self.target_ids.dtype)
+            except TypeError as exc:
+                raise RequestError("target_ids must use a string dtype") from exc
+            if target_dtype.kind != "U":
+                raise RequestError("target_ids must use a Unicode string dtype")
+            if (
+                self.hard_computability.n_features_full_min is None
+                or self.hard_computability.fold_n_features_min is None
+            ):
+                raise RequestError(
+                    "individualized formal requests require full and fold "
+                    "target minima"
+                )
+        else:
+            raise RequestError(
+                f"unsupported formal model family {model_family!r}"
+            )
 
         if type(self.resamples) is not int or self.resamples < 1:
             raise RequestError("resamples must be a positive integer")
@@ -751,7 +949,7 @@ class InSampleRequest:
     delta_reference_full: ArtifactRef | None
     subject_axis: AxisRef
     feature_axis: AxisRef
-    feature_ids: ArtifactRef
+    feature_ids: ArtifactRef | None
     loocv_predictions: ArtifactRef
     loocv_baseline_predictions: ArtifactRef
     loocv_permutation_summary: ArtifactRef
@@ -763,6 +961,9 @@ class InSampleRequest:
     fiber_score_settings: NormativeFiberScoreSettings | None
     resamples: int
     seed: int
+    target_support: ArtifactRef | None = None
+    target_ids: ArtifactRef | None = None
+    target_score_settings: TargetScoreSettings | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.final_model, FinalModelRecord):
@@ -779,7 +980,6 @@ class InSampleRequest:
         for value, field in (
             (self.outcome, "outcome"),
             (self.baseline, "baseline"),
-            (self.feature_ids, "feature_ids"),
             (self.loocv_predictions, "loocv_predictions"),
             (self.loocv_baseline_predictions, "loocv_baseline_predictions"),
             (self.loocv_permutation_summary, "loocv_permutation_summary"),
@@ -802,15 +1002,6 @@ class InSampleRequest:
             self.loocv_baseline_predictions,
             "loocv_baseline_predictions",
             self.subject_axis,
-        )
-        if self.feature_ids.dtype != "int64":
-            raise RequestError("in-sample feature_ids must use int64")
-        if _shape(self.feature_ids, "feature_ids") != (self.feature_axis.count,):
-            raise RequestError("in-sample feature_ids must match the parent feature axis")
-        _require_artifact_axes(
-            self.feature_ids,
-            "feature_ids",
-            (self.feature_axis,),
         )
         if self.loocv_permutation_summary.shape is not None:
             raise RequestError("LOOCV permutation summary must be a document artifact")
@@ -835,8 +1026,26 @@ class InSampleRequest:
         if role not in {"none", "formal"}:
             raise RequestError("in-sample connectome_role must be none or formal")
         object.__setattr__(self, "connectome_role", role)
-        is_fiber = self.final_model.endpoint.model_family.endswith("fiber")
+        model_family = self.final_model.endpoint.model_family
+        is_fiber = model_family.endswith("fiber")
         if is_fiber:
+            if not isinstance(self.feature_ids, ArtifactRef):
+                raise RequestError(
+                    "normative-fiber in-sample requests require feature IDs"
+                )
+            if self.feature_ids.dtype != "int64":
+                raise RequestError("in-sample feature_ids must use int64")
+            if _shape(self.feature_ids, "feature_ids") != (
+                self.feature_axis.count,
+            ):
+                raise RequestError(
+                    "in-sample feature_ids must match the parent feature axis"
+                )
+            _require_artifact_axes(
+                self.feature_ids,
+                "feature_ids",
+                (self.feature_axis,),
+            )
             if role != "formal" or not isinstance(
                 self.fiber_score_settings,
                 NormativeFiberScoreSettings,
@@ -844,9 +1053,86 @@ class InSampleRequest:
                 raise RequestError(
                     "normative-fiber in-sample requests require formal role and score settings"
                 )
-        elif role != "none" or self.fiber_score_settings is not None:
+            if any(
+                value is not None
+                for value in (
+                    self.target_support,
+                    self.target_ids,
+                    self.target_score_settings,
+                )
+            ):
+                raise RequestError(
+                    "normative-fiber in-sample requests cannot declare target inputs"
+                )
+        elif model_family.endswith("voxel"):
+            if not isinstance(self.feature_ids, ArtifactRef):
+                raise RequestError(
+                    "direct-voxel in-sample requests require parent feature IDs"
+                )
+            if self.feature_ids.dtype != "int64":
+                raise RequestError("in-sample feature_ids must use int64")
+            if _shape(self.feature_ids, "feature_ids") != (
+                self.feature_axis.count,
+            ):
+                raise RequestError(
+                    "in-sample feature_ids must match the parent feature axis"
+                )
+            _require_artifact_axes(
+                self.feature_ids,
+                "feature_ids",
+                (self.feature_axis,),
+            )
+            if role != "none" or self.fiber_score_settings is not None:
+                raise RequestError(
+                    "direct-voxel in-sample requests require no connectome role "
+                    "or fiber settings"
+                )
+            if any(
+                value is not None
+                for value in (
+                    self.target_support,
+                    self.target_ids,
+                    self.target_score_settings,
+                )
+            ):
+                raise RequestError(
+                    "direct-voxel in-sample requests cannot declare target inputs"
+                )
+        elif model_family.endswith("individualized"):
+            if (
+                role != "none"
+                or self.feature_ids is not None
+                or self.fiber_score_settings is not None
+                or not isinstance(self.target_support, ArtifactRef)
+                or not isinstance(self.target_ids, ArtifactRef)
+                or not isinstance(
+                    self.target_score_settings,
+                    TargetScoreSettings,
+                )
+            ):
+                raise RequestError(
+                    "individualized in-sample requests require target inputs "
+                    "without fiber inputs"
+                )
+            _validate_exposure(
+                self.target_support,
+                "target_support",
+                self.subject_axis,
+                self.feature_axis,
+            )
+            if self.target_support.dtype != "bool":
+                raise RequestError("target_support must use bool dtype")
+            if self.target_ids.axis_refs != (self.feature_axis,):
+                raise RequestError("target_ids must bind the target axis")
+            try:
+                target_dtype = np.dtype(self.target_ids.dtype)
+            except TypeError as exc:
+                raise RequestError("target_ids must use a string dtype") from exc
+            if target_dtype.kind != "U":
+                raise RequestError("target_ids must use a Unicode string dtype")
+        else:
             raise RequestError(
-                "direct-voxel in-sample requests require no connectome role or fiber settings"
+                f"unsupported in-sample model family {model_family!r}"
             )
 
         adjusted = (

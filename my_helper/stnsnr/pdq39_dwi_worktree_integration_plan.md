@@ -144,7 +144,7 @@ The integrated branch was verified on 2026-07-24 with the following evidence:
   both files were nonempty, single-page PDF 1.4 documents with embedded Arial
   text;
 - the only changed model-adjacent YAML is
-  `fiber_spatial_projection.yaml`, which controls postprocessing projection,
+  `spatial_result_visualization.yaml`, which controls spatial-result projection,
   display smoothing, labels, and target visualization rather than Task 17
   model fitting.
 

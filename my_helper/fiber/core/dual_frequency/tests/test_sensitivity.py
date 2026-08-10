@@ -1849,10 +1849,6 @@ class FiberControlBoundaryTest(unittest.TestCase):
         observed_request = ObservedFiberControlRequest(
             target.observed_request,
             diagnostic,
-            high_threshold_tau=220.0,
-            high_threshold_coverage=3,
-            fixed_sweet_count=3,
-            fixed_sour_count=2,
         )
         final_request = FinalFiberControlRequest(target)
         with tempfile.TemporaryDirectory() as temporary:
@@ -1870,14 +1866,7 @@ class FiberControlBoundaryTest(unittest.TestCase):
             self.assertEqual(observed_result.sensitivity_kind, "observed_fiber_controls")
             self.assertEqual(final_result.sensitivity_kind, "final_fiber_controls")
             observed_payload = _read_json(_json_artifact(observed_result))
-            self.assertIn(
-                observed_payload["cheap_controls"]["high_threshold"]["technical_status"],
-                {"complete", "not_computable"},
-            )
-            self.assertIn(
-                observed_payload["cheap_controls"]["fixed_outer_library"]["technical_status"],
-                {"complete", "not_computable"},
-            )
+            self.assertNotIn("cheap_controls", observed_payload)
             with self.assertRaises(TypeError):
                 observed_strategy.run(final_request)  # type: ignore[arg-type]
             with self.assertRaises(TypeError):

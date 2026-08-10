@@ -30,6 +30,7 @@ from .paired_fit_postprocess import (
 )
 from .plugin.default import get_fiber_section_cfg, get_fit_cfg, get_voxel_section_cfg
 from .published_artifacts import PublicationCatalog, PublishedArtifact
+from .spatial_result_config import load_spatial_result_config
 from .voxel_section_postprocess import (
     _resource_record,
     render_voxel_section_components,
@@ -361,79 +362,6 @@ def _validate_final_and_summary(
         raise ValueError(f"final branch mismatch: {scale_id}/{spec.model_family}")
 
 
-def _validated_display_smoothing_metadata(
-    artifact: PublishedArtifact,
-    *,
-    raw_artifact: PublishedArtifact,
-    fwhm_mm: float,
-) -> PublishedArtifact:
-    relative = f"{artifact.relative_path}.metadata.json"
-    path = Path(f"{artifact.path}.metadata.json").resolve()
-    if artifact.publication_root not in path.parents or not path.is_file():
-        raise ValueError(
-            f"display smoothing metadata is missing: {artifact.relative_path}"
-        )
-    metadata = _read_json(path)
-    if set(metadata) != {
-        "schema_version",
-        "artifact_kind",
-        "published_relative_path",
-        "payload_sha256",
-        "size_bytes",
-        "provenance",
-    }:
-        raise ValueError(
-            f"display smoothing metadata fields differ: {artifact.relative_path}"
-        )
-    provenance = metadata.get("provenance")
-    if not isinstance(provenance, Mapping) or set(provenance) != {
-        "source_record_id",
-        "input_relative_path",
-        "fwhm_mm",
-        "algorithm",
-        "support_policy",
-        "input_finite_voxels",
-        "output_finite_voxels",
-    }:
-        raise ValueError(
-            f"display smoothing provenance fields differ: {artifact.relative_path}"
-        )
-    input_count = provenance["input_finite_voxels"]
-    output_count = provenance["output_finite_voxels"]
-    if (
-        metadata["schema_version"]
-        != "dual_frequency_derived_artifact_metadata_v1"
-        or metadata["artifact_kind"] != "benefit_map_smooth"
-        or metadata["published_relative_path"] != artifact.relative_path
-        or metadata["payload_sha256"] != artifact.sha256
-        or type(metadata["size_bytes"]) is not int
-        or metadata["size_bytes"] != artifact.size_bytes
-        or not str(provenance["source_record_id"]).strip()
-        or provenance["input_relative_path"] != raw_artifact.relative_path
-        or type(provenance["fwhm_mm"]) not in {int, float}
-        or float(provenance["fwhm_mm"]) != fwhm_mm
-        or provenance["algorithm"]
-        != "masked_normalized_gaussian_original_roi_v2"
-        or provenance["support_policy"] != "original_finite_benefit_roi"
-        or type(input_count) is not int
-        or type(output_count) is not int
-        or input_count < 1
-        or output_count != input_count
-    ):
-        raise ValueError(
-            f"display smoothing v2 contract differs: {artifact.relative_path}"
-        )
-    return PublishedArtifact(
-        publication=artifact.publication,
-        publication_root=artifact.publication_root,
-        relative_path=relative,
-        path=path,
-        sha256=_file_sha256(path),
-        size_bytes=path.stat().st_size,
-        artifact_kind="benefit_map_smooth_metadata",
-    )
-
-
 def _voxel_spatial_sources(
     catalog: PublicationCatalog,
     *,
@@ -449,35 +377,11 @@ def _voxel_spatial_sources(
         raise ValueError(f"voxel final model requires one benefit map: {scale_id}/{role}")
     base = f"{scale_id}/{role}"
     raw = catalog.resolve_relative("direct_voxel_main", raw_matches[0])
-    smooth_1 = catalog.resolve_relative(
-        "direct_voxel_main",
-        f"{base}/report/display/benefit_map_smooth_fwhm1mm.nii.gz",
-    )
-    smooth_2 = catalog.resolve_relative(
-        "direct_voxel_main",
-        f"{base}/report/display/benefit_map_smooth_fwhm2mm.nii.gz",
-    )
     return {
         "report_summary": catalog.resolve_relative(
             "direct_voxel_main", f"{base}/report/summary.json"
         ),
         "benefit_map": raw,
-        "benefit_map_smooth_fwhm1mm": smooth_1,
-        "benefit_map_smooth_fwhm1mm_metadata": (
-            _validated_display_smoothing_metadata(
-                smooth_1,
-                raw_artifact=raw,
-                fwhm_mm=1.0,
-            )
-        ),
-        "benefit_map_smooth_fwhm2mm": smooth_2,
-        "benefit_map_smooth_fwhm2mm_metadata": (
-            _validated_display_smoothing_metadata(
-                smooth_2,
-                raw_artifact=raw,
-                fwhm_mm=2.0,
-            )
-        ),
     }
 
 
@@ -679,7 +583,7 @@ def _assemble_endpoint_results(
         required_spatial = (
             unit == "voxel" and "voxel_2d" in components
         ) or (unit == "fiber" and "fiber_2d" in components)
-        expected_spatial = 3 if unit == "voxel" else 1
+        expected_spatial = 1
         paired_metrics: dict[str, Any] = {}
         if len(fit_rows) == 1 and isinstance(fit_rows[0].get("metrics"), Mapping):
             try:
@@ -766,27 +670,36 @@ def validate_formal_postprocess(config_path: str | Path) -> dict[str, Any]:
         raise ValueError("resources must be an object")
     resource_records: dict[str, Any] = {}
     shared_background = None
+    spatial_config = None
+    spatial_config_path = None
     if {"voxel_2d", "fiber_2d"}.intersection(components):
+        spatial_config_path = _resolve_path(
+            base, resources["spatial_visualization_config"]
+        )
+        spatial_config = load_spatial_result_config(spatial_config_path)
+        resource_records["spatial_visualization_config"] = {
+            "path": str(spatial_config_path),
+            "sha256": _file_sha256(spatial_config_path),
+            "size_bytes": spatial_config_path.stat().st_size,
+        }
         shared_background = _resource_record(
-            _resolve_path(base, resources["background"]), "anatomy_background"
+            spatial_config["background"]["path"], "anatomy_background"
         )
         resource_records["background"] = shared_background
     if "voxel_2d" in components:
         resource_records["reference_mask"] = _resource_record(
-            _resolve_path(base, resources["reference_mask"]), "reference_mask"
+            spatial_config["voxel"]["masks"]["reference"], "reference_mask"
         )
         resource_records["addon_mask"] = _resource_record(
-            _resolve_path(base, resources["addon_mask"]), "addon_mask"
+            spatial_config["voxel"]["masks"]["addon"], "addon_mask"
         )
     if "fiber_2d" in components:
         context = prepare_fiber_section_context(
             catalog=catalog,
-            spatial_config_path=_resolve_path(
-                base, resources["fiber_spatial_config"]
-            ),
+            spatial_config_path=spatial_config_path,
+            spatial_config=spatial_config,
             background_record=shared_background,
         )
-        resource_records["fiber_spatial_config"] = dict(context.config_record)
         resource_records["formal_connectome"] = dict(context.connectome_record)
         resource_records["fiber_background"] = dict(context.background_record)
         resource_records["fiber_target_count"] = len(context.target_records)
@@ -891,7 +804,7 @@ def validate_formal_postprocess_output(output_root: str | Path) -> dict[str, Any
         unit = str(item.get("model_unit", ""))
         expected_manifest_count = int("paired_fit" in requested_component_set)
         if unit == "voxel" and "voxel_2d" in requested_component_set:
-            expected_manifest_count += 3
+            expected_manifest_count += 1
         if unit == "fiber" and "fiber_2d" in requested_component_set:
             expected_manifest_count += 1
         if (
@@ -1150,10 +1063,16 @@ def run_formal_postprocess(
         _write_json_atomic(manifest_path, manifest)
 
     shared_background = None
+    spatial_config = None
+    spatial_config_path = None
     if {"voxel_2d", "fiber_2d"}.intersection(components):
         try:
+            spatial_config_path = _resolve_path(
+                base, resources["spatial_visualization_config"]
+            )
+            spatial_config = load_spatial_result_config(spatial_config_path)
             shared_background = _resource_record(
-                _resolve_path(base, resources["background"]),
+                spatial_config["background"]["path"],
                 "anatomy_background",
             )
         except Exception as error:  # noqa: BLE001 - spatial failures remain isolated
@@ -1172,19 +1091,24 @@ def run_formal_postprocess(
                 voxel_resources = {
                     "background": shared_background,
                     "reference_mask": _resource_record(
-                        _resolve_path(base, resources["reference_mask"]),
+                        spatial_config["voxel"]["masks"]["reference"],
                         "reference_mask",
                     ),
                     "addon_mask": _resource_record(
-                        _resolve_path(base, resources["addon_mask"]), "addon_mask"
+                        spatial_config["voxel"]["masks"]["addon"], "addon_mask"
                     ),
                 }
+                voxel_style = get_voxel_section_cfg(styles.get("voxel_2d"))
+                voxel_style["mask_threshold"] = float(
+                    spatial_config["outline"]["continuous_isovalue"]
+                )
                 voxel_results = render_voxel_section_components(
                     scale_ids=scales,
                     output_root=output_root,
                     catalog=catalog,
                     resources=voxel_resources,
-                    style=get_voxel_section_cfg(styles.get("voxel_2d")),
+                    display_map=spatial_config["display_map"],
+                    style=voxel_style,
                     force=force,
                 )
             except Exception as error:  # noqa: BLE001 - component failure remains isolated
@@ -1199,9 +1123,8 @@ def run_formal_postprocess(
             try:
                 context = prepare_fiber_section_context(
                     catalog=catalog,
-                    spatial_config_path=_resolve_path(
-                        base, resources["fiber_spatial_config"]
-                    ),
+                    spatial_config_path=spatial_config_path,
+                    spatial_config=spatial_config,
                     background_record=shared_background,
                 )
                 fiber_results = render_fiber_section_components(

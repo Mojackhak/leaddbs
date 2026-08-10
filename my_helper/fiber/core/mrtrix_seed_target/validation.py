@@ -118,6 +118,19 @@ def _layer_paths(repo_root: Path, layer: str) -> tuple[Path, ...]:
             "resources.py",
             "state.py",
         },
+        "space_conversion": shared
+        | {
+            "discovery.py",
+            "state.py",
+            "tck.py",
+            "tractogram_space.py",
+        },
+        "visualization": shared
+        | {
+            "state.py",
+            "tck.py",
+            "visualization.py",
+        },
     }
     paths = [package / name for name in sorted(layer_names[layer])]
     if layer == "preparation":
@@ -148,6 +161,41 @@ def _layer_paths(repo_root: Path, layer: str) -> tuple[Path, ...]:
         )
     if layer == "publication":
         paths.append(repo_root / "my_helper" / "fiber" / "pipelines" / "mrtrix-seed-target")
+    if layer == "visualization":
+        paths.extend(
+            [
+                repo_root
+                / "my_helper"
+                / "fiber"
+                / "core"
+                / "viz"
+                / "mh_fiber_render_seed_target_space_scene.m",
+                repo_root
+                / "my_helper"
+                / "fiber"
+                / "core"
+                / "viz"
+                / "mh_viz_default_fiber_scene_spec.m",
+                repo_root
+                / "my_helper"
+                / "fiber"
+                / "core"
+                / "viz"
+                / "mh_viz_default_fiber_views.m",
+                repo_root
+                / "my_helper"
+                / "fiber"
+                / "core"
+                / "ui"
+                / "mh_fiber_add_toggle.m",
+                repo_root
+                / "my_helper"
+                / "fiber"
+                / "core"
+                / "ui"
+                / "mh_fiber_rebind_scene_controls.m",
+            ]
+        )
     missing = [path for path in paths if not path.is_file()]
     if missing:
         raise ValidationError(
@@ -209,7 +257,9 @@ def validate_config(path: Path | str) -> ValidationBundle:
 
     config = load_config(path)
     source_hashes = _validate_source_rois(config)
-    subjects = tuple(discover_subject(subject) for subject in config.subjects)
+    subjects = tuple(
+        discover_subject(subject, config.atlas.space) for subject in config.subjects
+    )
     tools = resolve_tool_identities(config)
     repo_root = Path(__file__).resolve().parents[4]
     lead_dbs_git_commit = git_head_commit(repo_root)
@@ -221,6 +271,12 @@ def validate_config(path: Path | str) -> ValidationBundle:
     publication_code_hash = implementation_hash(
         _layer_paths(repo_root, "publication")
     )
+    space_conversion_code_hash = implementation_hash(
+        _layer_paths(repo_root, "space_conversion")
+    )
+    visualization_code_hash = implementation_hash(
+        _layer_paths(repo_root, "visualization")
+    )
     warnings = list(_resource_warnings(config))
     for configured, resolved in zip(config.subjects, subjects, strict=True):
         if configured.subject_dir.name != configured.subject_id:
@@ -228,10 +284,20 @@ def validate_config(path: Path | str) -> ValidationBundle:
                 f"subject id {configured.subject_id!r} differs from directory "
                 f"basename {configured.subject_dir.name!r}"
             )
-        if not resolved.anchor_to_dwi_transform.name.endswith("44.mat"):
+        for label, transform in (
+            ("b0-to-anchor", resolved.b0_to_anchor_transform),
+            ("anchor-to-b0", resolved.anchor_to_b0_transform),
+        ):
+            if transform.name.endswith("44.mat"):
+                continue
             warnings.append(
-                f"subject {resolved.subject_id} explicitly selected a transform "
-                "whose filename does not end in 44.mat"
+                f"subject {resolved.subject_id} explicitly selected a {label} "
+                "transform whose filename does not end in 44.mat"
+            )
+        if resolved.normalization_approval != 1.0:
+            warnings.append(
+                f"subject {resolved.subject_id} normalization approval is "
+                f"{resolved.normalization_approval:g}; accepted with provenance"
             )
     return ValidationBundle(
         config=config,
@@ -243,5 +309,7 @@ def validate_config(path: Path | str) -> ValidationBundle:
         preparation_code_hash=preparation_code_hash,
         tracking_code_hash=tracking_code_hash,
         publication_code_hash=publication_code_hash,
+        space_conversion_code_hash=space_conversion_code_hash,
+        visualization_code_hash=visualization_code_hash,
         warnings=tuple(warnings),
     )

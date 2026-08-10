@@ -31,7 +31,14 @@ def _workflow_arguments(parser: argparse.ArgumentParser, *, run: bool) -> None:
         "--model",
         action="append",
         default=[],
-        choices=("reference_voxel", "reference_fiber", "addon_voxel", "addon_fiber"),
+        choices=(
+            "reference_voxel",
+            "reference_fiber",
+            "reference_individualized",
+            "addon_voxel",
+            "addon_fiber",
+            "addon_individualized",
+        ),
     )
     parser.add_argument("--connectome", action="append", default=[])
     parser.add_argument(
@@ -93,7 +100,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         action="append",
         default=[],
-        choices=("reference_voxel", "reference_fiber", "addon_voxel", "addon_fiber"),
+        choices=(
+            "reference_voxel",
+            "reference_fiber",
+            "reference_individualized",
+            "addon_voxel",
+            "addon_fiber",
+            "addon_individualized",
+        ),
     )
     sensitivity.add_argument("--connectome", action="append", default=[])
     for command in ("status", "artifacts"):
@@ -102,6 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     publish = subparsers.add_parser("publish")
     publish.add_argument("--run-root", type=Path, required=True)
     publish.add_argument("--output-root", type=Path)
+    publish.add_argument("--force", action="store_true", default=False)
     publish_extension = subparsers.add_parser("publish-extension")
     publish_extension.add_argument("--run-root", type=Path, required=True)
     publish_extension.add_argument("--extension-id")
@@ -235,6 +250,7 @@ def main(
                 .publish(
                     arguments.run_root,
                     output_root_override=arguments.output_root,
+                    force=arguments.force,
                 )
                 .as_dict()
             )

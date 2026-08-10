@@ -16,7 +16,7 @@ from my_helper.warpslicer.legacy_contact_compat import (  # noqa: E402
 )
 
 
-SUBJECT_DIR = Path("/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-ZhangMing")
+SUBJECT_DIR = Path("/Volumes/VAL/STNSNr/derivatives/leaddbs/sub-SNr030")
 TRANSFORM_DIR = SUBJECT_DIR / "normalization" / "transformations"
 OUTPUT_DIR = SUBJECT_DIR / "warpdrive" / "legacy_contact_compat"
 
@@ -26,12 +26,12 @@ def main() -> None:
         lead_root=LEAD_ROOT,
         reconstruction_mat=SUBJECT_DIR
         / "reconstruction"
-        / "sub-ZhangMing_desc-reconstruction.mat",
+        / "sub-SNr030_desc-reconstruction.mat",
         cohort_pkl=Path("/Volumes/VAL/STNSNr/summary/cohort/lead/contact_reco_space_locs.pkl"),
         current_forward=TRANSFORM_DIR
-        / "sub-ZhangMing_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz",
+        / "sub-SNr030_from-anchorNative_to-MNI152NLin2009bAsym_desc-ants.nii.gz",
         current_inverse=TRANSFORM_DIR
-        / "sub-ZhangMing_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants.nii.gz",
+        / "sub-SNr030_from-MNI152NLin2009bAsym_to-anchorNative_desc-ants.nii.gz",
         candidate_forward=OUTPUT_DIR
         / "candidate_from-anchorNative_to-MNI152NLin2009bAsym_desc-legacyContactCompat_ants.nii.gz",
         candidate_inverse_point_exact=OUTPUT_DIR

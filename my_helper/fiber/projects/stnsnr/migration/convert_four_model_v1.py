@@ -54,7 +54,6 @@ _PROFILE_TOP_LEVEL = {
 
 _MAPPING_FIELDS = {
     "schema_version",
-    "target_model_set_id",
     "target_endpoint_pair",
     "target_frequency_classes",
     "source_subscale_field",
@@ -541,9 +540,6 @@ def convert_profiles(
     if selected_addon_suffix not in mapped_source_values:
         raise MigrationError("target addon endpoint is absent from the source workflow selection")
 
-    model_set_id = str(mapping.get("target_model_set_id", "")).strip()
-    if not model_set_id:
-        raise MigrationError("migration mapping target_model_set_id is required")
     output_root = str(
         _require_mapping(study.get("paths"), "source paths").get("output_root", "")
     ).strip()
@@ -600,9 +596,6 @@ def convert_profiles(
         raise MigrationError("migration requires exactly one formal target connectome")
 
     shared_profile = {
-        "schema_version": "dual_frequency_v1",
-        "model_set_id": model_set_id,
-        "output": {"root": output_root},
         "scales": selected_scale_ids,
         "endpoint_pair": endpoint_pair,
         "frequency_classes": frequency_classes,
@@ -626,10 +619,10 @@ def convert_profiles(
         target_normative["activation"] = copy.deepcopy(model_sections["activation"])
 
     target_workflow = {
-        "schema_version": "dual_frequency_v1",
         "profile_type": "workflow",
         "direct_voxel_profile": "direct_voxel_model.yaml",
         "normative_fiber_profile": "normative_fiber_model.yaml",
+        "output": {"root": output_root},
         "selection": {
             "models": copy.deepcopy(source_selection.get("models", [])),
             "connectomes": copy.deepcopy(source_selection.get("connectomes", [])),

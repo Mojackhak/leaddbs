@@ -9,11 +9,12 @@ import json
 import os
 from pathlib import Path
 import sys
+import threading
 from typing import Any, Callable, Iterator, Mapping
 
 from .cache_cleanup import cleanup_batch_work_caches
 from .config import load_config
-from .errors import MrtrixSeedTargetError, PublicationError
+from .errors import MrtrixSeedTargetError, PublicationError, ValidationError
 from .identity import file_sha256
 from .models import ResolvedSubjectInputs, ValidationBundle
 from .preparation import prepare_subject
@@ -22,11 +23,17 @@ from .resources import ResourcePool
 from .state import atomic_write_json, read_json
 from .tck import validate_tck
 from .tools import reset_stop_request
+from .tractogram_space import (
+    convert_subject_target_space,
+    verify_native_publication,
+)
 from .tracking import run_seedwide
 from .validation import validate_config
+from .visualization import generate_subject_visualizations, visualization_state_errors
 
 
 ProgressCallback = Callable[[str], None]
+_VISUALIZATION_LOCK = threading.Lock()
 
 
 def _default_progress(message: str) -> None:
@@ -50,7 +57,16 @@ def _run_provenance(validation: ValidationBundle) -> dict[str, str]:
         "preparation_code_hash": validation.preparation_code_hash,
         "tracking_code_hash": validation.tracking_code_hash,
         "publication_code_hash": validation.publication_code_hash,
+        "space_conversion_code_hash": validation.space_conversion_code_hash,
+        "visualization_code_hash": validation.visualization_code_hash,
     }
+
+
+def _generate_subject_visualizations_serialized(**kwargs: Any) -> dict[str, Any]:
+    """Keep one subject visualization stage active per CLI process."""
+
+    with _VISUALIZATION_LOCK:
+        return generate_subject_visualizations(**kwargs)
 
 
 @contextmanager
@@ -92,6 +108,40 @@ def _process_subject(
         config_record = work_root / "configs" / f"{validation.config.configuration_hash}.json"
         if not config_record.exists():
             atomic_write_json(config_record, _thaw(validation.config.resolved_mapping))
+        try:
+            verify_native_publication(
+                validation.config,
+                subject,
+                tckinfo=validation.tools["tckinfo"].executable,
+            )
+        except ValidationError:
+            native_reused = False
+        else:
+            native_reused = True
+        if native_reused:
+            progress(
+                f"[{subject.subject_id}] native publication verified in place; "
+                "skipping preparation and tracking"
+            )
+            target_space = convert_subject_target_space(
+                config=validation.config,
+                subject=subject,
+                tckinfo=validation.tools["tckinfo"].executable,
+                ants=validation.tools["antsApplyTransformsToPoints"],
+                code_hash=validation.space_conversion_code_hash,
+            )
+            visualization = _generate_subject_visualizations_serialized(
+                config=validation.config,
+                subject=subject,
+                matlab=validation.tools["matlab"],
+                repo_root=repo_root,
+                code_hash=validation.visualization_code_hash,
+            )
+            return {
+                **target_space,
+                **visualization,
+                "native_action": "reused",
+            }
         progress(f"[{subject.subject_id}] preparing DWI, FOD, and native-grid ROIs")
         with resources.reserve(
             validation.config.execution.preparation_threads_per_subject,
@@ -167,8 +217,25 @@ def _process_subject(
             seed_results=ordered_results,
             run_provenance=_run_provenance(validation),
         )
+        target_space = convert_subject_target_space(
+            config=validation.config,
+            subject=subject,
+            tckinfo=validation.tools["tckinfo"].executable,
+            ants=validation.tools["antsApplyTransformsToPoints"],
+            code_hash=validation.space_conversion_code_hash,
+        )
+        visualization = _generate_subject_visualizations_serialized(
+            config=validation.config,
+            subject=subject,
+            matlab=validation.tools["matlab"],
+            repo_root=repo_root,
+            code_hash=validation.visualization_code_hash,
+        )
         return {
             **publication,
+            **target_space,
+            **visualization,
+            "native_action": "generated",
             "preparation_action": preparation_action,
             "seeds": {
                 key: {
@@ -274,6 +341,16 @@ def status_batch(path: Path | str) -> dict[str, Any]:
         else Path("tckinfo")
     )
     subjects: list[dict[str, Any]] = []
+    expected_semantic_keys = {
+        key
+        for seed in config.atlas.seeds
+        for key in (
+            f"{seed.key}/seedwide",
+            *(f"{seed.key}/target/{target.key}" for target in seed.targets),
+        )
+    }
+    expected_coordinates = {"native", config.atlas.space}
+    expected_scene_keys = {seed.key for seed in config.atlas.seeds}
     for subject_config in config.subjects:
         output_root = (
             subject_config.subject_dir
@@ -302,7 +379,22 @@ def status_batch(path: Path | str) -> dict[str, Any]:
             )
             continue
         artifact_errors: list[str] = []
-        for artifact in state.get("published_artifacts", []):
+        published = state.get("published_artifacts", [])
+        if not isinstance(published, list) or any(
+            not isinstance(artifact, Mapping) for artifact in published
+        ):
+            published = []
+            artifact_errors.append("published_artifacts is not a list of records")
+        coordinate_records: dict[str, set[str]] = {}
+        record_keys: set[tuple[str, str]] = set()
+        for artifact in published:
+            semantic_key = str(artifact.get("semantic_key", ""))
+            coordinate_space = str(artifact.get("coordinate_space", ""))
+            record_key = (semantic_key, coordinate_space)
+            if record_key in record_keys:
+                artifact_errors.append(f"duplicate artifact record: {record_key}")
+            record_keys.add(record_key)
+            coordinate_records.setdefault(semantic_key, set()).add(coordinate_space)
             artifact_path = Path(artifact["path"])
             try:
                 if file_sha256(artifact_path) != artifact["sha256"]:
@@ -315,6 +407,22 @@ def status_batch(path: Path | str) -> dict[str, Any]:
                 )
             except Exception as exc:
                 artifact_errors.append(f"{artifact_path}: {exc}")
+        if set(coordinate_records) != expected_semantic_keys:
+            artifact_errors.append(
+                "published semantic keys differ from the configured seed-target set"
+            )
+        if any(
+            spaces != expected_coordinates for spaces in coordinate_records.values()
+        ):
+            artifact_errors.append(
+                "every configured semantic artifact must exist in native and target space"
+            )
+        artifact_errors.extend(
+            visualization_state_errors(
+                state,
+                expected_scene_keys=expected_scene_keys,
+            )
+        )
         status = state.get("status", "unknown")
         if artifact_errors and status == "complete":
             status = "artifact_error"
@@ -326,7 +434,7 @@ def status_batch(path: Path | str) -> dict[str, Any]:
                 "configuration_hash": state.get("configuration_hash"),
                 "run_provenance": state.get("run_provenance", {}),
                 "seed_results": state.get("seed_results", {}),
-                "artifact_count": len(state.get("published_artifacts", [])),
+                "artifact_count": len(published),
                 "artifact_errors": artifact_errors,
                 "cleanup_pending": state.get("cleanup_pending", []),
                 "cache_cleanup": state.get("cache_cleanup", {}),

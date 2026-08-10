@@ -14,6 +14,7 @@ from .models import ValidationBundle
 from .publication import OWNER
 from .state import atomic_write_json, read_json
 from .tck import validate_tck
+from .visualization import visualization_state_errors
 
 
 CACHE_DIRECTORY_NAMES = ("preparations", "seedwide", "staging", "rollback")
@@ -31,8 +32,10 @@ def _verify_public_state(
     state: Mapping[str, Any],
     *,
     state_path: Path,
-    configuration_hash: str,
     tckinfo: Path,
+    target_space: str,
+    expected_semantic_keys: set[str],
+    expected_scene_keys: set[str],
 ) -> None:
     if state.get("owner") != OWNER:
         raise PublicationError(
@@ -40,10 +43,9 @@ def _verify_public_state(
         )
     if state.get("status") != "complete":
         raise PublicationError(f"incomplete state blocks cache cleanup: {state_path}")
-    if state.get("configuration_hash") != configuration_hash:
-        raise PublicationError(
-            f"configuration mismatch blocks cache cleanup: {state_path}"
-        )
+    if state.get("target_space") != target_space:
+        raise PublicationError(f"target-space mismatch blocks cache cleanup: {state_path}")
+    semantic_spaces: dict[str, set[str]] = {}
     for artifact in state.get("published_artifacts", []):
         path = Path(artifact["path"])
         if not path.is_file() or file_sha256(path) != artifact["sha256"]:
@@ -52,6 +54,26 @@ def _verify_public_state(
             path,
             tckinfo,
             expected_count=int(artifact["streamline_count"]),
+        )
+        semantic_spaces.setdefault(str(artifact["semantic_key"]), set()).add(
+            str(artifact["coordinate_space"])
+        )
+    if set(semantic_spaces) != expected_semantic_keys:
+        raise PublicationError(
+            f"published semantic keys block cache cleanup: {state_path}"
+        )
+    if any(
+        spaces != {"native", target_space} for spaces in semantic_spaces.values()
+    ):
+        raise PublicationError(
+            f"native/target-space artifact pairing blocks cache cleanup: {state_path}"
+        )
+    scene_errors = visualization_state_errors(
+        state, expected_scene_keys=expected_scene_keys
+    )
+    if scene_errors:
+        raise PublicationError(
+            f"visualization blocks cache cleanup: {state_path}: {scene_errors[0]}"
         )
 
 
@@ -64,6 +86,14 @@ def cleanup_batch_work_caches(
 
     tckinfo = validation.tools["tckinfo"].executable
     states: dict[str, tuple[Path, dict[str, Any]]] = {}
+    expected_semantic_keys = {
+        key
+        for seed in validation.config.atlas.seeds
+        for key in (
+            f"{seed.key}/seedwide",
+            *(f"{seed.key}/target/{target.key}" for target in seed.targets),
+        )
+    }
     for subject in validation.subjects:
         state_path = subject.output_root / "work" / "state.json"
         state = read_json(state_path, default={})
@@ -72,8 +102,10 @@ def cleanup_batch_work_caches(
         _verify_public_state(
             state,
             state_path=state_path,
-            configuration_hash=validation.config.configuration_hash,
             tckinfo=tckinfo,
+            target_space=validation.config.atlas.space,
+            expected_semantic_keys=expected_semantic_keys,
+            expected_scene_keys={seed.key for seed in validation.config.atlas.seeds},
         )
         states[subject.subject_id] = (state_path, state)
 
@@ -139,8 +171,10 @@ def cleanup_batch_work_caches(
         _verify_public_state(
             state,
             state_path=state_path,
-            configuration_hash=validation.config.configuration_hash,
             tckinfo=tckinfo,
+            target_space=validation.config.atlas.space,
+            expected_semantic_keys=expected_semantic_keys,
+            expected_scene_keys={seed.key for seed in validation.config.atlas.seeds},
         )
         if cleanup["pending_paths"]:
             warnings.append(

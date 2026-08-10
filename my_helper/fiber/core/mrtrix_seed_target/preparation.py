@@ -26,8 +26,10 @@ def _input_paths(subject: ResolvedSubjectInputs) -> dict[str, Path]:
         "brain_mask": subject.brain_mask,
         "tracking_mask": subject.tracking_mask,
         "anchor_native_reference": subject.anchor_native_reference,
-        "mni_to_anchor_transform": subject.mni_to_anchor_transform,
-        "anchor_to_dwi_transform": subject.anchor_to_dwi_transform,
+        "target_to_anchor_image_deformation": (
+            subject.target_to_anchor_image_deformation
+        ),
+        "anchor_to_b0_transform": subject.anchor_to_b0_transform,
         "coregistration_method_log": subject.coregistration_method_log,
     }
 
@@ -56,7 +58,7 @@ def preparation_identity(
         "fod": {"response_algorithm": "tournier", "fod_algorithm": "csd"},
         "resampling": {
             "mni_to_anchor": "Lead-DBS inverse normalization GenericLabel",
-            "anchor_to_b0": "tmat world affine nearest-neighbor",
+            "anchor_to_b0": "direct tmat world affine nearest-neighbor",
             "target_cleaning": "target AND NOT seed on final DWI grid",
         },
         "tools": {

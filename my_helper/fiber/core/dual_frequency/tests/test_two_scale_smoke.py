@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.abc
+import copy
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,7 @@ CONFIG_ROOT = REPOSITORY_ROOT / "my_helper" / "stnsnr" / "config" / "four_model_
 STUDY_BASE = Path("/Volumes/VAL/STNSNr/summary/cohort/subj/study_base.json")
 DIRECT_PROFILE = CONFIG_ROOT / "direct_voxel_model_test.yaml"
 FIBER_PROFILE = CONFIG_ROOT / "normative_fiber_model_test.yaml"
+INDIVIDUALIZED_PROFILE = CONFIG_ROOT / "individualized_seed_target_model.yaml"
 WORKFLOW_PROFILE = CONFIG_ROOT / "workflow.yaml"
 EXPECTED_SCALES = ("mds_updrs_iii_score", "mds_updrs_iv")
 
@@ -66,9 +68,21 @@ def _blocked_project_namespace():
 
 def _workflow_request(root: Path) -> WorkflowRequest:
     workflow = yaml.safe_load(WORKFLOW_PROFILE.read_text(encoding="utf-8"))
+    direct = yaml.safe_load(DIRECT_PROFILE.read_text(encoding="utf-8"))
+    individualized = yaml.safe_load(
+        INDIVIDUALIZED_PROFILE.read_text(encoding="utf-8")
+    )
+    individualized["scales"] = direct["scales"]
+    individualized["endpoint_pair"] = copy.deepcopy(direct["endpoint_pair"])
+    individualized_path = root / "individualized.yaml"
+    individualized_path.write_text(
+        yaml.safe_dump(individualized, sort_keys=False),
+        encoding="utf-8",
+    )
     workflow["model_profiles"] = {
         "direct_voxel": str(DIRECT_PROFILE),
         "normative_fiber": str(FIBER_PROFILE),
+        "individualized_seed_target": str(individualized_path),
     }
     workflow["execution"]["through"] = "report"
     workflow["execution"]["allow_expensive_producers"] = False
@@ -126,6 +140,7 @@ class TwoScaleSmokeTest(unittest.TestCase):
             STUDY_BASE,
             DIRECT_PROFILE,
             FIBER_PROFILE,
+            INDIVIDUALIZED_PROFILE,
             WORKFLOW_PROFILE,
         )
         missing = tuple(path for path in required_inputs if not path.is_file())

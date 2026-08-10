@@ -927,20 +927,38 @@ function c = local_sample_data_at_world(Ydata_p, Mdata, v_world, method)
 end
 
 function vq = local_interp3_safe(V, xq, yq, zq, method)
-%LOCAL_INTERP3_SAFE Robust 3D interpolation with NaN fill outside bounds.
+%LOCAL_INTERP3_SAFE Mask-aware 3D interpolation with NaN outside support.
 
     if nargin < 5 || isempty(method)
         method = 'linear';
     end
     method = char(string(method));
 
+    finiteMask = isfinite(V);
+    if strcmpi(method, 'linear') && any(~finiteMask(:))
+        values = double(V);
+        values(~finiteMask) = 0;
+        numerator = local_interp3_raw(values, xq, yq, zq, method, 0);
+        weight = local_interp3_raw( ...
+            double(finiteMask), xq, yq, zq, method, 0);
+        vq = numerator ./ max(weight, eps);
+        vq(weight <= 0) = NaN;
+        return;
+    end
+
+    vq = local_interp3_raw(V, xq, yq, zq, method, NaN);
+end
+
+function vq = local_interp3_raw(V, xq, yq, zq, method, outsideValue)
+%LOCAL_INTERP3_RAW Call interp3 with implicit or explicit source grids.
+
     try
-        vq = interp3(V, xq, yq, zq, method, NaN);
+        vq = interp3(V, xq, yq, zq, method, outsideValue);
     catch
         % Some MATLAB versions require explicit grids.
         [ny, nx, nz] = size(V);
         [X, Y, Z] = meshgrid(1:nx, 1:ny, 1:nz);
-        vq = interp3(X, Y, Z, V, xq, yq, zq, method, NaN);
+        vq = interp3(X, Y, Z, V, xq, yq, zq, method, outsideValue);
     end
 end
 

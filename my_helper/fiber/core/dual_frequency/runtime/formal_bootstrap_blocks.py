@@ -140,6 +140,17 @@ def publish_formal_bootstrap_block(
         )
         for kind, value, units in feature_arrays
     ]
+    if result.replicate_weights is not None:
+        artifacts.append(
+            publisher.array(
+                "formal_bootstrap_replicate_weights_block.npy",
+                result.replicate_weights,
+                kind="formal_bootstrap_replicate_weights_block",
+                axes=(block_axis, feature_axis),
+                units="coefficient",
+                space=normalized_space,
+            )
+        )
     selection_mode = "none"
     if result.sweet_count is not None and result.sour_count is not None:
         selection_mode = "sweet_sour"
@@ -429,11 +440,27 @@ def load_formal_bootstrap_block(
                 artifact_store=artifact_store,
             ),
         }
+        replicate_weights = None
+        if "formal_bootstrap_replicate_weights_block" in artifacts:
+            replicate_weights = np.asarray(
+                materialize_array(
+                    artifacts[
+                        "formal_bootstrap_replicate_weights_block"
+                    ],
+                    name="formal_bootstrap_replicate_weights_block",
+                    expected_axes=(record.block_axis, feature_axis),
+                    expected_units="coefficient",
+                    expected_space=normalized_space,
+                    artifact_store=artifact_store,
+                    memory_map=True,
+                )
+            )
         return BootstrapBlockComputation(
             block=block,
             schedule_sha256=record.schedule_sha256,
             **feature_values,
             **replicate_values,
+            replicate_weights=replicate_weights,
             require_complete_nuisance_evidence=(
                 record.nuisance_evidence_mode == "complete_adjusted"
             ),

@@ -216,7 +216,7 @@ class Task17PlanAuditTest(unittest.TestCase):
         references = _repository_file_references(
             (FOUR_MODEL_PLAN, DUAL_FREQUENCY_PLAN, POSTPROCESS_PLAN)
         )
-        self.assertEqual(len(references), 124)
+        self.assertEqual(len(references), 123)
         missing = tuple(
             reference
             for reference in references

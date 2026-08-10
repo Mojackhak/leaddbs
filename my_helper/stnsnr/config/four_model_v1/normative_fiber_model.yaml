@@ -1,9 +1,4 @@
-schema_version: normative_fiber_model_v1 # Schema for reference/add-on normative-fiber models.
 profile_type: normative_fiber_model # Identifies the feature domain represented by this file.
-model_set_id: dual_frequency_four_model_v1 # Must match the configured direct-voxel model.
-
-output: # Storage-only settings; these do not change scientific classification.
-  root: /Volumes/VAL/STNSNr/summary/spot # Base directory for production publications.
 
 scales: # Run exactly these study-defined scales in the declared order.
   - adl
@@ -107,12 +102,6 @@ formal_resampling: # Applied to every realized final model on the formal connect
 
 sensitivity: # Required observed sensitivities; presence is not an enable switch.
   selected_source_tau_multipliers: [0.9, 1.1] # Final-source exposure-neighborhood sensitivity.
-  high_threshold:
-    tau_v_per_m: 1500 # Predeclared candidate-definition sensitivity.
-    coverage_subjects_min: 5 # Predeclared high-threshold Coverage.
-  fixed_outer_library:
-    sweet_count: 1500 # Fixed positive-library sensitivity count.
-    sour_count: 500 # Fixed negative-library sensitivity count.
 
 oss: # Final-linked formal-connectome activation sensitivity.
   model: OSS-DBSv2 # Biophysical activation backend.

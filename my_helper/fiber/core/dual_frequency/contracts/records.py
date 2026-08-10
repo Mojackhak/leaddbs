@@ -668,6 +668,11 @@ class BootstrapBlockRecord:
             *replicate_specs,
             "formal_bootstrap_evidence_block",
         }
+        optional_replicate_weights = by_kind.get(
+            "formal_bootstrap_replicate_weights_block"
+        )
+        if optional_replicate_weights is not None:
+            expected_kinds.add("formal_bootstrap_replicate_weights_block")
         if set(by_kind) != expected_kinds:
             raise RecordError("bootstrap block artifact closure is incomplete")
         for kind, (dtype, units) in feature_specs.items():
@@ -694,6 +699,18 @@ class BootstrapBlockRecord:
                 raise RecordError(
                     f"bootstrap block replicate artifact {kind!r} is invalid"
                 )
+        if optional_replicate_weights is not None and (
+            optional_replicate_weights.dtype != "float64"
+            or optional_replicate_weights.shape
+            != (self.block_axis.count, self.feature_axis.count)
+            or optional_replicate_weights.axis_refs
+            != (self.block_axis, self.feature_axis)
+            or optional_replicate_weights.units != "coefficient"
+            or optional_replicate_weights.space != self.feature_space
+        ):
+            raise RecordError(
+                "bootstrap block replicate-weight artifact is invalid"
+            )
         evidence = by_kind["formal_bootstrap_evidence_block"]
         if (
             evidence.schema_version != "dual_frequency_document_v1"
@@ -1359,6 +1376,144 @@ class PreparedExposureRecord:
     @property
     def identifier(self) -> str:
         return f"prepared_exposure_{canonical_hash(asdict(self), length=20)}"
+
+
+@dataclass(frozen=True)
+class PreparedTargetExposureRecord:
+    """Tau-indexed individualized target burdens and support indicators."""
+
+    endpoint: EndpointKey
+    subject_axis: AxisRef
+    target_axis: AxisRef
+    side_axis: AxisRef
+    tau_axis: AxisRef
+    target_ids: ArtifactRef
+    side_total_counts: ArtifactRef
+    side_burdens: ArtifactRef
+    side_activated_counts: ArtifactRef
+    side_activated_fractions: ArtifactRef
+    patient_burdens: ArtifactRef
+    patient_support: ArtifactRef
+    delta_reference_input_status: str
+    delta_reference_reason_code: str
+    auxiliary_readiness: ArtifactRef | None
+    reference_condition_patient_burdens: ArtifactRef | None
+    reference_condition_patient_support: ArtifactRef | None
+    addon_reference_component_patient_burdens: ArtifactRef | None
+    addon_reference_component_patient_support: ArtifactRef | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.endpoint, EndpointKey):
+            raise RecordError("endpoint must be an EndpointKey")
+        axes = (self.subject_axis, self.target_axis, self.side_axis, self.tau_axis)
+        if not all(isinstance(axis, AxisRef) for axis in axes):
+            raise RecordError("prepared target axes must be AxisRef values")
+        _artifact_with_axes(self.target_ids, "target_ids", (self.target_axis,))
+        try:
+            target_dtype = np.dtype(self.target_ids.dtype)
+        except TypeError as exc:
+            raise RecordError("target_ids must use a string dtype") from exc
+        if target_dtype.kind != "U":
+            raise RecordError("target_ids must use a Unicode string dtype")
+
+        _artifact_with_axes(
+            self.side_total_counts,
+            "side_total_counts",
+            (self.subject_axis, self.side_axis, self.target_axis),
+        )
+        if self.side_total_counts.dtype != "int64":
+            raise RecordError("side_total_counts must use int64 dtype")
+
+        side_axes = (
+            self.tau_axis,
+            self.subject_axis,
+            self.side_axis,
+            self.target_axis,
+        )
+        for field in (
+            "side_burdens",
+            "side_activated_counts",
+            "side_activated_fractions",
+        ):
+            _artifact_with_axes(getattr(self, field), field, side_axes)
+        if self.side_activated_counts.dtype != "int64":
+            raise RecordError("side_activated_counts must use int64 dtype")
+
+        patient_axes = (self.tau_axis, self.subject_axis, self.target_axis)
+        for field in ("patient_burdens", "patient_support"):
+            _artifact_with_axes(getattr(self, field), field, patient_axes)
+        if self.patient_support.dtype != "bool":
+            raise RecordError("patient_support must use bool dtype")
+
+        status = _token(
+            self.delta_reference_input_status,
+            "delta_reference_input_status",
+        )
+        if status not in DELTA_REFERENCE_INPUT_STATUSES:
+            raise RecordError(
+                f"unsupported delta_reference_input_status {status!r}"
+            )
+        object.__setattr__(self, "delta_reference_input_status", status)
+        reason = _token(
+            self.delta_reference_reason_code,
+            "delta_reference_reason_code",
+        )
+        if _REASON_CODE.fullmatch(reason) is None:
+            raise RecordError(
+                "delta_reference_reason_code must be a lower_snake_case token"
+            )
+        object.__setattr__(self, "delta_reference_reason_code", reason)
+
+        auxiliary_fields = (
+            "reference_condition_patient_burdens",
+            "reference_condition_patient_support",
+            "addon_reference_component_patient_burdens",
+            "addon_reference_component_patient_support",
+        )
+        if self.endpoint.model_family.startswith("reference_"):
+            if status != "not_applicable":
+                raise RecordError(
+                    "reference target exposure requires not_applicable Delta status"
+                )
+            if self.auxiliary_readiness is not None or any(
+                getattr(self, field) is not None for field in auxiliary_fields
+            ):
+                raise RecordError(
+                    "reference target exposure cannot declare add-on auxiliaries"
+                )
+        else:
+            if self.auxiliary_readiness is None:
+                raise RecordError(
+                    "add-on target exposure requires auxiliary readiness evidence"
+                )
+            _nonarray_artifact(self.auxiliary_readiness, "auxiliary_readiness")
+            if status == "ready" and any(
+                getattr(self, field) is None for field in auxiliary_fields
+            ):
+                raise RecordError(
+                    "Delta-ready add-on target exposure requires all auxiliary arrays"
+                )
+            for field in auxiliary_fields:
+                value = getattr(self, field)
+                if value is not None:
+                    _artifact_with_axes(value, field, patient_axes)
+            for field in (
+                "reference_condition_patient_support",
+                "addon_reference_component_patient_support",
+            ):
+                value = getattr(self, field)
+                if value is not None and value.dtype != "bool":
+                    raise RecordError(f"{field} must use bool dtype")
+
+    @property
+    def feature_axis(self) -> AxisRef:
+        """Return the target axis through the shared feature-axis interface."""
+
+        return self.target_axis
+
+    @property
+    def identifier(self) -> str:
+        return f"prepared_target_exposure_{canonical_hash(asdict(self), length=20)}"
 
 
 @dataclass(frozen=True)
