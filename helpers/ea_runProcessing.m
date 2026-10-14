@@ -13,6 +13,9 @@ options.overwriteapproved = 0;
 uiprefs = load(options.subj.uiprefs);
 options.elmodel = uiprefs.elmodel;
 options = ea_resolve_elspec(options);
+if ismember(opts.process, {'post', 'both'})
+    ea_check_localization_method(options, 'PaCER (Husch 2017)');
+end
 
 %% Preprocessing
 % Pre-op images

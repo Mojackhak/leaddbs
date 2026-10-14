@@ -22,12 +22,21 @@ if isnumeric(y)
     % marker unit vector.
     x = cross(y/norm(y),[0 0 1]); % [1 0 0] rotated according to y
     x = x - dot(x,normtrajvector) * normtrajvector; % Project x down to the trajectory
-    xunitv = x/norm(x); % Calculate unit vector along x axis
-    yunitv = -cross(xunitv,normtrajvector); % Calculate unit vector along y axis
+    if norm(x) == 0 % The requested horizontal rotation can align with a horizontal trajectory.
+        y = y - dot(y,normtrajvector)*normtrajvector;
+        yunitv = y/norm(y);
+        xunitv = cross(yunitv,normtrajvector);
+    else
+        xunitv = x/norm(x);
+        yunitv = -cross(xunitv,normtrajvector);
+    end
 elseif ischar(y)
     switch y
         case 'anterior' % Force y axis pointing anterior
             y = [0, normtrajvector(3), -normtrajvector(2)];
+            if norm(y(1:2)) == 0
+                y = [-normtrajvector(2), normtrajvector(1), 0];
+            end
             x = cross(y, normtrajvector);
             yunitv = y/norm(y);
             xunitv = x/norm(x);

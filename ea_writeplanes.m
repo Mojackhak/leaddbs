@@ -15,6 +15,7 @@ function [cuts,expslice,boundboxmm,allcontour]=ea_writeplanes(varargin)
 % Andreas Horn
 
 options=varargin{1};
+indexedModels = false;
 manualtracor=0;
 svfig=1;
 figvisible='on';
@@ -25,10 +26,12 @@ end
 
 if nargin==1
     % load prior results
-    coords_mm=ea_load_reconstruction(options);
+    [coords_mm,~,~,~,~,~,reco]=ea_load_reconstruction(options);
     % If there is only one patient to show, ave_coords_mm are the same as the single entry in elstruct(1).coords_mm.
     elstruct(1).coords_mm = coords_mm;
     ave_coords_mm = coords_mm;
+    options.elmodels = {reco.props.elmodel};
+    indexedModels = numel(options.elmodels) > 2 || numel(unique(options.elmodels)) > 1;
 elseif nargin>1 % elstruct has been supplied, this is a group visualization
     if isstruct(varargin{2})
         elstruct=varargin{2};
@@ -92,10 +95,23 @@ fileBaseName = fullfile(export_2D_folder, [options.patientname, '_desc-2D_']);
 fid = fopen([fileBaseName 'viewplane.txt'],'w');
 for iside=1:length(options.sides)
     side=options.sides(iside);
+    if indexedModels
+        options = ea_resolve_elspec(options, side);
+        options.elspec.contactnames = ea_getConName(options.elspec, side);
+        if isfield(reco.props, 'labels') && ~isempty(reco.props(side).labels)
+            options.elspec.contactnames = reco.props(side).labels';
+        end
+        options.elspec.contactnames = cellfun(@(name) sprintf('E%d_%s', side, name), ...
+            options.elspec.contactnames, 'UniformOutput', false);
+    end
     % write out axial/coronal/sagittal images
     for tracor=find(tracorpresent)'
         for elcnt=1:(options.elspec.numContacts-options.shifthalfup)
             el=elcnt+options.elspec.numContacts*(side-1);
+            showBothSide = 0;
+            if indexedModels
+                el = elcnt;
+            end
 
             % Show MR-volume
             set(0,'CurrentFigure',cuts)
@@ -112,7 +128,7 @@ for iside=1:length(options.sides)
                     else
                         V=Vtra;
                     end
-                    if isstruct(elstruct) && length(options.sides)==2
+                    if ~indexedModels && isstruct(elstruct) && length(options.sides)==2
                         showBothSide = 1;
                         el = [el, elcnt+options.elspec.numContacts];
                         if side==2
@@ -125,7 +141,7 @@ for iside=1:length(options.sides)
                     else
                         V=Vcor;
                     end
-                    if isstruct(elstruct) && length(options.sides)==2
+                    if ~indexedModels && isstruct(elstruct) && length(options.sides)==2
                         showBothSide = 1;
                         el = [el, elcnt+options.elspec.numContacts];
                         if side==2
@@ -141,9 +157,17 @@ for iside=1:length(options.sides)
                     showBothSide = 0;
             end
 
-            [planedim,onedim, secdim , dstring, lstring, Ltxt, Rtxt,plusminusc,plusminusr,plusminusl]=ea_getdims(tracor,side);
+            dimensionSide = side;
+            if indexedModels
+                dimensionSide = 1 + (mean(ave_coords_mm{side}(:, 1)) < 0);
+            end
+            [planedim,onedim, secdim , dstring, lstring, Ltxt, Rtxt,plusminusc,plusminusr,plusminusl]=ea_getdims(tracor,dimensionSide);
 
-            [slice,~,boundboxmm,sampleheight]=ea_sample_slice(V,dstring,options.d2.bbsize,'mm',coords,el);
+            if indexedModels
+                [slice,~,boundboxmm,sampleheight]=ea_sample_slice(V,dstring,options.d2.bbsize,'mm',coords(side),el);
+            else
+                [slice,~,boundboxmm,sampleheight]=ea_sample_slice(V,dstring,options.d2.bbsize,'mm',coords,el);
+            end
             if length(slice)==1 && isnan(slice)
                 %there was no electrode here, skip this slice
                 continue;
@@ -319,7 +343,11 @@ for iside=1:length(options.sides)
                     elspec=o.elspec; clear o
                 end
 
-                elstruct=testifactivecontacts(elstruct,elspec,c); % small function that tests if active contacts are assigned and if not assigns them all as passive.
+                if indexedModels
+                    elstruct(c).activecontacts{side} = zeros(elspec.numContacts, 1);
+                else
+                    elstruct=testifactivecontacts(elstruct,elspec,c);
+                end
 
                 if isstruct(elstruct)
                     if elstruct(c).activecontacts{side}(elcnt) && options.d3.showactivecontacts ...
@@ -422,6 +450,9 @@ for iside=1:length(options.sides)
                     isofnadd='';
                 end
                 contactTag = strjoin(options.elspec.contactnames(el), '');
+                if indexedModels
+                    contactTag = sprintf('E%d_C%d', side, elcnt);
+                end
                 contactTag = erase(contactTag, {' ', '(', ')'});
                 desc = [contactTag, isofnadd];
                 switch tracor

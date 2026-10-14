@@ -236,6 +236,14 @@ catch
     elms = ea_resolve_elspec;
     options.elmodel = elms{1};
 end
+models = getappdata(handles.leadfigure, 'elmodels');
+if ~isempty(models)
+    if numel(models) <= 2 && numel(unique(models)) == 1
+        models(:) = {options.elmodel};
+    end
+    options.elmodels = models;
+    options.elnames = getappdata(handles.leadfigure, 'elnames');
+end
 
 try
     options.atlassetn = handles.atlassetpopup.Value;
@@ -253,8 +261,8 @@ try
 end
 
 try
-    options.reconmethod=get(handles.reconmethod,'String');
-    options.reconmethod=options.reconmethod{get(handles.reconmethod,'Value')};
+    reconList=get(handles.reconmethod,'String');
+    options.reconmethod=reconList{get(handles.reconmethod,'Value')};
 end
 
 options.expstatvat.do=0;
@@ -399,3 +407,5 @@ function sides = ea_assignsides(handles)
 elnum = sum(cellfun(@(f) ~isempty(f), regexp(fieldnames(handles),'^side\d+$','match')));
 sideLabel = "side" + (1:elnum)';
 sides = find(cellfun(@(s) handles.(s).Value, sideLabel'));
+extraSides = getappdata(handles.leadfigure, 'extra_electrode_sides');
+sides = [sides, extraSides];

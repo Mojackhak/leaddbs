@@ -1,4 +1,5 @@
 function [coords_mm,trajectory,markers] = ea_runtraccore(options)
+ea_check_localization_method(options, 'TRAC/CORE (Horn 2015)');
 
 if isfile(options.subj.recon.recon)
     options.native = 0; % Load MNI reco

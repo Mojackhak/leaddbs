@@ -84,6 +84,17 @@ if isfield(options, 'elmodel')
         ea_cprintf('CmdWinWarnings', 'Specified electrode not found: %s\n', options.elmodel);
     end
 end
+if isfield(handles, 'electrode_model_popup') && isfield(handles, 'reconmethod')
+    if isfield(options, 'sides') && isfield(options, 'elmodels')
+        names = {};
+        if isfield(options, 'elnames')
+            names = options.elnames;
+        end
+        ea_set_electrode_models(handles, options.elmodels, options.sides, names);
+    elseif isfield(options, 'sides')
+        ea_set_electrode_models(handles, {}, options.sides);
+    end
+end
 
 if isfield(options, 'atlasset')
     value = find(ismember(handles.atlassetpopup.String, options.atlasset));
@@ -95,6 +106,13 @@ if isfield(options, 'atlasset')
 end
 
 if isfield(options, 'reconmethod') && ~isempty(options.reconmethod)
+    if (iscell(options.reconmethod) || isstring(options.reconmethod)) && ~isscalar(options.reconmethod)
+        ea_cprintf('CmdWinWarnings', ...
+            'Saved reconstruction method contains multiple names; keeping current selection: %s\n', ...
+            handles.reconmethod.String{handles.reconmethod.Value});
+        return;
+    end
+
     % Get the list of strings in the popup
     reconList = handles.reconmethod.String;
 

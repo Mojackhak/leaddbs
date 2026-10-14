@@ -26,8 +26,12 @@ if strcmp(options.leadprod,'group')
 end
 
 elSide = popts.sides;
+if strcmp(options.leadprod, 'dbs')
+    reconstruction = load(options.subj.recon.recon, 'reco');
+end
 
 for side=elSide
+    pobj = struct;
     try
         pobj = ea_load_electrode(options.subj.recon.recon, side);
         pobj.hasPlanning = 1;
@@ -38,12 +42,19 @@ for side=elSide
     pobj.elstruct = elstruct(pt);
     pobj.showMacro = 1;
     pobj.side = side;
+    if strcmp(options.leadprod, 'dbs')
+        pobj.elmodel = reconstruction.reco.props(side).elmodel;
+        pobj.elstruct.elmodel = pobj.elmodel;
+        if isfield(reconstruction.reco.props, 'labels')
+            pobj.elstruct.labels = {reconstruction.reco.props.labels};
+        end
+    end
 
     set(0,'CurrentFigure',resultfig);
     if ~exist('el_render','var') || ~isobject(el_render)
         el_render = struct([]);
     end
-    if isfield(options, 'reconmethod') && isequal(options.reconmethod, 'LeGUI (Davis 2021)')
+    if ~strcmp(options.leadprod, 'dbs') && isfield(options, 'reconmethod') && isequal(options.reconmethod, 'LeGUI (Davis 2021)')
 %         ea_trajectory(pobj); % Option for if you want to visualize the
 %         actual electrodes as opposed to spheres
         ea_trajectory_seeg(elstruct, options);

@@ -147,13 +147,17 @@ if ~strcmp(options.patientname,'No Patient Selected') % if not initialize empty 
             else
                 [el_render,el_label,elSide{pt}]=ea_renderelstruct(options,resultfig,elstruct,pt);
             end
-            if isfield(options, 'reconmethod') && isequal(options.reconmethod, 'LeGUI (Davis 2021)')
+            if ~strcmp(options.leadprod, 'dbs') && isfield(options, 'reconmethod') && isequal(options.reconmethod, 'LeGUI (Davis 2021)')
                 multiplemode = 1;
             end
             if ~multiplemode
                 side=options.sides(end);
                 d=load(options.subj.recon.recon);
-                plans=d.reco.electrode(side+1:end);
+                if isfield(d.reco, 'electrode')
+                    plans=d.reco.electrode(side+1:end);
+                else
+                    plans=[];
+                end
                 if ~isempty(plans)
                     if isfield(plans,'plan')
                         for plan=1:length(plans)

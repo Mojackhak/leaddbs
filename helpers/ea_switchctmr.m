@@ -59,6 +59,10 @@ if get(handles.MRCT,'Value') ~= postopModality
 end
 
 if  ~strcmp(handles.prod, 'anatomy')
+    if nargin == 1
+        selectedMethod = handles.reconmethod.String{handles.reconmethod.Value};
+        set(handles.reconmethod, 'Value', 1);
+    end
     arrayfun(@(x) set(x, 'Enable', 'on'), handles.optionaltab.Children);
     set(handles.overwriteapproved, 'Enable', 'on');
     switch postopModality
@@ -101,5 +105,11 @@ if  ~strcmp(handles.prod, 'anatomy')
             set(handles.reconmethod,'Enable','off');
             set(handles.targetpopup,'Enable','off');
             set(handles.maskwindow_txt,'Enable','off');
+    end
+    if nargin == 1
+        index = find(strcmp(handles.reconmethod.String, selectedMethod), 1);
+        if ~isempty(index)
+            set(handles.reconmethod, 'Value', index);
+        end
     end
 end

@@ -1,6 +1,8 @@
-function scrf=ea_applyscrfmat(mat,native,sides)
+function scrf=ea_applyscrfmat(mat,native,sides,scrf)
 
-scrf=native;
+if nargin < 4
+    scrf=native;
+end
 
 for side = sides
     % coords
@@ -12,15 +14,15 @@ for side = sides
     scrf.trajectory{side}=scrf.trajectory{side}(1:3,:)';
     
     % markers
-    scrf.markers(side).head=mat*[scrf.markers(side).head,ones(size(scrf.markers(side).head,1),1)]';
+    scrf.markers(side).head=mat*[native.markers(side).head,1]';
     scrf.markers(side).head=scrf.markers(side).head(1:3)';
     
-    scrf.markers(side).tail=mat*[scrf.markers(side).tail,ones(size(scrf.markers(side).tail,1),1)]';
+    scrf.markers(side).tail=mat*[native.markers(side).tail,1]';
     scrf.markers(side).tail=scrf.markers(side).tail(1:3)';
     
-    scrf.markers(side).x=mat*[scrf.markers(side).x,ones(size(scrf.markers(side).x,1),1)]';
+    scrf.markers(side).x=mat*[native.markers(side).x,1]';
     scrf.markers(side).x=scrf.markers(side).x(1:3)';
     
-    scrf.markers(side).y=mat*[scrf.markers(side).y,ones(size(scrf.markers(side).y,1),1)]';
+    scrf.markers(side).y=mat*[native.markers(side).y,1]';
     scrf.markers(side).y=scrf.markers(side).y(1:3)';
 end

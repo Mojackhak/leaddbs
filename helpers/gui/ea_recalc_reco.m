@@ -14,7 +14,9 @@ for pt=1:length(uipatdirs)
     options.native = 1;
     options.hybridsave=1;
     disp(['Re-propagating reconstruction from native (postop) -> native (preop) -> template space: ', options.subj.subjId]);
-    [~,~,markers,elmodel,manually_corrected]=ea_load_reconstruction(options);
+    [coords_mm,trajectory,markers,elmodel]=ea_load_reconstruction(options);
+    saved = load(options.subj.recon.recon, 'reco');
+    options.elmodels = {saved.reco.props.elmodel};
     options.sides=[];
     for el=1:length(markers)
         if ~isempty(markers(el).head)
@@ -24,8 +26,7 @@ for pt=1:length(uipatdirs)
 
     options.elmodel=elmodel;
     options=ea_resolve_elspec(options);
-    [coords_mm,trajectory,markers]=ea_resolvecoords(markers,options);
-    ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,manually_corrected,options);
+    ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,[],options);
     if nargout % export coords in MNI space.
         options.native=0;
         [coords_mm,trajectory,markers]=ea_load_reconstruction(options);

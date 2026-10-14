@@ -14,8 +14,6 @@ if ischar(options) || isstring(options) % Electrode name provided
     options = ea_resolve_elspec(options);
 end
 
-load(fullfile(ea_getearoot, 'templates', 'electrode_models', options.elspec.matfname));
-
 if nargin>2
     resize=varargin{3};
 else
@@ -25,7 +23,20 @@ if nargin>3
     rszfactor=varargin{4};
 end
 
-for side=1:length(markers) %valid for unilateral support
+coords = cell(1, numel(markers));
+trajectory = cell(1, numel(markers));
+baseOptions = options;
+if isfield(options, 'sides')
+    sides = options.sides;
+else
+    sides = 1:numel(markers);
+end
+for side=sides
+    if isempty(markers(side).head)
+        continue;
+    end
+    options = ea_resolve_elspec(baseOptions, side);
+    load(fullfile(ea_getearoot, 'templates', 'electrode_models', options.elspec.matfname), 'electrode');
     if resize
         can_dist=ea_pdist([electrode.head_position;electrode.tail_position]);
         %emp_dist=ea_pdist([markers(side).head;markers(side).tail]);

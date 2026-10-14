@@ -4,6 +4,9 @@ bids = getappdata(handles.leadfigure,'bids');
 subjId = getappdata(handles.leadfigure,'subjId');
 
 if ~isempty(bids)
+    if isfield(handles, 'electrode_model_popup') && isfield(handles, 'reconmethod')
+        ea_set_electrode_models(handles, {}, []);
+    end
     % Determine prefs path
     if isempty(handles.patientlist.Data.subjId) || isempty(handles.patientlist.Selection)
         prefsPath = '';

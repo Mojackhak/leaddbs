@@ -97,6 +97,14 @@ else
                     if isfile(uiprefsFile)
                         uiprefs = load(uiprefsFile);
                         options.elmodel = uiprefs.elmodel;
+                        if isfield(uiprefs, 'elmodels')
+                            options.elmodels = uiprefs.elmodels;
+                            if isfield(uiprefs, 'elnames')
+                                options.elnames = uiprefs.elnames;
+                            end
+                        elseif isfield(options, 'elmodels')
+                            options = rmfield(options, 'elmodels');
+                        end
                         options.sides = uiprefs.sides;
                     end
                 end

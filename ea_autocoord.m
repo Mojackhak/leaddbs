@@ -79,6 +79,9 @@ end
 
 % get accurate electrode specifications and save it in options.
 options = ea_resolve_elspec(options);
+if options.doreconstruction
+    ea_check_localization_method(options, options.reconmethod);
+end
 
 % check connectome-mapper tags
 if strcmp(options.leadprod, 'mapper')

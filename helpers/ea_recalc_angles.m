@@ -1,4 +1,4 @@
-function reco = ea_recalc_angles(reco)
+function reco = ea_recalc_angles(reco, sides)
 % recalculate angles based on reco markers
 
 if isfile(reco)
@@ -18,7 +18,12 @@ for s = 1:numel(spaces)
     end
 
     m = reco.(space).markers;
-    for i = 1:numel(m)
+    if nargin < 2
+        indices = 1:numel(m);
+    else
+        indices = sides(sides <= numel(m));
+    end
+    for i = indices
         if ~isempty(m(i).head) && ~isempty(m(i).tail)
             angles = ea_diode_trajectoryToYawPitchPolar(m(i).head, m(i).tail);
             reco.angles.(space)(i).yaw = angles.deg.yaw;

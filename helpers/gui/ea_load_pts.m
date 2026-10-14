@@ -327,10 +327,19 @@ if isscalar(uipatdir) && isfield(handles, 'side1')
                 end
             end
 
+            uiprefsFile = bids.getPrefs(subjId{1}, 'uiprefs', 'mat');
+            uiprefs = load(uiprefsFile);
+            if isfield(uiprefs, 'elmodels') || numel(reco.props) > 2 || numel(unique({reco.props.elmodel})) > 1
+                if ~isfield(uiprefs, 'elmodels')
+                    uiprefs.elmodels = {reco.props.elmodel};
+                    save(uiprefsFile, '-struct', 'uiprefs');
+                end
+                names = {};
+                if isfield(uiprefs, 'elnames'), names = uiprefs.elnames; end
+                ea_set_electrode_models(handles, uiprefs.elmodels, uiprefs.sides, names);
+            else
             try
                 elmodel = ea_get_first_notempty_elmodel(reco.props);
-                uiprefsFile = bids.getPrefs(subjId{1}, 'uiprefs', 'mat');
-                uiprefs = load(uiprefsFile);
                 if ~strcmp(uiprefs.elmodel, elmodel)
                     if handles.refinelocalization.Value
                         ea_cprintf('CmdWinWarnings', ...
@@ -366,6 +375,7 @@ if isscalar(uipatdir) && isfield(handles, 'side1')
                 end
             catch
                 ea_cprintf('CmdWinWarnings', 'Failed to determine the electrode model for patient "%s"\n', subjId{1});
+            end
             end
         end
     end

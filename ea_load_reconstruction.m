@@ -1,4 +1,4 @@
-function  [coords_mm,trajectory,markers,elmodel,manually_corrected,coords_acpc]=ea_load_reconstruction(varargin)
+function  [coords_mm,trajectory,markers,elmodel,manually_corrected,coords_acpc,reco]=ea_load_reconstruction(varargin)
 % [coords_mm,trajectory,markers,elmodel,manually_corrected,coords_acpc]=ea_load_reconstruction(varargin)
 
 % __________________________________________________________________________________
@@ -28,6 +28,7 @@ end
 try
     % Load Reconstruction
     load(options.subj.recon.recon, 'reco');
+    options.elmodels = {reco.props.elmodel};
 catch
     ea_cprintf('CmdWinWarnings', 'Failed to load reconstruction for %s!\n', options.subj.subjId);
 end
@@ -54,10 +55,11 @@ end
 
 markers = reco.(space_type).markers;
 if ~isfield(markers,'x')
-    for side=1:2
+    for side=1:numel(markers)
+        electrodeOptions = ea_resolve_elspec(options, side);
         [xunitv, yunitv] = ea_calcxy(markers(side).head, markers(side).tail);
-        markers(side).x = markers(side).head+xunitv*(options.elspec.lead_diameter/2);
-        markers(side).y = markers(side).head+yunitv*(options.elspec.lead_diameter/2);
+        markers(side).x = markers(side).head+xunitv*(electrodeOptions.elspec.lead_diameter/2);
+        markers(side).y = markers(side).head+yunitv*(electrodeOptions.elspec.lead_diameter/2);
     end
 end
 
@@ -80,8 +82,13 @@ catch
 end
 
 try
-    manually_corrected=reco.props(options.elside).manually_corrected;
-    elmodel=reco.props(options.elside).elmodel;
+    if isfield(options, 'elside')
+        side = options.elside;
+    else
+        side = options.sides(1);
+    end
+    manually_corrected=reco.props(side).manually_corrected;
+    elmodel=reco.props(side).elmodel;
     % Fix Abbott lead name
     elmodel = strrep(elmodel, 'St. Jude', 'Abbott');
 catch % legacy

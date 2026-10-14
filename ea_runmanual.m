@@ -1,9 +1,5 @@
 function [coords_mm,trajectory,markers]=ea_runmanual(options)
 
-load([ea_getearoot,'templates',filesep,'electrode_models',filesep,options.elspec.matfname,'.mat'], 'electrode');
-
-normdist = pdist([electrode.head_position;electrode.tail_position]);
-
 switch options.subj.postopModality
     case 'MRI'
         vol = spm_vol(options.subj.coreg.anat.postop.ax_MRI);
@@ -18,6 +14,9 @@ Finter = spm('FnUIsetup','Select Trajectory', 0);
 figure(Fgraph); clf;
 
 for side=options.sides
+    electrodeOptions = ea_resolve_elspec(options, side);
+    load(fullfile(ea_getearoot, 'templates', 'electrode_models', electrodeOptions.elspec.matfname), 'electrode');
+    normdist = norm(electrode.head_position-electrode.tail_position);
     spm_orthviews('Reset');
     h = spm_orthviews('Image', vol);
     colormap('gray');
@@ -51,8 +50,8 @@ for side=options.sides
 
     % add x and y
     [xunitv, yunitv] = ea_calcxy(markers(side).head, markers(side).tail);
-    markers(side).x = markers(side).head + xunitv*(options.elspec.lead_diameter/2);
-    markers(side).y = markers(side).head + yunitv*(options.elspec.lead_diameter/2);
+    markers(side).x = markers(side).head + xunitv*(electrodeOptions.elspec.lead_diameter/2);
+    markers(side).y = markers(side).head + yunitv*(electrodeOptions.elspec.lead_diameter/2);
 end
 
 [coords_mm,trajectory,markers] = ea_resolvecoords(markers,options,0);

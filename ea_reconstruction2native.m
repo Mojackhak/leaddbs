@@ -14,6 +14,8 @@ if ~exist('reco','var') % old format
     reco.props.manually_corrected = manually_corrected;
 end
 
+options.elmodels = {reco.props.elmodel};
+
 json = loadjson(options.subj.norm.log.method);
 if contains(json.method, 'SPM')
     % Convert SPM deformation field to ITK format when necessary
@@ -64,16 +66,22 @@ for side = options.sides
     reco.(usenative).trajectory{side} = warpedcoord(cnt:cnt+offset-1,:);
     cnt = cnt+offset;
 
-    [xunitv, yunitv] = ea_calcxy(reco.(usenative).markers(side).head, reco.(usenative).markers(side).tail);
-    reco.(usenative).markers(side).x = reco.(usenative).markers(side).head+xunitv*(options.elspec.lead_diameter/2);
-    reco.(usenative).markers(side).y = reco.(usenative).markers(side).head+yunitv*(options.elspec.lead_diameter/2);
+    electrodeOptions = ea_resolve_elspec(options, side);
+    [~, yvec] = ea_calc_rotation(reco.mni.markers(side).y, reco.mni.markers(side).head);
+    [xunitv, yunitv] = ea_calcxy(reco.(usenative).markers(side).head, reco.(usenative).markers(side).tail, yvec);
+    reco.(usenative).markers(side).x = reco.(usenative).markers(side).head+xunitv*(electrodeOptions.elspec.lead_diameter/2);
+    reco.(usenative).markers(side).y = reco.(usenative).markers(side).head+yunitv*(electrodeOptions.elspec.lead_diameter/2);
 end
 
 % apply scrf to native matrix if available
 if isfile(options.subj.brainshift.transform.scrf)
     d = load(options.subj.brainshift.transform.scrf);
     mat = inv(d.mat);
-    reco.native = ea_applyscrfmat(mat, reco.scrf, options.sides);
+    if isfield(reco, 'native')
+        reco.native = ea_applyscrfmat(mat, reco.scrf, options.sides, reco.native);
+    else
+        reco.native = ea_applyscrfmat(mat, reco.scrf, options.sides);
+    end
 else
     if isfield(reco,'scrf')
         reco = rmfield(reco,'scrf'); % delete subcortical transform if user apparently deleted the transform file.

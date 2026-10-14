@@ -30,6 +30,12 @@ if contains(directory, ['derivatives', filesep, 'leaddbs'])
         uiprefs = load(uiPrefsFile);
         options.modality = uiprefs.modality;
         options.sides = uiprefs.sides;
+        if isfield(uiprefs, 'elmodels')
+            options.elmodels = uiprefs.elmodels;
+        end
+        if isfield(uiprefs, 'elnames')
+            options.elnames = uiprefs.elnames;
+        end
     else
         options.modality = bids.settings.preferMRCT;
         options.sides = [1,2];
@@ -72,6 +78,9 @@ if contains(directory, ['derivatives', filesep, 'leaddbs'])
     % Set elmodel and elspec
     if isfile(recon.recon)
         load(recon.recon);
+        if ~isfield(options, 'elmodels') || isempty(options.elmodels)
+            options.elmodels = {reco.props.elmodel};
+        end
         try
             options.elmodel = ea_get_first_notempty_elmodel(reco.props);
         catch

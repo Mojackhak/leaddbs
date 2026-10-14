@@ -3,6 +3,7 @@ function ea_mancor_updatescene(varargin)
 hobj=varargin{1};
 ev=varargin{2};
 mcfig=varargin{3};
+set(0, 'CurrentFigure', mcfig);
 
 firstrun=getappdata(mcfig,'firstrun');
 contrast=getappdata(mcfig,'contrast');
@@ -17,6 +18,7 @@ setappdata(mcfig,'offset',offset); setappdata(mcfig,'contrast',contrast);
 
 %% inputs:
 options=getappdata(mcfig,'options');
+options = ea_resolve_elspec(options, options.elside);
 if ~isfield(options,'visible')
     options.visible=1;
 end
@@ -49,23 +51,41 @@ switch space
 end
 
 setappdata(mcfig,'options',options);
-[~,~,markers,elmodel,manually_corrected]=ea_load_reconstruction(options);
+[coords_mm,trajectory,markers,elmodel,manually_corrected,~,reco]=ea_load_reconstruction(options);
 
 %% load orientation/roll angles
-load(options.subj.recon.recon, 'reco');
-if ~isfield(reco, 'angles')
-    reco = ea_recalc_angles(options.subj.recon.recon);
+if ~isfield(reco, 'angles') || isnan(reco.angles.native(options.elside).roll)
+    reco = ea_recalc_angles(options.subj.recon.recon, options.elside);
 end
 rollangle = reco.angles.native(options.elside).roll;
 orientationangle = reco.angles.native(options.elside).orientation; 
 clear reco
 
 %%
-if isempty(firstrun) && ~manually_corrected % resize electrode to default spacing.
-    [~,trajectory,markers]=ea_resolvecoords(markers,options,1);
-    setappdata(mcfig,'firstrun',0);
-else
-    [~,trajectory,markers]=ea_resolvecoords(markers,options,0);
+calculation = options;
+calculation.sides = options.elside;
+modelChanged = ~strcmp(elmodel, options.elmodel);
+if ~manually_corrected || modelChanged
+    side = options.elside;
+    [~, yvec] = ea_calc_rotation(markers(side).y, markers(side).head);
+    [xunitv, yunitv] = ea_calcxy(markers(side).head, markers(side).tail, yvec);
+    markers(side).x = markers(side).head + xunitv*options.elspec.lead_diameter/2;
+    markers(side).y = markers(side).head + yunitv*options.elspec.lead_diameter/2;
+    [currentCoords,currentTrajectory,markers]=ea_resolvecoords(markers,calculation,1);
+    coords_mm(side) = currentCoords(side);
+    trajectory(side) = currentTrajectory(side);
+end
+previousModel = getappdata(mcfig, 'displayedmodel');
+if ~strcmp(previousModel, options.elmodel)
+    delete(getappdata(mcfig, 'elplot'));
+    setappdata(mcfig, 'elplot', []);
+    setappdata(mcfig, 'legplot', []);
+    cla(subplot(3,6,[1,7,13]));
+end
+setappdata(mcfig, 'displayedmodel', options.elmodel);
+tools = getappdata(mcfig, 'orientationtools');
+if ~isempty(tools)
+    set(tools, 'Enable', ea_bool2onoff(options.elspec.isdirected));
 end
 
 trajvector = diff([markers(options.elside).head; markers(options.elside).tail]);
@@ -100,7 +120,11 @@ if selectrode
     [markers]=ea_mancor_updatecoords(coordhandle,markers,trajectory,movedheadtail,options,mcfig);
 end
 
-[coords_mm,trajectory]=ea_resolvecoords(markers,options);
+if selectrode
+    [currentCoords,currentTrajectory]=ea_resolvecoords(markers,calculation);
+    coords_mm(options.elside) = currentCoords(options.elside);
+    trajectory(options.elside) = currentTrajectory(options.elside);
+end
 
 %% plot main figure
 viewtext=getappdata(mcfig,'viewtext');
@@ -139,7 +163,7 @@ if options.elspec.numContacts > 1
               'Boston Scientific Vercise Directed'
               'Abbott Directed 6172 (short)'
               'Abbott Directed 6173 (long)'}
-            for side=options.sides
+            for side=options.elside
                 coords_temp{side}(1,:) = coords_mm{side}(1,:);
                 coords_temp{side}(2,:) = mean(coords_mm{side}(2:4,:));
                 coords_temp{side}(3,:) = mean(coords_mm{side}(5:7,:));
@@ -150,7 +174,7 @@ if options.elspec.numContacts > 1
         case {'Boston Scientific Vercise Cartesia HX'
               'Boston Scientific Vercise Cartesia X'
 			  'Aleva directSTIM Directed'}
-            for side=options.sides
+            for side=options.elside
                 coords_temp{side}(1,:) = mean(coords_mm{side}(1:3,:));
                 coords_temp{side}(2,:) = mean(coords_mm{side}(4:6,:));
                 coords_temp{side}(3,:) = mean(coords_mm{side}(7:9,:));
@@ -159,13 +183,12 @@ if options.elspec.numContacts > 1
                 emp_eldist{side}=sum(sum(tril(triu(A{side},1),1)))/(3);
             end
         otherwise
-            for side=options.sides
+            for side=options.elside
                 A{side}=sqrt(ea_sqdist(coords_mm{side}',coords_mm{side}'));
                 emp_eldist{side}=sum(sum(tril(triu(A{side},1),1)))/(options.elspec.numContacts-1);
             end
     end
     memp_eldist=mean([emp_eldist{:}]);
-    [~,trajectory,markers]=ea_resolvecoords(markers,options,1,memp_eldist);
     clear coords_temp
 else
     memp_eldist = 0;
@@ -493,7 +516,7 @@ if isempty(legplot)
 
     plot3(electrode.head_position(1),electrode.head_position(2),electrode.head_position(3),'*r','MarkerSize',15)
     plot3(electrode.tail_position(1),electrode.tail_position(2),electrode.tail_position(3),'*g','MarkerSize',15)
-    axis([-2,2,-2,2,0,16])
+    axis([-2,2,-2,2,min(electrode.coords_mm(:,3))-2,max(electrode.coords_mm(:,3))+2])
     set(elax,'XLimMode','manual');
     set(elax,'YLimMode','manual');
     set(elax,'ZLimMode','manual');
@@ -502,7 +525,7 @@ if isempty(legplot)
     view(180,0);
 
     %light('Position',[0 -5 10]);
-    text(0,2,14,options.elmodel,'color','w');
+    text(0,2,max(electrode.coords_mm(:,3))+1,options.elmodel,'color','w');
     setappdata(mcfig,'legplot',1);
 end
 
@@ -533,6 +556,9 @@ setappdata(mcfig,'viewtext',viewtext);
 setappdata(mcfig,'elplot',elplot);
 setappdata(mcfig,'mplot',mplot);
 setappdata(mcfig,'movedel',movedel);
+setappdata(mcfig,'markers',markers);
+setappdata(mcfig,'coords_mm',coords_mm);
+setappdata(mcfig,'trajectory',trajectory);
 
 if isfield(options,'hybridsave')
     options=rmfield(options,'hybridsave');
@@ -541,6 +567,7 @@ end
 saveOnUpdate=getappdata(mcfig,'saveonupdatescene');
 if ~isempty(saveOnUpdate) && saveOnUpdate
     ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,1,options);
+    setappdata(mcfig, 'modifiedelectrodes', unique([getappdata(mcfig, 'modifiedelectrodes'), options.elside]));
 end
 
 setappdata(mcfig,'trajectory_plot',trajectory_plot);
@@ -630,7 +657,7 @@ end
 
 function col=getbgsidecol(options)
 
-linecols=lines;
+linecols=lines(max(options.sides));
 linecols=rgb2hsv(linecols);
 linecols(:,3)=linecols(:,3)/3;
 if options.xray

@@ -54,6 +54,19 @@ else
     options=varargin{1};
 end
 
+if isfield(options, 'elmodels') && ~isempty(options.elmodels)
+    if nargin > 1
+        side = varargin{2};
+    elseif isfield(options, 'elside')
+        side = options.elside;
+    elseif isfield(options, 'sides') && ~isempty(options.sides)
+        side = options.sides(1);
+    else
+        side = 1;
+    end
+    options.elmodel = options.elmodels{side};
+end
+
 if ~isfield(options, 'elmodel')
     try
         load([options.root,options.patientname,filesep,'reconstruction',filesep,options.patientname,'_desc-reconstruction.mat'],'reco');
@@ -67,6 +80,8 @@ else
     elmodel = options.elmodel;
 end
 
+elmodel = strrep(elmodel, 'St. Jude', 'Abbott');
+options.elmodel = elmodel;
 elspec.elmodel = elmodel;
 
 switch elmodel
@@ -1574,7 +1589,9 @@ switch elmodel
         elspec.etagenames{1}=elspec.contactnames(1:length(elspec.contactnames)/2);
         elspec.etagenames{2}=elspec.contactnames((length(elspec.contactnames)/2)+1:end);
         elspec.etageidx=num2cell(1:elspec.numContacts);
-        elspec.forstimulation=1;       
+        elspec.forstimulation=1;
+    otherwise
+        error('LeadDBS:UnknownElectrodeModel', 'Unknown electrode model: %s', elmodel);
 end
 
 if ~isfield(elspec,'eldist') && numel(elspec.contact_spacing)>1

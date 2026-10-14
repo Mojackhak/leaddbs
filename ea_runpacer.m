@@ -1,4 +1,5 @@
 function [coords_mm,trajectory,markers] = ea_runpacer(options)
+ea_check_localization_method(options, 'PaCER (Husch 2017)');
 
 [tmat,ctnii] = ea_getrawct2preniimat(options);
 niiCTSPM = NiftiModSPM(ctnii); % load nifti using SPM instead of PaCER default Nifti Toolbox

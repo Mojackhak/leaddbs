@@ -5,11 +5,11 @@ if ~isfield(options.subj, 'coreg')
 end
 
 load(options.subj.recon.recon,'reco');
+options.elmodels = {reco.props.elmodel};
 
 nii = ea_load_nii(options.subj.coreg.anat.preop.(options.subj.AnchorModality));
 
 if ~isfield(options,'elspec')
-    options.elmodel = reco.props.elmodel;
     options = ea_resolve_elspec(options);
 end
 
@@ -22,7 +22,11 @@ end
 % apply native to scrf matrix if available
 if isfile(options.subj.brainshift.transform.scrf)
     d = load(options.subj.brainshift.transform.scrf);
-    reco.scrf = ea_applyscrfmat(d.mat, reco.native, options.sides);
+    if isfield(reco, 'scrf')
+        reco.scrf = ea_applyscrfmat(d.mat, reco.native, options.sides, reco.scrf);
+    else
+        reco.scrf = ea_applyscrfmat(d.mat, reco.native, options.sides);
+    end
 else
     if isfield(reco,'scrf')
         reco = rmfield(reco,'scrf'); % delete subcortical transform if user apparently deleted the transform file.
@@ -54,10 +58,11 @@ for side = options.sides
     reco.mni.markers(side).tail = warpedcoord(cnt:cnt+offset-1,:);
     cnt = cnt+offset;
 
-    if length(options.elspec.etageidx) > 8
-        scaleFactor = options.elspec.contact_span*1.5;
+    electrodeOptions = ea_resolve_elspec(options, side);
+    if length(electrodeOptions.elspec.etageidx) > 8
+        scaleFactor = electrodeOptions.elspec.contact_span*1.5;
     else
-        scaleFactor = options.elspec.contact_span*2;
+        scaleFactor = electrodeOptions.elspec.contact_span*2;
     end
 
     reco.mni.trajvector{side}=(reco.mni.markers(side).tail-reco.mni.markers(side).head)/norm(reco.mni.markers(side).tail-reco.mni.markers(side).head);
@@ -71,8 +76,8 @@ for side = options.sides
         % rotation of y marker calculated from native coordination.
         [~, yvec] = ea_calc_rotation(reco.native.markers(side).y,reco.native.markers(side).head);
         [xunitv, yunitv] = ea_calcxy(reco.mni.markers(side).head, reco.mni.markers(side).tail, yvec);
-        reco.mni.markers(side).x = reco.mni.markers(side).head + xunitv*(options.elspec.lead_diameter/2);
-        reco.mni.markers(side).y = reco.mni.markers(side).head + yunitv*(options.elspec.lead_diameter/2);
+        reco.mni.markers(side).x = reco.mni.markers(side).head + xunitv*(electrodeOptions.elspec.lead_diameter/2);
+        reco.mni.markers(side).y = reco.mni.markers(side).head + yunitv*(electrodeOptions.elspec.lead_diameter/2);
     else
         reco.mni.markers(side).x = [];
         reco.mni.markers(side).y = [];

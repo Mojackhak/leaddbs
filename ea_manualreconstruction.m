@@ -37,7 +37,23 @@ if ~isfile(options.subj.recon.recon)
     return
 end
 
-[~,trajectory,markers,elmodel,manually_corrected]=ea_load_reconstruction(options);
+[~,trajectory,markers,elmodel,manually_corrected,~,stored]=ea_load_reconstruction(options);
+storedModels = {stored.props.elmodel};
+if (~isfield(options, 'elmodels') || isempty(options.elmodels)) && ...
+        (numel(storedModels) > 2 || numel(unique(storedModels)) > 1)
+    options.elmodels = storedModels;
+    original = getappdata(mcfig, 'origoptions');
+    original.elmodels = storedModels;
+    setappdata(mcfig, 'origoptions', original);
+    setappdata(mcfig, 'options', options);
+end
+for side = options.sides
+    if side > numel(markers) || isempty(markers(side).head) || isempty(markers(side).tail)
+        close(mcfig);
+        error('LeadDBS:MissingElectrodeLocalization', 'Localize electrode %d before opening manual refinement.', side);
+    end
+end
+setappdata(mcfig,'markers',markers);
 
 setappdata(mcfig,'origtrajectory',trajectory);
 setappdata(mcfig,'manually_corrected',manually_corrected);
@@ -89,6 +105,13 @@ autorotation=uipushtool(ht,'CData',ea_get_icn('autorot'),'TooltipString','Detect
 manualrotation=uipushtool(ht,'CData',ea_get_icn('manualrot'),'TooltipString','Detect directional leads (manual mode)','ClickedCallback',{@ea_manualrotate,'clockwise',mcfig});
 rotationcw=uipushtool(ht,'CData',ea_get_icn('cw'),'TooltipString','Rotate lead clockwise','ClickedCallback',{@ea_rotate,'clockwise',mcfig});
 rotationccw=uipushtool(ht,'CData',ea_get_icn('ccw'),'TooltipString','Rotate lead counterclockwise','ClickedCallback',{@ea_rotate,'counterclockwise',mcfig});
+setappdata(mcfig, 'orientationtools', [manualrotation, rotationcw, rotationccw]);
+currentOptions = ea_resolve_elspec(options, options.elside);
+set([manualrotation, rotationcw, rotationccw], 'Enable', ea_bool2onoff(currentOptions.elspec.isdirected));
+if isfield(options, 'elmodels') && (numel(options.elmodels)>2 || numel(unique(options.elmodels))>1)
+    autorotation.Enable = 'off';
+    manualrotation.TooltipString = 'Set directional lead roll angle (degrees)';
+end
 
 % mni=uitoggletool(ht,'CData',ea_get_icn('mninative'),'TooltipString','Toggle MNI vs. Native space','State','off','OnCallback',{@ea_mancor_updatescene,mcfig,'mni'},'OffCallback',{@ea_mancor_updatescene,mcfig,'native'});
 
@@ -119,7 +142,6 @@ disp('Manual correction: Press arrows to adjust, space to end adjustment. For mo
 
 %% export variables to figure
 setappdata(mcfig,'eltog',eltog);
-setappdata(mcfig,'markers',markers);
 
 
 function ea_endfcn(mcfig)
@@ -136,8 +158,17 @@ options.hybridsave=1;
 options.native=1;
 options.loadnativereco = 1; % Load native reco intead of scrf
 [coords_mm,trajectory,markers]=ea_load_reconstruction(options);
+currentOptions = getappdata(mcfig, 'options');
+options.elside = currentOptions.elside;
+markers = getappdata(mcfig, 'markers');
 
-ea_save_reconstruction(coords_mm,trajectory,markers,options.elmodel,1,options);
+saveCurrent(mcfig,coords_mm,trajectory,markers,options);
+modified = getappdata(mcfig, 'modifiedelectrodes');
+if ~isempty(modified)
+    options.sides = modified;
+    [coords_mm,trajectory,markers]=ea_load_reconstruction(options);
+    ea_save_reconstruction(coords_mm,trajectory,markers,options.elmodel,[],options);
+end
 options=getappdata(mcfig,'origoptions');
 try options=rmfield(options,'hybridsave'); end
 ea_busyaction('off',mcfig,'reco');
@@ -163,83 +194,6 @@ if options.d2.write || options.d3.write
     end
     ea_write(options);
 end
-
-
-% Callback invoked when user presses the 'Update all' button in the 'Manual electrodes head / tail setting' figure.
-function manualMarkerSettingUpdateAllCb(source,event)
-manualMarkerSettingCbImpl(source,'all');
-
-
-% Callback invoked when user presses the 'Cancel' button in the 'Manual electrodes head / tail setting' figure.
-function manualMarkerSettingCancelCb(source,event)
-closereq();
-
-
-% Callbacks invoked when user presses 'Update R0/R3/L3/L0' buttons in the 'Manual electrodes head / tail setting' figure.
-function manualMarkerSettingUpdateR0Cb(source,event)
-manualMarkerSettingCbImpl(source,'R0');
-
-
-function manualMarkerSettingUpdateR3Cb(source,event)
-manualMarkerSettingCbImpl(source,'R3');
-
-
-function manualMarkerSettingUpdateL0Cb(source,event)
-manualMarkerSettingCbImpl(source,'L0');
-
-
-function manualMarkerSettingUpdateL3Cb(source,event)
-manualMarkerSettingCbImpl(source,'L3');
-
-
-function manualMarkerSettingCbImpl(source,action)
-userData=get(get(source,'parent'),'UserData');
-mcfig=userData.mcfig;
-options=getappdata(mcfig,'options');
-elplot=getappdata(mcfig,'elplot');
-mplot=getappdata(mcfig,'mplot');
-
-% load the current parameters
-options.loadnativereco = 1;  % Load native reco intead of scrf
-[coords_mm,trajectory,markers,elmodel]=ea_load_reconstruction(options);
-% update markers according to manually specified positions
-mRH=str2num(get(userData.tvRH,'String'));
-mRT=str2num(get(userData.tvRT,'String'));
-mLH=str2num(get(userData.tvLH,'String'));
-mLT=str2num(get(userData.tvLT,'String'));
-switch action
-    case 'all'
-        markers(1).head=mRH;
-        markers(1).tail=mRT;
-        markers(2).head=mLH;
-        markers(2).tail=mLT;
-    case 'R0'
-        markers(1).tail=markers(1).tail+(mRH-markers(1).head);
-        markers(1).head=mRH;
-    case 'R3'
-        markers(1).head=markers(1).head+(mRT-markers(1).tail);
-        markers(1).tail=mRT;
-        %     case 'L0'
-        %         markers(2).tail=markers(2).tail+(mLH-markers(2).head);
-        %         markers(2).head=mLH;
-        %     case 'L3'
-        %         markers(2).head=markers(2).head+(mLT-markers(2).tail);
-        %         markers(2).tail=mLT;
-    otherwise
-        error(['unknown action "' action '"']);
-end
-
-% close the 'Manual electrodes head / tail setting' figure
-closereq();
-
-% save the parameters
-if isfield(options,'hybridsave')
-    options=rmfield(options,'hybridsave');
-end
-ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,1,options);
-
-% the rest will be done by the code that created the 'Manual electrodes head / tail setting'
-% figure in the 'ea_keystr' function
 
 
 function ea_keystr(mcfig,event)
@@ -269,7 +223,11 @@ switch lower(commnd)
         if options.elside==options.sides(end)
             ea_endfcn(mcfig);
             return
-        else % move to next electrode in batch
+        else % Accept this electrode before moving to the next.
+            currentCoords = getappdata(mcfig, 'coords_mm');
+            currentTrajectory = getappdata(mcfig, 'trajectory');
+            currentMarkers = getappdata(mcfig, 'markers');
+            saveCurrent(mcfig,currentCoords,currentTrajectory,currentMarkers,options);
             set(0,'CurrentFigure',mcfig);
             setappdata(mcfig,'selectrode',0);
             [~,ix]=ismember(options.elside,options.sides);
@@ -285,10 +243,11 @@ switch lower(commnd)
             [coords_mm,trajectory,markers,elmodel]=ea_load_reconstruction(options);
             movedcoords=moveonecoord(markers,selectrode,optoffsets(selectrode,:),options); % move the correct coord to the correct direction.
 
+            markers = movedcoords;
             set(mplot(1,1),'XData',movedcoords(options.elside).head(1),'YData',movedcoords(options.elside).head(2),'ZData',movedcoords(options.elside).head(3))
             set(mplot(2,1),'XData',movedcoords(options.elside).tail(1),'YData',movedcoords(options.elside).tail(2),'ZData',movedcoords(options.elside).tail(3))
             %            setappdata(mcfig,'markers',markers);
-            ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,1,options);
+            saveCurrent(mcfig,coords_mm,trajectory,markers,options);
             ea_mancor_updatescene([],[],mcfig);
         end
     case '<' % move to previous electrode in batch
@@ -308,19 +267,6 @@ switch lower(commnd)
                 selectrode=1;
             case {'3','7'}
                 selectrode=2;
-        end
-
-        if numel(options.sides) == 1	% only one hemisphere
-            switch options.sides
-                case 1	% right hemisphere, return if '4' or '7' is pressed
-                    if selectrode == 3 || selectrode == 4	%
-                        return;
-                    end
-                case 2	% left hemisphere, return if '0' or '3' is pressed
-                    if selectrode == 1 || selectrode == 2
-                        return;
-                    end
-            end
         end
 
         oselectrode=getappdata(mcfig,'selectrode');
@@ -356,81 +302,28 @@ switch lower(commnd)
 
     case {'s','d'}
 
-    case 'm' % manual electrodes head / tail setting
-        % get screen size
-        scrSize=get(0,'ScreenSize');
-        % create a small figure in the bottom part of the screen
-        FIG_WIDTH=.4;
-        f=figure('Name','Manual electrodes head / tail setting','Numbertitle','off',...
-            'MenuBar','none',...
-            'Position',[scrSize(1)+scrSize(3)*(.5-FIG_WIDTH/2) scrSize(2) scrSize(3)*FIG_WIDTH scrSize(4)/5]);
-        B=.05; % elementary border
-        H=.18-B; % height of each element
-        % TI = text infos
-        XTI=B;
-        WTI=.15; % width
-        % TV = (editable) text values
-        WTV=.35;
-        XTV=XTI+WTI+B;
-        % BT = buttons on the right side
-        WBT=1-WTI-WTV-4*B;
-        XBT=XTV+WTV+B;
-        %
-        YRH=1-.2-B;
-        YRT=YRH-H-B;
-        YLH=YRT-H-B;
-        YLT=YLH-H-B;
-        YBT_ALL=YLT-H-B;
-        if ismember(1,options.sides)
-            % right side
-            tiRH=uicontrol('Style','text','String','R0 (Head):','HorizontalAlignment','right',...
-                'Units','normalized','Position',[XTI YRH WTI H]);
-            tvRH=uicontrol('Style','edit','String',num2str(markers(1).head,'%.4f '),...
-                'HorizontalAlignment','center',...
-                'Units','normalized','Position',[XTV YRH WTV H]);
-            moveR0=uicontrol('Style','pushbutton','String','Update R0, Move R3 accordingly',...
-                'Units','normalized','Position',[XBT YRH WBT H],'Callback',@manualMarkerSettingUpdateR0Cb);
-            tiRT=uicontrol('Style','text','String','R3 (Tail):','HorizontalAlignment','right',...
-                'Units','normalized','Position',[XTI YRT WTI H]);
-            tvRT=uicontrol('Style','edit','String',num2str(markers(1).tail,'%.4f '),...
-                'HorizontalAlignment','center',...
-                'Units','normalized','Position',[XTV YRT WTV H]);
-            moveR3=uicontrol('Style','pushbutton','String','Update R3, Move R0 accordingly',...
-                'Units','normalized','Position',[XBT YRT WBT H],'Callback',@manualMarkerSettingUpdateR3Cb);
+    case 'm' % Set the current electrode's fiducials in native millimeters.
+        side = options.elside;
+        answer = inputdlg({'Head XYZ (mm):', 'Tail XYZ (mm):'}, ...
+            sprintf('Electrode %d fiducials', side), [1, 60], ...
+            {num2str(markers(side).head, '%.4f '), num2str(markers(side).tail, '%.4f ')});
+        if isempty(answer)
+            return;
         end
-        if ismember(2,options.sides)
-            % left side
-            tiLH=uicontrol('Style','text','String','L0 (Head):','HorizontalAlignment','right',...
-                'Units','normalized','Position',[XTI YLH WTI H]);
-            tvLH=uicontrol('Style','edit','String',num2str(markers(2).head,'%.4f '),...
-                'HorizontalAlignment','center',...
-                'Units','normalized','Position',[XTV YLH WTV H]);
-            moveL0=uicontrol('Style','pushbutton','String','Update L0, Move L3 accordingly',...
-                'Units','normalized','Position',[XBT YLH WBT H],'Callback',@manualMarkerSettingUpdateL0Cb);
-            tiLT=uicontrol('Style','text','String','L3 (Tail):','HorizontalAlignment','right',...
-                'Units','normalized','Position',[XTI YLT WTI H]);
-            tvLT=uicontrol('Style','edit','String',num2str(markers(2).tail,'%.4f '),...
-                'HorizontalAlignment','center',...
-                'Units','normalized','Position',[XTV YLT WTV H]);
-            moveL3=uicontrol('Style','pushbutton','String','Update L3, Move L0 accordingly',...
-                'Units','normalized','Position',[XBT YLT WBT H],'Callback',@manualMarkerSettingUpdateL3Cb);
+        head = sscanf(answer{1}, '%f')';
+        tail = sscanf(answer{2}, '%f')';
+        if numel(head) ~= 3 || numel(tail) ~= 3 || any(~isfinite([head, tail])) || isequal(head, tail)
+            errordlg('Enter two distinct finite XYZ coordinates.', 'Electrode fiducials');
+            return;
         end
-        updateButton=uicontrol('Style','pushbutton','String','Update all',...
-            'Units','normalized','Position',[XTV+B YBT_ALL WTV-2*B H],'Callback',@manualMarkerSettingUpdateAllCb);
-        cancelButton=uicontrol('Style','pushbutton','String','Cancel',...
-            'Units','normalized','Position',[XBT+B YBT_ALL WBT-2*B H],'Callback',@manualMarkerSettingCancelCb);
-        % store the UI elements in user data property of the new figure
-        userData=struct('tvRH',tvRH,'tvRT',tvRT,'tvLH',tvLH,'tvLT',tvLT,'mcfig',mcfig);
-        set(f,'UserData',userData);
-
-        % wait for the figure closing (either by pressing the bu button, or by closing it)
-        waitfor(f)
-
-        % update the scene
+        [coords_mm, trajectory, markers, elmodel] = ea_load_reconstruction(options);
+        delta = head - markers(side).head;
+        markers(side).head = head;
+        markers(side).tail = tail;
+        markers(side).x = markers(side).x + delta;
+        markers(side).y = markers(side).y + delta;
+        saveCurrent(mcfig,coords_mm,trajectory,markers,options);
         ea_mancor_updatescene([],[],mcfig);
-
-        % reload the parameters
-        [coords_mm,trajectory,markers,elmodel,manually_corrected]=ea_load_reconstruction(options);
     otherwise % arrow keys, plus, minus
         if ismember(event.Key,{'rightarrow','leftarrow','uparrow','downarrow'}) || ismember(event.Character,{'+','-','*','_'})
             selectrode=getappdata(mcfig,'selectrode');
@@ -441,7 +334,7 @@ switch lower(commnd)
                 if isfield(options,'hybridsave')
                     options=rmfield(options,'hybridsave');
                 end
-                ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,1,options);
+                saveCurrent(mcfig,coords_mm,trajectory,markers,options);
 
                 ea_mancor_updatescene([],[],mcfig);
                 [coords_mm,trajectory,markers,elmodel,manually_corrected]=ea_load_reconstruction(options);
@@ -450,10 +343,11 @@ switch lower(commnd)
                 [coords_mm,trajectory,markers,elmodel,manually_corrected]=ea_load_reconstruction(options);
                 movedcoords=moveonecoord(markers,selectrode,event,options); % move the correct coord to the correct direction.
 
-                set(mplot(1,1),'XData',movedcoords(options.elside).head(1),'YData',movedcoords(options.elside).head(2),'ZData',movedcoords(options.elside).head(3))
+                markers = movedcoords;
+            set(mplot(1,1),'XData',movedcoords(options.elside).head(1),'YData',movedcoords(options.elside).head(2),'ZData',movedcoords(options.elside).head(3))
                 set(mplot(2,1),'XData',movedcoords(options.elside).tail(1),'YData',movedcoords(options.elside).tail(2),'ZData',movedcoords(options.elside).tail(3))
 
-                ea_save_reconstruction(coords_mm,trajectory,markers,elmodel,1,options);
+                saveCurrent(mcfig,coords_mm,trajectory,markers,options);
 
                 ea_mancor_updatescene([],[],mcfig);
 
@@ -462,17 +356,6 @@ switch lower(commnd)
         end
 end
 
-cnt=1;
-options=getappdata(mcfig,'options');
-coords_mm=ea_resolvecoords(markers,options);
-
-set(mplot(1,1),'XData',markers(options.elside).head(1),'YData',markers(options.elside).head(2),'ZData',markers(options.elside).head(3));
-set(mplot(2,1),'XData',markers(options.elside).tail(1),'YData',markers(options.elside).tail(2),'ZData',markers(options.elside).tail(3));
-for el=1:length(elplot)/2
-    set(elplot(cnt),'XData',coords_mm{options.elside}(el,1),'YData',coords_mm{options.elside}(el,2),'ZData',coords_mm{options.elside}(el,3))
-    cnt=cnt+1;
-end
-refreshdata(elplot,'caller')
 drawnow
 
 
@@ -613,16 +496,25 @@ function ea_rotate(~,~,ccw,mcfig)
 % setappdata(gcf,'rotation',rotation);
 
 %% new orientation workflow
+if isnumeric(ccw)
+    deltaRoll = ccw;
+else
 switch ccw
     case 'clockwise'
         deltaRoll = 15;
     case 'counterclockwise'
         deltaRoll = -15;
 end
-options = getappdata(gcf,'options');
+end
+deltaRoll = mod(deltaRoll, 360);
+options = getappdata(mcfig,'options');
+options = ea_resolve_elspec(options, options.elside);
 load(options.subj.recon.recon,'reco');
 reco.angles.orientationmethod{options.elside} = 'manual';
 save(options.subj.recon.recon,'reco');
+if deltaRoll == 0
+    return;
+end
 head = reco.native.markers(options.elside).head;
 tail = reco.native.markers(options.elside).tail;
 y = reco.native.markers(options.elside).y;
@@ -646,8 +538,10 @@ reco.native.markers(options.elside).y = ynew;
 reco.native.markers(options.elside).x = xnew;
 
 %% for direct saving into manual reconstruction
-[coords,trajectory,markers]=ea_resolvecoords(reco.native.markers,options);
-ea_save_reconstruction(coords,trajectory,markers,options.elmodel,1,options)
+calculation = options;
+calculation.sides = options.elside;
+[coords,trajectory,markers]=ea_resolvecoords(reco.native.markers,calculation);
+saveCurrent(mcfig,coords,trajectory,markers,options)
 ea_mancor_updatescene([],[],mcfig);
 
 
@@ -659,10 +553,32 @@ ea_mancor_updatescene([],[],mcfig);
 
 
 function ea_manualrotate(hobj,ev,ccw,mcfig)
-options = getappdata(gcf,'options');
+options = getappdata(mcfig,'options');
+if isfield(options, 'elmodels') && (numel(options.elmodels)>2 || numel(unique(options.elmodels))>1)
+    saved = load(options.subj.recon.recon, 'reco');
+    currentRoll = saved.reco.angles.native(options.elside).roll;
+    answer = inputdlg('Native roll angle (degrees):', ...
+        sprintf('Electrode %d orientation', options.elside), [1,60], {num2str(currentRoll)});
+    if isempty(answer), return; end
+    angle = str2double(answer{1});
+    if ~isfinite(angle)
+        errordlg('Enter a finite roll angle in degrees.', 'Electrode orientation');
+        return;
+    end
+    ea_rotate(hobj,ev,angle-currentRoll,mcfig);
+    return;
+end
+before = getappdata(mcfig, 'markers');
+options.sides = options.elside;
 ea_diode_manual_main(options);
 figure(mcfig);
 ea_mancor_updatescene([],[],mcfig);
+after = getappdata(mcfig, 'markers');
+side = options.elside;
+if ~isequaln([before(side).head;before(side).tail;before(side).x;before(side).y], ...
+        [after(side).head;after(side).tail;after(side).x;after(side).y])
+    setappdata(mcfig, 'modifiedelectrodes', unique([getappdata(mcfig, 'modifiedelectrodes'), side]));
+end
 
 
 function setcontrast(hobj,ev,key,modifier,mcfig)
@@ -750,3 +666,12 @@ import java.awt.event.*;
 SimKey=Robot;
 SimKey.keyPress(KeyEvent.VK_SPACE)
 SimKey.keyRelease(KeyEvent.VK_SPACE)
+
+
+function saveCurrent(mcfig,coords_mm,trajectory,markers,options)
+% Save native edits and defer propagation until Finish.
+if isfield(options, 'hybridsave')
+    options = rmfield(options, 'hybridsave');
+end
+changed = ea_save_reconstruction(coords_mm,trajectory,markers,options.elmodel,1,options);
+setappdata(mcfig, 'modifiedelectrodes', unique([getappdata(mcfig, 'modifiedelectrodes'), changed]));

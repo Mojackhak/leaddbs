@@ -26,9 +26,12 @@ else % if elspec is defined for each electrode, overwrite options-struct setting
     elspec=o.elspec; clear o
 end
 
+options.elmodel = elspec.elmodel;
+options.elspec = elspec;
 if ~isfield(elstruct,'activecontacts')
-    elstruct.activecontacts{1}=zeros(elspec.numContacts,1);
-    elstruct.activecontacts{2}=zeros(elspec.numContacts,1);
+    for side = options.sides
+        elstruct.activecontacts{side}=zeros(elspec.numContacts,1);
+    end
 end
 
 if isfield(options.d3,'pntcmap')
@@ -171,6 +174,9 @@ for side=options.sides
             [conName, isDirectional] = ea_getConName(elspec, side, showSideStr=1);
         else
             [conName, isDirectional] = ea_getConName(elspec, side);
+        end
+        if isfield(elstruct, 'labels') && ~isempty(elstruct.labels{side})
+            conName = elstruct.labels{side};
         end
         for con=1:size(coords_mm{side},1)
             % add text:
