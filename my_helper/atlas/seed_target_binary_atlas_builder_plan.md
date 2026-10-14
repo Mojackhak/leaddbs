@@ -83,6 +83,10 @@ Supported operations:
 - `posterior_split`: extract posterior half or posterior third of a source mask along MNI y.
 - `union`: combine previously defined ROI masks for the same anatomical or functional concept.
 - `dilate_mm`: dilate a source mask by a millimeter radius on the reference grid.
+- `probability_sum_threshold`: align cropped probability images on their shared
+  voxel lattice, add their original values, and threshold the sum. Different
+  voxel bases or non-integer offsets are errors; no probability interpolation,
+  normalization, or threshold-before-sum is performed.
 - `intersect`: reserved for future composite ROIs.
 - `subtract`: reserved for future composite ROIs.
 
@@ -164,6 +168,38 @@ This atlas merges `STN-connected regions` and `SNr-connected regions` by ROI nam
 | `SNr` | component | `Custom_Ewert_Zhang_Middlebrooks/{lh,rh}/SNr.nii.gz` | `> 0.05` |
 
 The remaining endpoint and sensitivity ROIs are the deduplicated union of the STN and SNr connected-region specs. The expected atlas contains 53 ROI names and 106 side-specific manifest/QC records.
+
+## STNVOplus Atlas
+
+The approved `STNVOplus (Ewert 2017)` atlas contains only bilateral
+`STNplus.nii.gz` and `VOplus.nii.gz`. Its inputs are the STN, Voa, and Vop
+probability images in `DISTAL STN_Vop_main (Ewert 2017)`.
+
+- STNplus: threshold STN at the absolute value `>= 0.05`, resample the binary
+  mask with nearest-neighbor interpolation to `MNI152NLin2009bAsym/t1.nii`,
+  then dilate by a Euclidean voxel-center distance of `<= 2 mm`.
+- VOplus: align Voa and Vop on their common 0.25 mm lattice, zero-pad their
+  different crop extents, add the original probability values, and apply
+  `>= 0.05`. Resample that binary mask to the same reference and dilate by
+  `<= 2 mm`. In particular, `0.03 + 0.03` passes the threshold.
+- The reference grid is 0.5 mm isotropic. Final uint8 binary masks retain its
+  shape, affine, qform, and sform. Dilation takes place on the reference grid,
+  not within the cropped source image.
+- The selected source Voa has already been restricted to its largest component
+  at approximately 0.5 probability. Its removed low-probability voxels are not
+  restored or replaced from another atlas.
+- Preserve STNplus/VOplus overlap. Do not smooth, fill holes, select further
+  components, clip to gray matter, or construct an exclusive label image.
+- Record source paths, thresholds, operation order, volume, side, and overlap.
+  Do not copy the source atlas index or gray-matter cache.
+- Build only a new destination. Existing atlas directories must not be
+  overwritten; source images, subject data, and tracking settings stay intact.
+
+Focused validation covers sum-before-threshold, crop alignment and extent,
+inclusive thresholding, physical-radius dilation, reference geometry, binary
+values, and actual four-mask overlap. Inspect three-plane T1 overlays.
+This adds no cache or invalidation mechanism: the new specification only builds
+this atlas when explicitly requested, and unrelated atlas outputs are unchanged.
 
 ## Outputs
 

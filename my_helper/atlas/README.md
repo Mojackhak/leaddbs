@@ -43,6 +43,22 @@ Supported operations:
 - `posterior_split`: extract the posterior half or third of a source mask by MNI y coordinate.
 - `union`, `intersect`, and `subtract`: define composite ROI masks from source masks.
 - `dilate_mm`: dilate a source mask by a millimeter radius on the reference grid.
+- `probability_sum_threshold`: add aligned source probability images before
+  thresholding, preserving their different cropped extents.
+
+## STNVOplus Atlas
+
+`specs/stnvo_plus.json` defines the approved bilateral STNplus and VOplus masks
+from `DISTAL STN_Vop_main (Ewert 2017)`. Both use an absolute `>= 0.05`
+threshold followed by nearest-neighbor resampling and 2 mm Euclidean dilation
+on the 0.5 mm reference grid. VO is thresholded after adding Voa and Vop, not
+after binarizing them separately. The source Voa is already restricted to its
+main component at approximately 0.5 probability; this build does not restore
+its removed periphery. Overlap between the expanded seeds is retained.
+
+Use `build_stnvo_plus_atlas()` to create a new output directory, record overlap,
+and preserve reference qform/sform metadata. It refuses an existing destination
+and does not modify source atlases or start tractography.
 
 ## Current Threshold Policy
 

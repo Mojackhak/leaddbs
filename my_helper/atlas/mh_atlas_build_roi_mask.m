@@ -104,6 +104,9 @@ switch operation
     case 'dilate_mm'
         [mask, info, sourceFiles, sourceLabels, thresholdText] = build_dilated_mask(spec, roi, side, tempDir);
 
+    case 'probability_sum_threshold'
+        [mask, info, sourceFiles, thresholdText] = build_probability_sum_mask(spec, roi, side);
+
     otherwise
         error('mh_atlas_build_roi_mask:UnsupportedOperation', ...
             'Unsupported operation `%s` for ROI `%s`.', operation, char(string(roi.name)));
@@ -114,6 +117,60 @@ if ~any(mask(:))
     warning('mh_atlas_build_roi_mask:EmptyMask', ...
         'ROI %s side %s is empty before reference resampling.', char(string(roi.name)), side);
 end
+end
+
+function [mask, info, sourceFiles, thresholdText] = build_probability_sum_mask(spec, roi, side)
+sources = normalize_struct_array(roi.sources);
+if isempty(sources)
+    error('mh_atlas_build_roi_mask:MissingSources', ...
+        'Probability sum requires source probability images.');
+end
+sourceFiles = strings(numel(sources), 1);
+images = cell(numel(sources), 1);
+offsets = zeros(numel(sources), 3);
+sizes = zeros(numel(sources), 3);
+for i = 1:numel(sources)
+    sourceFiles(i) = resolve_source_file(spec, sources(i).sides.(side));
+    [data, sourceInfo] = load_image(sourceFiles(i));
+    if numel(sourceInfo.ImageSize) ~= 3 || any(~isfinite(data(:))) || ...
+            any(data(:) < 0 | data(:) > 1)
+        error('mh_atlas_build_roi_mask:InvalidProbabilityImage', ...
+            'Expected a finite 3D probability image in [0, 1]: %s', sourceFiles(i));
+    end
+    if i == 1
+        info = sourceInfo;
+    end
+    base = info.Transform.T(1:3, 1:3);
+    if max(abs(sourceInfo.Transform.T(1:3, 1:3) - base), [], 'all') > 1e-6
+        error('mh_atlas_build_roi_mask:ProbabilityGridMismatch', ...
+            'Probability sources must share one voxel lattice: %s', sourceFiles(i));
+    end
+    offset = (sourceInfo.Transform.T(4, 1:3) - info.Transform.T(4, 1:3)) / base;
+    if max(abs(offset - round(offset))) > 1e-6
+        error('mh_atlas_build_roi_mask:ProbabilityGridMismatch', ...
+            'Probability source origins must differ by whole voxels: %s', sourceFiles(i));
+    end
+    offsets(i, :) = round(offset);
+    sizes(i, :) = sourceInfo.ImageSize;
+    images{i} = double(data);
+end
+first = min(offsets, [], 1);
+last = max(offsets + sizes, [], 1);
+probabilitySum = zeros(last - first);
+for i = 1:numel(sources)
+    start = offsets(i, :) - first + 1;
+    stop = start + sizes(i, :) - 1;
+    probabilitySum(start(1):stop(1), start(2):stop(2), start(3):stop(3)) = ...
+        probabilitySum(start(1):stop(1), start(2):stop(2), start(3):stop(3)) + images{i};
+end
+T = info.Transform.T;
+T(4, 1:3) = T(4, 1:3) + first * T(1:3, 1:3);
+info.Transform = affine3d(T);
+info.ImageSize = size(probabilitySum);
+threshold = get_numeric_field(roi, roi.sides.(side), 'threshold');
+operator = get_optional_string(roi, 'threshold_operator', '>=');
+mask = apply_threshold(probabilitySum, threshold, operator);
+thresholdText = sprintf('sum(probabilities) %s %g', operator, threshold);
 end
 
 function [mask, info, sourceFiles, sourceLabels, thresholdText] = build_composite_mask(spec, roi, side, operation, tempDir)

@@ -1,0 +1,61 @@
+{
+  "atlas_name": "STNVOplus (Ewert 2017)",
+  "space": "MNI152NLin2009bAsym",
+  "reference_image": "templates/space/MNI152NLin2009bAsym/t1.nii",
+  "output_dir": "templates/space/MNI152NLin2009bAsym/atlases/STNVOplus (Ewert 2017)",
+  "rois": [
+    {
+      "name": "STNplus",
+      "role": "seed_margin",
+      "category": "primary",
+      "operation": "dilate_mm",
+      "margin_mm": 2,
+      "sides": {"L": {}, "R": {}},
+      "sources": [
+        {
+          "name": "STN",
+          "operation": "threshold",
+          "threshold": 0.05,
+          "threshold_operator": ">=",
+          "sides": {
+            "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL STN_Vop_main (Ewert 2017)/lh/STN.nii.gz"},
+            "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL STN_Vop_main (Ewert 2017)/rh/STN.nii.gz"}
+          }
+        }
+      ],
+      "notes": "Absolute source probability >=0.05; nearest-neighbor resampling to the 0.5 mm reference; <=2 mm Euclidean dilation. Overlap with VOplus is retained."
+    },
+    {
+      "name": "VOplus",
+      "role": "seed_margin",
+      "category": "primary",
+      "operation": "dilate_mm",
+      "margin_mm": 2,
+      "sides": {"L": {}, "R": {}},
+      "sources": [
+        {
+          "name": "VO",
+          "operation": "probability_sum_threshold",
+          "threshold": 0.05,
+          "threshold_operator": ">=",
+          "sides": {"L": {}, "R": {}},
+          "sources": [
+            {
+              "sides": {
+                "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL STN_Vop_main (Ewert 2017)/lh/Voa.nii.gz"},
+                "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL STN_Vop_main (Ewert 2017)/rh/Voa.nii.gz"}
+              }
+            },
+            {
+              "sides": {
+                "L": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL STN_Vop_main (Ewert 2017)/lh/Vop.nii.gz"},
+                "R": {"source_file": "templates/space/MNI152NLin2009bAsym/atlases/DISTAL STN_Vop_main (Ewert 2017)/rh/Vop.nii.gz"}
+              }
+            }
+          ]
+        }
+      ],
+      "notes": "Add aligned original Voa and Vop values, without normalization, before >=0.05 thresholding; nearest-neighbor resampling then <=2 mm Euclidean dilation. Source Voa was already restricted to its main component near probability 0.5. Overlap with STNplus is retained."
+    }
+  ]
+}
