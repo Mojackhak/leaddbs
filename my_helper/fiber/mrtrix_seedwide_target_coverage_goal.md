@@ -225,6 +225,167 @@ fixed and resumed under the user's execution authorization; changes to
 anatomical registration, scientific sampling, or fiber inclusion still
 require an explicit decision.
 
+### Approved Meige001 coverage-limited MNI display pilot
+
+The user approved a Meige001-only display derivative before any cohort
+rollout. Native mother/target TCKs, target statistics, published provenance,
+work state, and all caches remain unchanged. This is not complete MNI
+publication and must not change the full pipeline's fail-closed converter.
+
+Implement a separate `limited_display` module that reads the existing YAML
+and native publication. Reuse the current point-field interpolation and
+paired-field inverse solver, with the existing tolerance and iteration
+limit. Points inside the primary field use its direct mapping; outside
+points are displayable only when the paired inverse converges. Also require
+the mapped point to lie inside the MNI reference field of view. A failed
+point is missing, never clipped, extrapolated, or left in native coordinates.
+No brain-mask exclusion is introduced: the template brain mask touches its
+inferior image boundary, so image coverage is not an anatomical exclusion.
+
+Split each mother streamline into maximal contiguous runs of valid original
+vertices. Retain runs of at least two vertices; record isolated valid points
+as not drawable. Do not join across a missing vertex or add synthetic boundary
+points. Preserve each vertex's native point ordinal. The source fiber ID is
+the subject, seed key, and zero-based ordinal in the unchanged mother TCK;
+TCK has no embedded source IDs. A sidecar maps every output fragment ordinal
+to that source ID and its half-open original point interval. A second table
+has one row for every source fiber, including intact, truncated/split, and
+not-displayed cases, with reasons and counts. Fragment counts are not fiber
+counts or connectivity estimates.
+
+Write only to a new subject-local `display_limited_mni` directory, never the
+formal tractogram/visualization publication paths. Refuse an existing output
+directory rather than overwriting untracked artifacts. Process all four
+Meige001 mothers, but no other subject and no target reclassification.
+Produce a clearly labeled sampled anatomical preview, retain all eligible
+fragments in TCK, and record preview sampling separately from domain loss.
+Use deterministic source-ordinal sampling, not a new tracking random seed.
+
+Verification covers synthetic gaps, all-invalid and isolated points, paired
+inverse recovery, reference-FOV exclusion, ID/point-interval reconstruction,
+output TCK structure, count reconciliation, and unchanged native metadata
+and statistics. For the real pilot, also compare sampled retained vertices
+to their exact native source intervals and the current mapping, check ANTs
+point parity, and report paired-field round-trip errors without relaxing
+the existing complete-conversion QC thresholds. This is a geometry audit,
+not an additional filter or a replacement for anatomical registration QC.
+No repeated cohort-wide content hashing is required: use
+the previously verified publication receipts, a streaming source-count
+check, before/after file size and mtime inventory, and hashes of small
+state/statistics/provenance files. Record current transform and display-code
+hashes for this derivative. Only display input/transform/method changes
+require regenerating this derivative; no cache invalidation or native
+execution is introduced. Preview style changes affect only previews.
+
+Pilot result: all four Meige001 mothers were read at 300000 fibers each.
+Intact/truncated/not-displayed source counts were 272622/27378/0 (lh STNplus),
+282666/17334/0 (lh VOplus), 277757/22243/0 (rh STNplus), and
+286160/13840/0 (rh VOplus). The 1200543 display fragments retain the source
+IDs of all 1200000 native fibers; 375445 unresolved vertices and 230 isolated
+valid vertices are not drawn. Native publication metadata, state, YAML,
+transforms, and target-statistics preservation checks passed. The 22 focused
+display/point-conversion tests passed, and both preview images were inspected.
+
+Real-data geometry audit: 960 source fibers / 963 fragments matched their
+original point intervals and mapped float32 coordinates exactly. ANTs point
+parity passed. The original 200-midpoint-per-seed round-trip sampling passes
+all existing thresholds. An expanded sample of 105663 retained vertices
+contains 14 direct-field points with round-trip errors above 0.5 mm (maximum
+0.593997514 mm). These are interior, not inferior truncation endpoints, and
+their direct mappings agree with ANTs. Preserve this local paired-field
+inverse-consistency warning in the pilot review; do not change tolerance,
+filter those points, claim full MNI publication, or roll out to other
+subjects without the user's review. `review.json` links the display scope,
+RAS units, count summary, preservation evidence, and geometry warning.
+
+### Approved coverage-limited display cohort rollout
+
+The user reviewed the Meige001 pilot and approved the remaining 22 subjects.
+Keep the existing pilot unchanged. Extend the same display-only entry point
+with explicit subject selection and a separate cohort summary directory;
+do not call native or full-pipeline execution. Refuse existing subject display
+directories. A failed subject must not invalidate other subjects or any native
+artifact. No tracking, ROI, FOD, target classification, or cache cleanup runs.
+
+Reuse the pilot mapping, contiguous-vertex rule, source IDs, exhaustive audit
+tables, and preview sampling unchanged. Generalize the pilot geometry audit:
+200 midpoint-stratified source fibers plus the first 40 truncated fibers per
+seed, with all retained vertices checked against the original source and
+serialized fragments. Compare direct mapping and recovered points with ANTs,
+check the stored forward/inverse coregistration matrices, and retain the
+existing 0.05/0.2/0.5 mm round-trip median/p95/maximum thresholds. Record
+outlier source IDs and vertices, missing sampled midpoints, and QC warnings;
+warnings are not an additional display filter or permission to relax a
+threshold. Preserve the known Meige023 normalization approval warning.
+
+Each subject receives geometry QC, a review receipt, and the two anatomical
+projection previews. The cohort summary reconciles source fibers, fragments,
+truncation, non-display, and warnings, with links to individual previews.
+Overview previews are samples, not connectivity measurements. Use common
+coordinates and scales in the cohort preview. Completion refers only to this
+coverage-limited display derivative, never full MNI publication.
+
+Native receipts and small scientific-summary hashes are checked against the
+existing publication. Before/after metadata covers native published files,
+configuration, state, and transformations; small files are hashed. Do not
+repeat cohort-wide native TCK hashing. Display inputs affect only the selected
+subject's display derivative; preview rendering affects only its preview.
+No automatic invalidation or overwrite is introduced. Test explicit subject
+selection, unchanged QC thresholds, missing/empty samples, warning retention,
+and source-ID verification before real cohort execution.
+
+The cohort execution was interrupted after 14 completed subjects, during the
+first seed of Meige016. Recovery reads the existing cohort receipt and skips
+every completed subject. First confirm that no exporter remains active. Move
+only the interrupted, uncompleted subject display directory to the user's
+Trash before rerunning that display; retain its original preservation receipt
+and compare native metadata before recovery. The completed subject directories
+and all native files are untouched. Append the same batch log and continue
+updating the existing cohort receipt. This incident does not justify a native
+rerun, cohort-wide display rerun, or general cache invalidation mechanism.
+
+Meige023 stopped before display creation because the existing ANTs B0/anchor
+matrix pair has a maximum identity-product error of 2.9648774579893455e-6,
+above the unchanged 1e-8 threshold. Both source ANTs transforms contain
+float32 parameters; the stored 44.mat matrices and Python loader use float64.
+The stored SPM pair is a different registration and must not be substituted.
+Retain the strict gate pending explicit user direction. Report 21 of 22 new
+subjects as completed, with Meige023 explicitly not exported; partial cohort
+summaries and preview sheets must not claim cohort completion. Do not modify
+either matrix, normalization approval, native data, or connectivity statistics.
+
+The user subsequently explicitly authorized continuing Meige023 display with
+this matrix-QC failure retained as a warning. Add an explicit subject-scoped
+execution opt-in, `--matrix-qc-warning-subjects sub-Meige023`. The 1e-8 threshold
+and both matrix values remain unchanged; the result must record a failed QC,
+not a pass. Without the named opt-in the existing gate still raises. This
+authorization applies only to the limited display; the full converter and
+native pipeline remain unchanged. Record the measured error, threshold,
+authorization, and warning in the subject provenance and cohort receipt.
+Continue the existing batch after the 21 completed subjects without repeating
+them. Preserve the partial summary/preview artifacts in Trash before replacing
+them with the completed 22-subject summaries at the same unversioned paths.
+
+Final cohort display result: all 22 additional subjects / 88 seeds completed,
+reading 26400000 unchanged native mother fibers. There are 26181991 intact
+fibers, 218009 truncated fibers (0.825791667%), zero wholly undisplayed fibers,
+and 26403221 retained fragments. Exhaustive fragment/ID/count checks and each
+subject's native/statistics preservation checks passed. The 2081522 sampled
+retained vertices matched their source intervals exactly; all ANTs parity
+samples passed. Retain 1803 sampled round-trip points above 0.5 mm (maximum
+1.721216971 mm), the subject-specific QC warnings, and Meige023's explicitly
+authorized matrix-QC failure and normalization approval 0.5 warning.
+
+The 28 focused display/conversion tests passed; the display-only tests also
+passed after confirming subject-scoped warning authorization. No native/FOD/
+ROI/tracking/classification cache is invalidated. Exhaustive validation is
+limited to new display TCK/ID tables because complete source-ID accounting is
+required; no cohort-wide native rehash or broad test suite was run. Cohort
+contact sheets show one consistently sampled left-STN sagittal panel per
+subject; individual previews retain all four seeds and both projections.
+Contact sheets use only the required rows, and layout changes affect preview
+files only. This is limited-display completion, not full MNI publication.
+
 ### Approved native-first continuation
 
 The user selected completion of native tracking while deferring the MNI
