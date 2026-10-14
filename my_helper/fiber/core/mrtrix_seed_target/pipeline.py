@@ -103,6 +103,8 @@ def _process_subject(
     resources: ResourcePool,
     repo_root: Path,
     progress: ProgressCallback,
+    *,
+    native_only: bool = False,
 ) -> dict[str, Any]:
     work_root = subject.output_root / "work"
     with _subject_lock(work_root):
@@ -129,6 +131,13 @@ def _process_subject(
                 f"[{subject.subject_id}] native publication verified in place; "
                 "skipping preparation and tracking"
             )
+            if native_only:
+                return {
+                    "status": "native_complete",
+                    "subject_id": subject.subject_id,
+                    "native_action": "reused",
+                    "downstream_status": native_state.get("status"),
+                }
             target_space = convert_subject_target_space(
                 config=validation.config,
                 subject=subject,
@@ -226,6 +235,12 @@ def _process_subject(
             seed_results=ordered_results,
             run_provenance=_run_provenance(validation),
         )
+        if native_only:
+            return {
+                **publication,
+                "native_action": "generated",
+                "preparation_action": preparation_action,
+            }
         target_space = convert_subject_target_space(
             config=validation.config,
             subject=subject,
@@ -266,17 +281,20 @@ def run_batch(
     path: Path | str,
     *,
     progress: ProgressCallback | None = None,
+    native_only: bool = False,
 ) -> dict[str, Any]:
-    """Validate, execute, and publish every configured subject."""
+    """Execute the full pipeline or only native tracking for the YAML batch."""
 
     reset_stop_request()
     emit = progress or _default_progress
     emit("Validating the complete YAML batch before creating outputs")
-    validation = validate_config(path)
+    validation = validate_config(path, native_only=native_only)
     emit(
         f"Validation complete: {len(validation.subjects)} subjects, "
         f"{len(validation.config.atlas.seeds)} seeds"
     )
+    if native_only:
+        emit("Native-only execution: MNI and visualization deferred; work caches retained")
     resources = ResourcePool(
         validation.config.execution.cpu_budget,
         validation.config.execution.memory_dispatch_capacity_gb,
@@ -295,6 +313,7 @@ def run_batch(
                 resources,
                 repo_root,
                 emit,
+                native_only=native_only,
             ): subject
             for subject in validation.subjects
         }
@@ -312,14 +331,18 @@ def run_batch(
             results_by_id[subject.subject_id] = result
             emit(f"[{subject.subject_id}] terminal status: {result['status']}")
     ordered = [results_by_id[subject.subject_id] for subject in validation.subjects]
-    failed = [result for result in ordered if result["status"] != "complete"]
+    success_status = "native_complete" if native_only else "complete"
+    failed = [result for result in ordered if result["status"] != success_status]
     cleanup: dict[str, Any] = {
         "requested": validation.config.execution.cleanup_work_cache_after_success,
-        "status": "not_run_batch_incomplete" if failed else "pending",
+        "status": (
+            "not_run_native_only" if native_only
+            else "not_run_batch_incomplete" if failed else "pending"
+        ),
         "subjects": [],
         "warnings": [],
     }
-    if not failed:
+    if not failed and not native_only:
         cleanup = cleanup_batch_work_caches(validation, progress=emit)
         cleanup_by_subject = {
             item["subject_id"]: item for item in cleanup["subjects"]
@@ -328,7 +351,9 @@ def run_batch(
             result["cache_cleanup"] = cleanup_by_subject[result["subject_id"]]
     warnings = [*validation.warnings, *cleanup.get("warnings", [])]
     return {
-        "status": "complete" if not failed else "partial_failure",
+        "status": success_status if not failed else "partial_failure",
+        "execution_scope": "native" if native_only else "full",
+        "deferred_stages": ["target_space", "visualization"] if native_only else [],
         "configuration_hash": validation.config.configuration_hash,
         "run_provenance": _run_provenance(validation),
         "subjects": ordered,

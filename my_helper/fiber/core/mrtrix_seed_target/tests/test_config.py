@@ -86,9 +86,9 @@ def test_duplicate_subject_id_and_directory_are_rejected(tmp_path: Path) -> None
         resolve_config(document, source_path=tmp_path / "config.yaml")
 
 
-def test_cli_exposes_only_yaml_config_for_three_commands() -> None:
+def test_cli_exposes_only_yaml_config_for_all_commands() -> None:
     parser = build_parser()
-    for command in ("validate", "run", "status"):
+    for command in ("validate", "run", "run-native", "status"):
         parsed = parser.parse_args([command, "--config", "/tmp/config.yaml"])
         assert parsed.command == command
         assert vars(parsed).keys() == {"command", "config"}
@@ -104,6 +104,21 @@ def test_cli_reports_keyboard_interrupt_with_exit_130(
     monkeypatch.setattr(cli, "run_batch", lambda _path: (_ for _ in ()).throw(KeyboardInterrupt()))
     assert cli.main(["run", "--config", "/tmp/config.yaml"]) == 130
     assert '"status": "interrupted"' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("status,exit_code", [("native_complete", 0), ("partial_failure", 1)])
+def test_cli_native_stage_dispatch_and_exit_code(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    status: str, exit_code: int,
+) -> None:
+    def run(path, *, native_only):
+        assert path == Path("/tmp/config.yaml")
+        assert native_only is True
+        return {"status": status, "execution_scope": "native"}
+
+    monkeypatch.setattr(cli, "run_batch", run)
+    assert cli.main(["run-native", "--config", "/tmp/config.yaml"]) == exit_code
+    assert '"execution_scope": "native"' in capsys.readouterr().out
 
 
 def test_authoritative_yaml_counts_targets_and_visualization() -> None:

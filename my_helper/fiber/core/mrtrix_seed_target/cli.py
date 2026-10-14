@@ -28,13 +28,14 @@ def _handle_stop_signal(signal_number: int, _frame: Any) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the exact three-command public CLI."""
+    """Build the YAML-only full-pipeline and native-stage CLI."""
 
     parser = argparse.ArgumentParser(prog="mrtrix-seed-target")
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name, help_text in (
         ("validate", "Resolve and validate the complete YAML batch without writes."),
         ("run", "Run or automatically resume the configured batch."),
+        ("run-native", "Run or resume native tracking; defer MNI and visualization."),
         ("status", "Verify current subject-local results without execution."),
     ):
         command = subparsers.add_parser(name, help=help_text)
@@ -54,7 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     prior_handlers: dict[int, Any] = {}
-    if args.command == "run":
+    if args.command in {"run", "run-native"}:
         for signal_number in (signal.SIGINT, signal.SIGTERM):
             prior_handlers[signal_number] = signal.getsignal(signal_number)
             signal.signal(signal_number, _handle_stop_signal)
@@ -63,6 +64,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = validate_batch(args.config).as_mapping()
         elif args.command == "run":
             payload = run_batch(args.config)
+        elif args.command == "run-native":
+            payload = run_batch(args.config, native_only=True)
         else:
             payload = status_batch(args.config)
     except (MrtrixSeedTargetError, OSError, ValueError) as exc:
@@ -92,7 +95,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for signal_number, handler in prior_handlers.items():
             signal.signal(signal_number, handler)
     _emit(payload, sys.stdout)
-    return 0 if payload.get("status") in {"valid", "complete"} else 1
+    return 0 if payload.get("status") in {"valid", "complete", "native_complete"} else 1
 
 
 if __name__ == "__main__":

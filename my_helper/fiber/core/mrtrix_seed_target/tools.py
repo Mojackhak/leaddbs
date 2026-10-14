@@ -131,8 +131,10 @@ def _version(executable: Path, arguments: Sequence[str]) -> str:
     return _normalize_version(result.stdout)
 
 
-def resolve_tool_identities(config: BatchConfig) -> Mapping[str, ToolIdentity]:
-    """Resolve all external tools and their normalized version identities."""
+def resolve_tool_identities(
+    config: BatchConfig, *, include_point_transform: bool = True,
+) -> Mapping[str, ToolIdentity]:
+    """Resolve external tools used by the requested execution stage."""
 
     identities: dict[str, ToolIdentity] = {}
     for name in MRTRIX_TOOLS:
@@ -157,6 +159,8 @@ def resolve_tool_identities(config: BatchConfig) -> Mapping[str, ToolIdentity]:
         executable=matlab.resolve(),
         version=matlab_version,
     )
+    if not include_point_transform:
+        return identities
     repo_root = Path(__file__).resolve().parents[4]
     system = platform.system()
     machine = platform.machine().lower()

@@ -225,6 +225,52 @@ fixed and resumed under the user's execution authorization; changes to
 anatomical registration, scientific sampling, or fiber inclusion still
 require an explicit decision.
 
+### Approved native-first continuation
+
+The user selected completion of native tracking while deferring the MNI
+coverage problem. Add `run-native --config <yaml>` to the existing YAML-only
+CLI and a `native_only=False` keyword to `run_batch`. This is an execution
+stage selection, not a new scientific configuration or schema version.
+The normal `run`, `validate`, and full-pipeline `status` commands retain
+their existing meanings.
+
+- `run-native` uses the same configuration, resource pool, native input
+  identities, producers, and publication transaction as `run`. Verify and
+  reuse existing native publications; otherwise resume verified mother
+  chunks. Do not invoke MNI conversion or visualization in this command.
+- A successful native-only batch returns `status: native_complete`, with
+  `execution_scope: native` and deferred MNI/visualization stages. This is
+  successful completion of the requested stage, not full-pipeline completion.
+  Newly published subject states retain the existing `native_complete`
+  status. Reused subject states keep their recorded MNI failure or partial
+  conversion diagnostics; do not relabel those records as full success.
+- Preserve all work caches, even when every native subject succeeds and the
+  YAML requests cleanup after success. Cleanup remains gated on successful
+  completion of the full pipeline. Full-pipeline `status` remains incomplete
+  while MNI outputs or visualization are missing.
+- Keep whole-batch input validation required by the existing batch contract,
+  but do not probe `antsApplyTransformsToPoints` in native-only execution:
+  that external tool is used only by the deferred coordinate conversion.
+- The command selection and orchestration edit are not native identity
+  inputs. They invalidate no FOD, ROI, mother, or classification output.
+  YAML bytes and semantic values remain unchanged. Existing native artifact
+  integrity and ownership checks remain required by the stale-cache incident
+  and untracked-data protection policy.
+- Verify native fast-path reuse without any producer or MNI call, generation
+  followed by native-only publication, native-only batch success/failure
+  accounting, deferred cleanup, CLI exit codes, and unchanged full-run
+  behavior before resuming the real batch in the existing detached session.
+  Append to the original log and update the ten-minute monitor to accept
+  native-stage completion while retaining MNI as pending work.
+
+Native-stage verification: 20 focused tests passed and one historical-input
+test was skipped. The MRtrix package suite passed 88 tests with the same one
+skip. All 92 retained mother identities still match the current generation
+implementation and retain random seed 42 and fixed sampling of 300000.
+The semantic YAML hash remains unchanged. No repository-wide tests, global
+cache invalidation, registration changes, or existing TCK replacement were
+required by this orchestration change.
+
 ## Status
 
 ```text

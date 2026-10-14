@@ -243,7 +243,7 @@ def _resource_warnings(config: BatchConfig) -> tuple[str, ...]:
     return tuple(warnings)
 
 
-def validate_config(path: Path | str) -> ValidationBundle:
+def validate_config(path: Path | str, *, native_only: bool = False) -> ValidationBundle:
     """Resolve the complete batch without creating subject outputs."""
 
     config = load_config(path)
@@ -251,7 +251,7 @@ def validate_config(path: Path | str) -> ValidationBundle:
     subjects = tuple(
         discover_subject(subject, config.atlas.space) for subject in config.subjects
     )
-    tools = resolve_tool_identities(config)
+    tools = resolve_tool_identities(config, include_point_transform=not native_only)
     repo_root = Path(__file__).resolve().parents[4]
     lead_dbs_git_commit = git_head_commit(repo_root)
     code_hash = implementation_hash(_implementation_paths(repo_root))
