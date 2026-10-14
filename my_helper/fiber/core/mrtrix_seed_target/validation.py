@@ -29,8 +29,6 @@ def _validate_source_rois(config: BatchConfig) -> dict[str, str]:
     if not root.is_dir():
         raise ValidationError(f"atlas root does not exist: {root}")
     hashes: dict[str, str] = {}
-    reference_shape: tuple[int, ...] | None = None
-    reference_affine: np.ndarray | None = None
     for path in iter_all_roi_paths(config.atlas.seeds):
         if not _inside(path, root):
             raise ValidationError(f"ROI resolves outside atlas root {root}: {path}")
@@ -55,15 +53,8 @@ def _validate_source_rois(config: BatchConfig) -> dict[str, str]:
             {0.0, 1.0}
         ):
             raise ValidationError(f"ROI must be binary with values 0 and 1: {path}")
-        if reference_shape is None:
-            reference_shape = tuple(image.shape)
-            reference_affine = np.asarray(image.affine, dtype=np.float64)
-        elif tuple(image.shape) != reference_shape or not np.allclose(
-            image.affine, reference_affine, atol=1e-6, rtol=0
-        ):
-            raise ValidationError(
-                f"all atlas ROIs must share one exact MNI grid; mismatch at {path}"
-            )
+        if abs(np.linalg.det(image.affine[:3, :3])) == 0:
+            raise ValidationError(f"ROI affine is singular: {path}")
         hashes[str(path)] = file_sha256(path)
     return hashes
 

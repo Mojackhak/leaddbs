@@ -5,14 +5,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 from typing import Any, Callable, Mapping
 import uuid
 
 from .errors import PublicationError, ValidationError
-from .identity import canonical_hash, file_sha256
+from .identity import canonical_hash, file_sha256, callable_implementation_hash
 from .models import ResolvedSubjectInputs, ValidationBundle
-from .roi import prepare_rois
+from .roi import prepare_rois, roi_transform_inputs, roi_implementation_hash, target_qc, clean_target_mask
 from .state import atomic_write_json, read_json
 from .tools import run_command
 
@@ -22,15 +21,7 @@ def _input_paths(subject: ResolvedSubjectInputs) -> dict[str, Path]:
         "dwi": subject.dwi,
         "bvec": subject.bvec,
         "bval": subject.bval,
-        "b0": subject.b0,
         "brain_mask": subject.brain_mask,
-        "tracking_mask": subject.tracking_mask,
-        "anchor_native_reference": subject.anchor_native_reference,
-        "target_to_anchor_image_deformation": (
-            subject.target_to_anchor_image_deformation
-        ),
-        "anchor_to_b0_transform": subject.anchor_to_b0_transform,
-        "coregistration_method_log": subject.coregistration_method_log,
     }
 
 
@@ -38,7 +29,7 @@ def preparation_identity(
     validation: ValidationBundle,
     subject: ResolvedSubjectInputs,
 ) -> tuple[str, dict[str, Any]]:
-    """Return the complete scientific identity for one subject preparation."""
+    """Identify FOD preparation independently of ROI and tracking settings."""
 
     input_hashes = {
         key: {"path": str(path), "sha256": file_sha256(path)}
@@ -48,44 +39,16 @@ def preparation_identity(
         "identity_version": 1,
         "subject_id": subject.subject_id,
         "inputs": input_hashes,
-        "b0_coregistration": {
-            "method": subject.coregistration_method,
-            "method_token": subject.coregistration_method_token,
-            "approved": subject.coregistration_approved,
-            "transform_direction": "anchorNative_world_to_b0_world",
-        },
-        "source_roi_hashes": dict(sorted(validation.source_roi_hashes.items())),
         "fod": {"response_algorithm": "tournier", "fod_algorithm": "csd"},
-        "resampling": {
-            "mni_to_anchor": "Lead-DBS inverse normalization GenericLabel",
-            "anchor_to_b0": "direct tmat world affine nearest-neighbor",
-            "target_cleaning": "target AND NOT seed on final DWI grid",
-        },
+        "threads": validation.config.execution.preparation_threads_per_subject,
         "tools": {
             name: identity.version
             for name, identity in sorted(validation.tools.items())
-            if name in {"matlab", "mrconvert", "dwi2response", "dwi2fod"}
+            if name in {"mrconvert", "dwi2response", "dwi2fod"}
         },
-        "code_hash": validation.preparation_code_hash,
+        "code_hash": callable_implementation_hash(_prepare_fod, run_command, constants={}),
     }
     return canonical_hash(document), document
-
-
-def _replace_prefix(value: Any, source: Path, destination: Path) -> Any:
-    if isinstance(value, dict):
-        return {
-            str(key): _replace_prefix(item, source, destination)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_replace_prefix(item, source, destination) for item in value]
-    if isinstance(value, str):
-        try:
-            relative = Path(value).relative_to(source)
-        except ValueError:
-            return value
-        return str(destination / relative)
-    return value
 
 
 def _artifact_records(root: Path, paths: Mapping[str, Path]) -> dict[str, Any]:
@@ -112,29 +75,21 @@ def _verify_prepared(directory: Path, identity: str) -> dict[str, Any] | None:
         path = Path(artifact.get("path", ""))
         if not path.is_file() or file_sha256(path) != artifact.get("sha256"):
             return None
-    for seed in manifest.get("rois", {}).get("seeds", {}).values():
-        seed_path = Path(seed.get("path", ""))
-        if not seed_path.is_file() or file_sha256(seed_path) != seed.get("hash"):
-            return None
-        for target in seed.get("targets", []):
-            target_path = Path(target.get("path", ""))
-            if not target_path.is_file() or file_sha256(target_path) != target.get("hash"):
-                return None
     return manifest
 
 
-def prepare_subject(
+def _prepare_fod(
     validation: ValidationBundle,
     subject: ResolvedSubjectInputs,
-    repo_root: Path,
     memory_observer: Callable[[float], None] | None = None,
+    identity_record: tuple[str, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Create or reuse one complete content-identified subject preparation."""
 
-    identity, identity_document = preparation_identity(validation, subject)
+    identity, identity_document = identity_record or preparation_identity(validation, subject)
     output_root = subject.output_root
     work_root = output_root / "work"
-    final_dir = work_root / "preparations" / identity
+    final_dir = work_root / "preparations" / "fod" / identity
     existing = _verify_prepared(final_dir, identity) if final_dir.exists() else None
     if existing is not None:
         return existing, "reused"
@@ -214,14 +169,6 @@ def prepare_subject(
         log_path=log_dir / "dwi2fod.log",
         memory_observer=memory_observer,
     )
-    rois = prepare_rois(
-        validation.config,
-        subject,
-        staging,
-        tools["matlab"],
-        repo_root,
-        memory_observer=memory_observer,
-    )
     for path in (dwi_mif, brain_mif, response, fod):
         if not path.is_file() or path.stat().st_size <= 0:
             raise ValidationError(f"preparation artifact is missing or empty: {path}")
@@ -241,7 +188,6 @@ def prepare_subject(
     )
     for artifact in artifacts.values():
         artifact["path"] = str(final_dir / artifact["relative_path"])
-    final_rois = _replace_prefix(rois, staging, final_dir)
     manifest = {
         "status": "complete",
         "subject_id": subject.subject_id,
@@ -253,7 +199,6 @@ def prepare_subject(
             "preparation_code_hash": validation.preparation_code_hash,
         },
         "artifacts": artifacts,
-        "rois": final_rois,
     }
     atomic_write_json(staging / "prepared_subject.json", manifest)
     final_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -267,3 +212,92 @@ def prepare_subject(
     if verified is None:
         raise PublicationError(f"published preparation failed verification: {final_dir}")
     return verified, "generated"
+
+
+def native_request_identity(
+    validation: ValidationBundle,
+    subject: ResolvedSubjectInputs,
+    fod_identity: str,
+    roi_inputs: Mapping[str, Any],
+) -> str:
+    """Identify native analysis inputs without display or other subjects."""
+
+    from .tracking import generation_implementation_hash, classification_implementation_hash
+
+    return canonical_hash({
+        "fod": fod_identity,
+        "roi_transform": dict(roi_inputs),
+        "roi_code": roi_implementation_hash(),
+        "matlab_version": validation.tools["matlab"].version,
+        "roi_qc_code": callable_implementation_hash(prepare_rois, target_qc, clean_target_mask, constants={}),
+        "roi_sources": dict(sorted(validation.source_roi_hashes.items())),
+        "tracking_mask": file_sha256(subject.tracking_mask),
+        "seeds": [
+            {"key": seed.key, "source": str(seed.path),
+             "targets": [{"key": t.key, "source": str(t.path)} for t in seed.targets]}
+            for seed in validation.config.atlas.seeds
+        ],
+        "tracking": vars(validation.config.tracking),
+        "chunk_size": validation.config.execution.generation_chunk_streamlines,
+        "maximum": (None if validation.config.tracking.seedwide_streamlines is not None
+                    else validation.config.execution.maximum_seedwide_streamlines),
+        "threads": validation.config.execution.mrtrix_threads_per_seedwide_job,
+        "tckgen": validation.tools["tckgen"].version,
+        "generation_code": generation_implementation_hash(),
+        "classification_code": classification_implementation_hash(),
+    })
+
+
+def prepare_subject(
+    validation: ValidationBundle,
+    subject: ResolvedSubjectInputs,
+    repo_root: Path,
+    memory_observer: Callable[[float], None] | None = None,
+    identity_record: tuple[str, dict[str, Any]] | None = None,
+    roi_inputs: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any], str]:
+    """Compose reusable FOD preparation and individually identified native ROIs."""
+
+    identity_record = identity_record or preparation_identity(validation, subject)
+    inputs = dict(roi_inputs) if roi_inputs is not None else roi_transform_inputs(subject)
+    rois = prepare_rois(
+        validation.config, subject, subject.output_root / "work" / "preparations",
+        validation.tools["matlab"], repo_root, memory_observer=memory_observer,
+        transform_inputs=inputs, source_hashes=validation.source_roi_hashes,
+    )
+    tracking_mask = {"path": str(subject.tracking_mask), "sha256": file_sha256(subject.tracking_mask)}
+    prior = read_json(subject.output_root / "work" / "state.json", default={})
+    fod = prior.get("fod_preparation", {})
+    reusable_seeds = {}
+    if validation.config.tracking.seedwide_streamlines is not None:
+        from .tracking import seedwide_identity
+        for seed in validation.config.atlas.seeds:
+            old = prior.get("seed_results", {}).get(seed.key, {})
+            old_document = old.get("identity_document", {})
+            if old_document.get("fod_input_identity") != identity_record[0]:
+                continue
+            candidate = {
+                "preparation_identity": identity_record[0],
+                "artifacts": old_document["preparation_artifacts"],
+                "identity_document": {"inputs": {"tracking_mask": tracking_mask}},
+            }
+            identity, _ = seedwide_identity(validation.config, subject.subject_id, candidate,
+                seed, rois["seeds"][seed.key], validation.tools, validation.tracking_code_hash,
+                verify_artifacts=False)
+            mother = next((row for row in prior.get("published_artifacts", [])
+                           if row.get("semantic_key") == f"{seed.key}/seedwide"
+                           and row.get("coordinate_space") == "native"), None)
+            if (old.get("seedwide_identity") == identity and mother is not None
+                    and Path(mother["path"]).is_file()
+                    and file_sha256(mother["path"]) == mother["sha256"]):
+                reusable_seeds[seed.key] = old
+    if len(reusable_seeds) == len(validation.config.atlas.seeds):
+        action = "reused_published_mothers"
+    else:
+        fod, action = _prepare_fod(validation, subject, memory_observer,
+                                  identity_record=identity_record)
+    result = {**fod, "rois": rois,
+              "fod_preparation": fod, "reusable_published_seeds": reusable_seeds,
+              "identity_document": {**fod["identity_document"],
+                  "inputs": {**fod["identity_document"]["inputs"], "tracking_mask": tracking_mask}}}
+    return result, action

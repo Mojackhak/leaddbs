@@ -16,7 +16,7 @@ from scipy.io import savemat
 from .errors import ValidationError
 from .identity import canonical_hash, file_sha256
 from .models import BatchConfig, ResolvedSubjectInputs, SeedSpec, ToolIdentity
-from .publication import OWNER
+from .publication import OWNER, available_target_config
 from .state import atomic_write_json, read_json
 from .tck import iter_tck
 from .tools import run_command
@@ -27,8 +27,8 @@ def resolve_target_colors(config: BatchConfig, seed: SeedSpec) -> np.ndarray:
     """Resolve one distinct RGB row per target in authoritative YAML order."""
 
     count = len(seed.targets)
-    if count <= 0:
-        raise ValidationError(f"seed {seed.key} has no display targets")
+    if count == 0:
+        return np.empty((0, 3), dtype=np.float64)
     positions = np.arange(count, dtype=np.float64) / float(count)
     colors = np.asarray(
         colormaps[config.visualization.target_colormap](positions)[:, :3],
@@ -53,8 +53,8 @@ def largest_remainder_quotas(
     """Allocate a bounded display budget with deterministic YAML-order ties."""
 
     values = np.asarray(counts, dtype=np.int64)
-    if values.ndim != 1 or values.size == 0 or np.any(values < 0):
-        raise ValidationError("membership counts must be one nonempty nonnegative vector")
+    if values.ndim != 1 or np.any(values < 0):
+        raise ValidationError("membership counts must be one nonnegative vector")
     if int(budget) <= 0:
         raise ValidationError("display budget must be positive")
     total = int(values.sum())
@@ -487,7 +487,8 @@ def render_display_scene(
     result = read_json(result_path)
     if result.get("status") != "complete":
         raise ValidationError(f"MATLAB scene did not report complete: {result_path}")
-    expected_controls = 2 * len(display["ordered_target_ids"]) + 3
+    target_count = len(display["ordered_target_ids"])
+    expected_controls = 2 * target_count + 1 + 2 * int(target_count > 0)
     if (
         int(result.get("fiber_layer_count", -1)) != len(display["ordered_target_ids"])
         or int(result.get("target_surface_count", -1))
@@ -586,6 +587,7 @@ def generate_subject_visualizations(
         raise ValidationError(
             f"target-space completion is required before visualization: {state_path}"
         )
+    config = available_target_config(config, state)
     results: list[dict[str, object]] = []
     for seed in config.atlas.seeds:
         state["status"] = "visualization_preparing"

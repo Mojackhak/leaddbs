@@ -1,5 +1,230 @@
 # MRtrix Seed-Wide Target-Coverage Tractography Goal
 
+## Approved fixed-sampling whole-brain extension
+
+This section takes precedence over the historical target-coverage contract
+below for the newly approved Meige configuration. It does not authorize a
+patient run, a Git commit, or changes to the existing atlas-builder work.
+
+### Scientific contract
+
+- Use the existing left/right STNplus and VOplus masks under
+  `atlases/STNVOplus (Ewert 2017)` without further thresholding, dilation,
+  subtraction, or merging. The expanded seeds overlap; report that overlap.
+- Use all 166 existing binary AAL3 targets (78 left, 78 right, 10 midline)
+  under `atlases/AAL3 (Rolls 2020)`. Their human atlas QC is approved.
+- Four seeds per subject share the same target definitions. Subjects are
+  Meige001--Meige021, Dys022, and Meige023, retaining their actual IDs.
+- Fixed sampling selects 300000 valid mother streamlines per seed in
+  50000-streamline chunks, with base random seed 42, iFOD2, cutoff 0.06,
+  and lengths 10--250 mm. No target-conditioned seeding, stop-at-target,
+  nearest-region compensation, ACT, or SIFT2 is added.
+- `minimum_streamlines_per_target: 0` is allowed only with an explicit
+  `seedwide_streamlines`. This opts into unrestricted whole-brain target
+  reporting: retain target boundaries, allow zero hits, and distinguish
+  unavailable native targets from valid targets with zero hits. Existing
+  positive-coverage configurations retain seed subtraction and strict
+  target validity. No schema version or new user-facing option is added.
+- Source seeds and targets must still be finite, nonempty binary 3D images.
+  They may have different grids in the same declared MNI space (the selected
+  seeds are 0.5 mm and AAL3 is 1 mm). Resampling reads each image affine.
+- A native target that disappears or has no intersection with the tracking
+  mask is unavailable, with null count/fraction and a reason. Preserve its
+  statistics row but do not fabricate a target TCK. Partial tracking-mask
+  coverage is reported without silently clipping or dilating the target.
+- Empty native seeds, bad transformations, corrupt input files, and failed
+  mother generation remain errors. Missing target source files remain errors.
+- Membership is segment-aware passage through a target voxel, with one hit
+  per streamline per target. Multiple targets may contain the same streamline.
+  Report count / actual mother count; fractions need not sum to one.
+- Report seed/target overlap and target side relative to the seed. A primary
+  comparison target must be available and nonoverlapping for every configured
+  seed on that seed's side; keep excluded rows and their raw counts. This is
+  a descriptive eligibility flag, not evidence of anatomical specificity.
+
+### Component reuse and invalidation
+
+The current shared preparation identity and target-dependent chunk RNG are
+confirmed failure modes for this fixed-sampling use case. Separate their
+dependencies without adding force/resume commands or versioned copies:
+
+1. FOD preparation depends on DWI, gradients, brain mask, its actual algorithm
+   and tool implementation, not targets or atlas-to-native transforms.
+2. Each transformed ROI depends on that source mask, native reference,
+   anatomical reference and selected transforms, not other ROIs or the FOD.
+3. Fixed mother chunks depend on actual FOD/brain/response/tracking-mask
+   artifacts, the current seed, generation settings and generator code.
+   Target lists, target QC, coverage thresholds, and display settings must
+   not change the fixed mother RNG or regenerate its chunks.
+4. Classification depends on the mother chunks and effective target masks;
+   changed targets reclassify existing chunks and rebuild target outputs.
+5. The historical coverage-driven mode retains target-dependent generation
+   identity because target counts determine its stopping condition.
+6. Native publication reuse must compare current scientific input identity,
+   not just filenames and artifact hashes. Display-only changes and YAML
+   comments, formatting, key order, and unrelated subject entries must not
+   regenerate native streamlines.
+7. Preserve the actual generated-artifact hashes required after the prior
+   stale-chunk incident. Commit IDs and broad repository hashes are provenance,
+   not global rerun switches. Keep the existing transactional publication and
+   ownership protections for untracked research files.
+8. MATLAB identity uses the version/release line returned by the explicit
+   query, not startup warnings. The local version query emits startup warnings
+   before its version, which must not become scientific cache dependencies.
+
+### Deliverables and execution gate
+
+- Publish all configured target statistics, including availability, overlap,
+  coverage, comparison eligibility, counts and fractions. Valid zero-hit
+  targets have valid empty TCKs; unavailable targets have no TCK artifact.
+  Keep the full records in the retained subject state and publish a flat
+  `target_statistics.csv` alongside tractograms; unavailable numeric fields
+  are empty CSV cells and JSON null. Include this report in the existing
+  publication transaction and artifact verification.
+- Preserve native and MNI mother/available-target TCKs, provenance, display
+  outputs, and subject status. Update publication, conversion, visualization,
+  status and cleanup to distinguish unavailable targets from missing artifacts.
+  A seed with no evaluable targets has a seed-only scene. Display labels include
+  hemisphere so bilateral AAL3 names remain distinguishable.
+  Target-space conversion and replacement operate on each `side/seed`
+  directory, not the whole hemisphere. Its identity includes only that seed's
+  native artifacts and spatial transforms. Preserve prior MNI ownership records
+  while replacing native outputs so downstream updates can replace them safely.
+  Target-only updates reuse the verified MNI mother and extract new target
+  subsets by native mother ordinal; they do not repeat coordinate deformation.
+- Create the full-cohort YAML and a three-subject pilot YAML (Meige001,
+  Meige008, Meige023), with the same scientific settings. Keep pilot caches;
+  the full successful batch may clean only tool-owned work caches to Trash.
+- Do not start tracking in this implementation request. Patient-specific
+  native ROI/FOD QC and Meige023's normalization approval 0.5 remain separate
+  from the approved AAL3 atlas QC.
+- Preserve unrelated dirty atlas-builder files; do not commit or push.
+
+### Focused acceptance tests
+
+Test zero coverage with/without fixed sampling; mixed source grids; retained
+target overlap; native target disappearance and tracking-mask coverage;
+valid zero-hit versus unavailable rows and TCKs; classification and RNG reuse
+after target changes; seed changes affecting only that seed; FOD reuse after
+ROI changes; native request invalidation; conversion/display/cleanup with
+unavailable targets; and semantic YAML equivalence. Run the MRtrix package
+tests after focused checks because publication and preparation contracts
+span its modules. Validate the real YAML without launching patient MATLAB,
+FOD estimation, tckgen, or changing patient data.
+
+### Implementation verification and retained boundaries
+
+- Full configuration: `/Volumes/VAL/meige/config/mrtrix_seed_target.yaml`.
+  Pilot configuration: `/Volumes/VAL/meige/config/mrtrix_seed_target_pilot.yaml`.
+- The full configuration passed the existing read-only CLI validation for
+  23 subjects, four seeds and 166 targets per seed. The pilot has the same
+  atlas and scientific settings and selects Meige001, Meige008 and Meige023.
+- All 23 reverse normalization field headers match the selected seed reference
+  grid. Meige023 still has normalization approval 0.5; it was not changed.
+- Synthetic tests cover native reclassification after cache cleanup, MNI
+  mother reuse, two seeds in one hemisphere, zero versus unavailable targets,
+  source/native mask provenance, independent ROI reuse and semantic YAML.
+  MATLAB static analysis found no syntax errors; full patient tracking and
+  real-data scene rendering have not been executed for this extension.
+  The MRtrix package suite completed with 78 passed and one skipped test
+  (the historical STNSNr `config/spot` YAML was not present).
+- Historical fixed-sampling results used a target-dependent RNG identity.
+  They are not relabeled as samples generated under the corrected identity;
+  existing files are left untouched by this implementation. Running an old
+  configuration later will use the corrected producer identity and the
+  existing ownership/Trash publication rules, not a migration shim.
+- Retain the existing whole-batch input validation before producers, as
+  required by the batch contract. Retain artifact integrity verification,
+  ownership checks and transactional publication because of the documented
+  stale-chunk incident and untracked research-data protection. Broad code
+  hashes remain provenance; they are not a global scientific rerun switch.
+
+### Approved Meige execution recovery
+
+The user approved Meige023 registration and the full 23-subject run. The
+normalization approval value remains 0.5 in its source record and is retained
+as a provenance warning, not rewritten as part of execution.
+
+The first run completed ROI/FOD preparation for all subjects and generated
+one 50000-streamline mother chunk for each of the 92 seeds. Target
+classification then failed with `ModuleNotFoundError: No module named 'core'`.
+The reproduced traceback reaches Numba's cached environment deserialization:
+pytest's relative package imports compiled the shared traversal module under
+`core.seed_target_connectivity`, while the public CLI imports it under
+`my_helper.fiber.core.seed_target_connectivity`.
+
+Recovery is limited to the demonstrated import mismatch:
+
+- Import the shared classification models and traversal kernel by their
+  canonical repository package name, as the public CLI and other consumers do.
+  Do not add a runtime alias, retry, fallback, or new configuration option.
+- Add a subprocess regression that warms the kernel through the pytest-style
+  package path and then reads that cache through the canonical CLI path.
+- Move only `traversal.*.nbi` and `traversal.*.nbc` compiled-cache files from
+  the shared module's `__pycache__` to system Trash before rebuilding them.
+  Preserve every patient preparation, mother chunk, and existing run log.
+- The classification source edit invalidates classification and its dependent
+  target outputs only. The mother generator, FOD and ROI identities and base
+  random seed remain unchanged. Existing mother chunks must pass the current
+  hash/count checks and be reused before further generation.
+- Resume the same YAML in the detached session, appending to the original log.
+  Verify reused preparation and the first successful classification plus
+  subsequent chunk generation before reporting that execution has resumed.
+
+Retain the existing whole-batch input validation and artifact integrity checks
+because the batch execution contract and prior stale-chunk incident require
+them. Do not introduce broader validation or global cache invalidation.
+
+Recovery verification: the import/cache subprocess regression reproduced the
+namespace mismatch before the edit and passed afterward. The 27 focused
+tracking, whole-brain and traversal tests passed. Meige001's retained first
+50000-streamline left STNplus chunk passed its recorded SHA-256 check and
+classified successfully against all 164 available native targets (two of the
+166 configured targets were unavailable). All 92 recorded mother-generation
+code identities still match the unchanged generator. The 31 affected Numba
+cache files were preserved in system Trash; patient caches were not removed.
+The resumed batch reused Meige001/Meige002 preparation and their original
+left STNplus/VOplus first chunks, completed classification for those chunks,
+and entered generation of chunk 000001 without the import error. Completion
+of the full cohort still requires the normal publication and status checks.
+
+### Meige MNI domain failure: investigation and execution boundary
+
+The resumed Meige001 run published all four native mothers at 300000
+streamlines per seed. Its left STNplus MNI conversion then failed with
+`point_inverse_solver_failed`. The first 499888-point conversion buffer
+contains 3185 points outside the primary field; the paired-field inverse
+resolved 1208 and could not resolve 1977. These are buffer-level counts,
+not a census of the complete mother tractogram.
+
+Read-only diagnostics found that increasing the inverse iteration limit
+from 64 to 256 and 1024 leaves the same 1977 points unresolved: their
+estimates leave the reverse field's domain. Bounded inverse fitting of five
+high-residual points reaches the inferior MNI field boundary at approximately
+Z = -72.25 mm with residuals of 5.40--6.06 mm. This supports a genuine
+field-coverage limitation for those points, not merely an iteration limit.
+Only the sampled EasyReg normalization fields were found; no original
+full-domain normalization components were found in the subject directory.
+Synb0 registration components belong to a different transformation and
+must not be substituted.
+
+Preserve the native publications, mother chunks, preparation artifacts,
+and original fields. Do not silently extrapolate the deformation, clip
+points, relax the inverse tolerance, discard streamlines, or mark an
+incomplete MNI result complete. The user must choose between continuing
+native processing with MNI deferred, explicitly permitting complete-fiber
+MNI exclusion with an audit, or supplying a wider valid normalization
+transform. No source-code or scientific-parameter change is made merely
+to suppress this failure.
+
+Space-conversion-only changes must remain downstream of native publication:
+they must not invalidate FOD preparation or mother generation. Retain the
+existing stage-specific identities, artifact verification, and publication
+ownership checks. Software failures with a demonstrated repair may be
+fixed and resumed under the user's execution authorization; changes to
+anatomical registration, scientific sampling, or fiber inclusion still
+require an explicit decision.
+
 ## Status
 
 ```text

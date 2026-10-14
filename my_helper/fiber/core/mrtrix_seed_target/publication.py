@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import csv
+from dataclasses import replace
 from pathlib import Path
 import shutil
 from typing import Any, Mapping, Sequence
@@ -10,13 +12,36 @@ import uuid
 
 from send2trash import send2trash
 
-from .errors import PublicationError
+from .errors import PublicationError, ValidationError
 from .identity import file_sha256
 from .models import BatchConfig, ResolvedSubjectInputs, SeedSpec
 from .state import atomic_write_json, read_json
 
 
 OWNER = "mrtrix_seed_target_seedwide_v1"
+
+
+def available_target_config(config: BatchConfig, state: Mapping[str, Any]) -> BatchConfig:
+    """Select evaluable targets for file consumers, retaining all rows in state."""
+
+    if not config.tracking.unrestricted_targets:
+        return config
+    seeds = []
+    for seed in config.atlas.seeds:
+        rows = state.get("seed_results", {}).get(seed.key, {}).get("targets", [])
+        records = {row["key"]: row for row in rows}
+        if len(records) != len(rows) or set(records) != {t.key for t in seed.targets}:
+            raise ValidationError(f"target QC rows do not match the configured targets: {seed.key}")
+        for row in rows:
+            if not isinstance(row.get("available"), bool):
+                raise ValidationError(f"target availability is missing: {seed.key}/{row['key']}")
+            if not row["available"] and (
+                row.get("unavailable_reason") not in {"empty_native_roi", "outside_tracking_mask"}
+                or row.get("streamline_count") is not None or row.get("hit_fraction") is not None
+            ):
+                raise ValidationError(f"invalid unavailable-target record: {seed.key}/{row['key']}")
+        seeds.append(replace(seed, targets=tuple(t for t in seed.targets if records[t.key]["available"])))
+    return replace(config, atlas=replace(config.atlas, seeds=tuple(seeds)))
 
 
 def _desired_artifacts(
@@ -47,6 +72,8 @@ def _desired_artifacts(
             }
         )
         for target in result["outputs"]["targets"]:
+            if not target.get("available", True):
+                continue
             artifacts.append(
                 {
                     "semantic_key": f"{seed.key}/target/{target['key']}",
@@ -71,8 +98,10 @@ def _owned_records(
     state: Mapping[str, Any],
 ) -> dict[str, list[Mapping[str, Any]]]:
     records: dict[str, list[Mapping[str, Any]]] = {}
-    for key in ("published_artifacts", "publication_intent"):
+    for key in ("published_artifacts", "summary_artifacts", "publication_intent"):
         for artifact in state.get(key, []) if isinstance(state, Mapping) else []:
+            if artifact.get("coordinate_space") not in {None, "native"}:
+                continue
             path = str(artifact.get("path", ""))
             if path:
                 records.setdefault(path, []).append(artifact)
@@ -96,6 +125,43 @@ def _link_or_copy(source: Path, destination: Path) -> None:
         os.link(source, destination)
     except OSError:
         shutil.copy2(source, destination)
+
+
+def _statistics_artifact(
+    subject: ResolvedSubjectInputs,
+    seed_results: Mapping[str, Mapping[str, Any]],
+    staging: Path,
+) -> dict[str, Any]:
+    """Flatten every configured target, including unavailable rows."""
+
+    source = staging / "target_statistics.csv"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    fields = ("subject_id", "seed_key", "target_key", "target_side", "relative_side",
+              "available", "unavailable_reason", "total_streamlines", "streamline_count",
+              "hit_fraction", "voxel_count", "volume_mm3", "tracking_mask_fraction",
+              "partial_tracking_mask_coverage", "seed_overlap_voxels", "seed_overlap_fraction",
+              "comparison_eligible")
+    with source.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        for seed_key, result in seed_results.items():
+            for target in result["outputs"]["targets"]:
+                writer.writerow({
+                    **{key: target.get(key) for key in fields},
+                    "subject_id": subject.subject_id, "seed_key": seed_key,
+                    "target_key": target["key"], "target_side": target["side"],
+                    "total_streamlines": result["total_streamlines"],
+                    "available": target.get("available", True),
+                })
+    return {"kind": "target_statistics", "source_path": str(source),
+            "path": str(subject.output_root / source.name), "sha256": file_sha256(source)}
+
+
+def verify_summary_artifacts(state: Mapping[str, Any]) -> None:
+    for record in state.get("summary_artifacts", []):
+        path = Path(record["path"])
+        if not path.is_file() or file_sha256(path) != record["sha256"]:
+            raise ValidationError(f"summary artifact failed verification: {path}")
 
 
 def _trash_appledouble_sidecars(root: Path) -> tuple[list[str], list[str]]:
@@ -132,6 +198,10 @@ def publish_subject(
     if prior and prior.get("owner") != OWNER:
         raise PublicationError(f"non-tool-owned state file blocks publication: {state_path}")
     desired = _desired_artifacts(subject, config.atlas.seeds, seed_results)
+    transaction_id = uuid.uuid4().hex
+    transaction_root = work_root / "staging" / f"publication-{transaction_id}"
+    summaries = [_statistics_artifact(subject, seed_results, transaction_root)]
+    desired.extend(summaries)
     owned = _owned_records(prior)
     desired_paths = {artifact["path"] for artifact in desired}
     public_root = (subject.output_root / "tractograms" / "native").resolve()
@@ -194,8 +264,6 @@ def publish_subject(
             )
         stale.append(path)
 
-    transaction_id = uuid.uuid4().hex
-    transaction_root = work_root / "staging" / f"publication-{transaction_id}"
     rollback_root = work_root / "rollback" / transaction_id
     prepared_files: dict[str, Path] = {}
     for index, artifact in enumerate(replacements):
@@ -214,7 +282,9 @@ def publish_subject(
         "subject_dir": str(subject.subject_dir),
         "run_provenance": dict(run_provenance),
         "preparation_identity": preparation["preparation_identity"],
+        "native_request_identity": prior.get("native_request_identity"),
         "published_artifacts": prior.get("published_artifacts", []),
+        "summary_artifacts": prior.get("summary_artifacts", []),
         "publication_intent": desired,
         "cleanup_pending": prior.get("cleanup_pending", []),
     }
@@ -281,32 +351,42 @@ def publish_subject(
         "subject_dir": str(subject.subject_dir),
         "run_provenance": dict(run_provenance),
         "preparation_identity": preparation["preparation_identity"],
+        "fod_preparation": preparation.get("fod_preparation", {}),
+        "native_request_identity": preparation.get("native_request_identity"),
         "seed_results": {
             key: {
                 "seedwide_identity": result["seedwide_identity"],
+                "classification_identity": result.get("classification_identity"),
                 "identity_document": result["identity_document"],
                 "preparation_artifact_set_hash": result["identity_document"][
                     "preparation_artifact_set_hash"
                 ],
                 "total_streamlines": int(result["total_streamlines"]),
                 "target_hit_counts": [
-                    int(value) for value in result["target_hit_counts"]
+                    target["streamline_count"] for target in result["outputs"]["targets"]
                 ],
                 "targets": [
                     {
-                        "key": target["key"],
-                        "streamline_count": int(target["streamline_count"]),
-                        "hit_fraction": float(target["hit_fraction"]),
+                        **{name: value for name, value in target.items()
+                           if name not in {"path", "sha256", "size_bytes"}},
                     }
                     for target in result["outputs"]["targets"]
                 ],
+                "seed_qc": {name: value for name, value in
+                            preparation.get("rois", {}).get("seeds", {}).get(key, {}).items()
+                            if name != "targets"},
                 "minimum_target_streamlines": int(
                     result["minimum_target_streamlines"]
                 ),
             }
             for key, result in seed_results.items()
         },
-        "published_artifacts": desired,
+        "published_artifacts": [
+            *[record for record in prior.get("published_artifacts", [])
+              if record.get("coordinate_space") not in {None, "native"}],
+            *[record for record in desired if record.get("kind") != "target_statistics"],
+        ],
+        "summary_artifacts": summaries,
         "publication_intent": [],
         "cleanup_pending": [],
     }
@@ -333,10 +413,11 @@ def publish_subject(
         "status": complete_state["status"],
         "subject_id": subject.subject_id,
         "output_root": str(subject.output_root),
-        "generated_artifacts": len(replacements),
-        "reused_artifacts": len(reused),
+        "generated_artifacts": sum(record.get("kind") != "target_statistics" for record in replacements),
+        "reused_artifacts": sum(record["path"] in reused and record.get("kind") != "target_statistics" for record in desired),
         "retired_artifacts": len(stale),
-        "published_artifacts": desired,
+        "published_artifacts": complete_state["published_artifacts"],
+        "summary_artifacts": summaries,
         "cleanup_pending": cleanup_pending,
         "appledouble_trashed": appledouble_trashed,
     }

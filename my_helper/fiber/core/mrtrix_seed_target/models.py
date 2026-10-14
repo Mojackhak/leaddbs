@@ -52,6 +52,12 @@ class TrackingConfig:
     max_length_mm: float
     random_seed: int
 
+    @property
+    def unrestricted_targets(self) -> bool:
+        """Retain whole-brain targets without a mandatory hit threshold."""
+
+        return self.seedwide_streamlines is not None and self.minimum_streamlines_per_target == 0
+
 
 @dataclass(frozen=True)
 class ExecutionConfig:

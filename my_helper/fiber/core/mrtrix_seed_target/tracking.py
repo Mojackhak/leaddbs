@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from itertools import islice
 import json
 from pathlib import Path
 import uuid
@@ -17,10 +18,11 @@ from .classification import (
     classify_streamlines,
 )
 from .errors import CoverageError, ToolError, ValidationError
-from .identity import canonical_hash, file_sha256
+from .identity import canonical_hash, file_sha256, callable_implementation_hash
 from .models import BatchConfig, SeedSpec, ToolIdentity
 from .state import atomic_write_json, read_json
 from .tck import (
+    iter_tck,
     load_tck_streamlines,
     validate_tck,
     write_concatenated_tck,
@@ -130,6 +132,7 @@ def source_tracking_mask_path(preparation: Mapping[str, Any]) -> Path:
 
 def preparation_artifact_set(
     preparation: Mapping[str, Any],
+    *, verify_files: bool = True,
 ) -> tuple[str, dict[str, dict[str, Any]]]:
     """Return a verified content identity for tracking preparation artifacts."""
 
@@ -141,14 +144,14 @@ def preparation_artifact_set(
             record = artifacts[name]
             path = Path(record["path"])
             expected_hash = str(record["sha256"])
-            if not path.is_file() or file_sha256(path) != expected_hash:
+            if verify_files and (not path.is_file() or file_sha256(path) != expected_hash):
                 raise ValidationError(
                     f"preparation artifact no longer matches its manifest: {path}"
                 )
             records[name] = {
                 "path": str(path),
                 "sha256": expected_hash,
-                "size_bytes": int(path.stat().st_size),
+                "size_bytes": int(record["size_bytes"] if "size_bytes" in record else path.stat().st_size),
             }
         tracking_record = preparation["identity_document"]["inputs"]["tracking_mask"]
         tracking_mask = source_tracking_mask_path(preparation)
@@ -161,7 +164,7 @@ def preparation_artifact_set(
         raise ValidationError(
             "prepared subject lacks complete tracking artifact provenance"
         ) from exc
-    return canonical_hash(records), records
+    return canonical_hash({name: record["sha256"] for name, record in records.items()}), records
 
 
 def seedwide_identity(
@@ -172,26 +175,25 @@ def seedwide_identity(
     seed_record: Mapping[str, Any],
     tools: Mapping[str, ToolIdentity],
     code_hash: str,
+    *, verify_artifacts: bool = True,
 ) -> tuple[str, dict[str, Any]]:
     """Return the scientific identity for one subject and seed side."""
 
-    artifact_set_hash, artifact_records = preparation_artifact_set(preparation)
+    artifact_set_hash, artifact_records = preparation_artifact_set(preparation, verify_files=verify_artifacts)
 
     document = {
         "identity_version": 2,
         "subject_id": subject_id,
-        "preparation_identity": preparation["preparation_identity"],
+        "fod_input_identity": preparation["preparation_identity"],
         "preparation_artifact_set_hash": artifact_set_hash,
         "preparation_artifacts": artifact_records,
         "seed": {
             "key": seed.key,
-            "path": seed_record["path"],
             "hash": seed_record["hash"],
         },
         "targets": [
             {
                 "key": target["key"],
-                "path": target["path"],
                 "hash": target["hash"],
             }
             for target in seed_record["targets"]
@@ -216,11 +218,48 @@ def seedwide_identity(
         },
         "tools": {
             "tckgen": tools["tckgen"].version,
-            "tckinfo": tools["tckinfo"].version,
         },
-        "code_hash": code_hash,
+        "code_hash": generation_implementation_hash(),
     }
-    return canonical_hash(document), document
+    if config.tracking.seedwide_streamlines is not None:
+        document.pop("targets")
+        document.pop("classifier")
+        document["tracking"].pop("minimum_streamlines_per_target")
+        document["generation"].pop("maximum_seedwide_streamlines")
+    else:
+        document["classification_code"] = classification_implementation_hash()
+    return canonical_hash({key: value for key, value in document.items()
+                           if key != "preparation_artifacts"}), document
+
+
+def generation_implementation_hash() -> str:
+    """Hash only code that determines the sampled mother population."""
+
+    return callable_implementation_hash(
+        build_tckgen_command, derive_chunk_rng_seed, next_chunk_request,
+        _generate_mother_chunk, constants={},
+    )
+
+
+def classification_implementation_hash() -> str:
+    """Hash target membership computation separately from tractography."""
+
+    from . import classification
+    from ..seed_target_connectivity import traversal
+    return canonical_hash({
+        "classification": file_sha256(Path(classification.__file__)),
+        "traversal": file_sha256(Path(traversal.__file__)),
+        "extraction": callable_implementation_hash(_classify_chunk, write_selected_tck, constants={}),
+    })
+
+
+def target_classification_identity(seed_record: Mapping[str, Any]) -> str:
+    return canonical_hash({
+        "targets": [{"key": target["key"], "hash": target["hash"],
+                     "available": target.get("available", True)}
+                    for target in seed_record["targets"]],
+        "code": classification_implementation_hash(),
+    })
 
 
 def _load_membership(path: Path, expected_shape: tuple[int, int]) -> np.ndarray:
@@ -267,6 +306,8 @@ def _verify_chunk(
         if len(target_chunks) != target_count:
             return False
         for index, target_chunk in enumerate(target_chunks):
+            if target_chunk is None:
+                continue
             path = Path(target_chunk["path"])
             if file_sha256(path) != target_chunk["sha256"]:
                 return False
@@ -299,6 +340,8 @@ def _verify_outputs(
         if len(targets) != target_count:
             return False
         for target in targets:
+            if not target.get("available", True):
+                continue
             path = Path(target["path"])
             if file_sha256(path) != target["sha256"]:
                 return False
@@ -330,7 +373,7 @@ def _chunk_identity(
     )
 
 
-def _generate_chunk(
+def _generate_mother_chunk(
     *,
     config: BatchConfig,
     subject_id: str,
@@ -342,7 +385,6 @@ def _generate_chunk(
     rng_seed: int,
     seed_record: Mapping[str, Any],
     preparation: Mapping[str, Any],
-    target_lookup,
     seed_work: Path,
     tools: Mapping[str, ToolIdentity],
     memory_observer: Callable[[float], None] | None,
@@ -374,12 +416,41 @@ def _generate_chunk(
         )
     if actual == 0:
         raise ToolError(f"seed-wide tckgen chunk {index} produced zero streamlines")
-    streamlines = load_tck_streamlines(inflight)
+    inflight.replace(completed)
+    record = {
+        "status": "complete",
+        "identity": _chunk_identity(identity, preparation_artifact_set_hash,
+                                    index, requested, rng_seed),
+        "preparation_artifact_set_hash": preparation_artifact_set_hash,
+        "index": index, "requested_streamlines": requested,
+        "actual_streamlines": actual,
+        "yield_status": "full" if actual == requested else "underfilled",
+        "rng_seed": rng_seed, "path": str(completed),
+        "sha256": file_sha256(completed),
+    }
+    atomic_write_json(seed_work / "chunks" / f"chunk-{index:06d}.json", record)
+    return record
+
+
+def _classify_chunk(
+    record: Mapping[str, Any], seed_record: Mapping[str, Any], target_lookup,
+    seed_work: Path, tools: Mapping[str, ToolIdentity],
+    *, streamlines: Sequence[np.ndarray] | None = None,
+) -> dict[str, Any]:
+    index = int(record["index"])
+    actual = int(record["actual_streamlines"])
+    attempt = uuid.uuid4().hex
+    if streamlines is None:
+        streamlines = load_tck_streamlines(Path(record["path"]))
     if len(streamlines) != actual:
         raise ValidationError(
             f"chunk {index} Nibabel count {len(streamlines)} differs from tckinfo {actual}"
         )
-    membership = classify_streamlines(streamlines, target_lookup)
+    available = [i for i, target in enumerate(seed_record["targets"])
+                 if target.get("available", True)]
+    membership = np.zeros((actual, len(seed_record["targets"])), dtype=bool)
+    if available:
+        membership[:, available] = classify_streamlines(streamlines, target_lookup)
     membership_path = (
         seed_work / "membership" / f"chunk-{index:06d}-{attempt}.npz"
     )
@@ -388,6 +459,9 @@ def _generate_chunk(
     hit_counts = [int(value) for value in membership.sum(axis=0)]
     target_chunks: list[dict[str, Any]] = []
     for target_index, target in enumerate(seed_record["targets"]):
+        if not target.get("available", True):
+            target_chunks.append(None)
+            continue
         target_chunk = (
             seed_work
             / "target_chunks"
@@ -415,25 +489,8 @@ def _generate_chunk(
                 "sha256": file_sha256(target_chunk),
             }
         )
-    completed.parent.mkdir(parents=True, exist_ok=True)
-    inflight.replace(completed)
     return {
-        "status": "complete",
-        "identity": _chunk_identity(
-            identity,
-            preparation_artifact_set_hash,
-            index,
-            requested,
-            rng_seed,
-        ),
-        "preparation_artifact_set_hash": preparation_artifact_set_hash,
-        "index": index,
-        "requested_streamlines": requested,
-        "actual_streamlines": actual,
-        "yield_status": "full" if actual == requested else "underfilled",
-        "rng_seed": rng_seed,
-        "path": str(completed),
-        "sha256": file_sha256(completed),
+        **record,
         "membership_path": str(membership_path),
         "membership_sha256": file_sha256(membership_path),
         "target_hit_counts": hit_counts,
@@ -451,9 +508,12 @@ def _build_outputs(
     mother_path = output_dir / "seedwide.tck"
     chunks = state["chunks"]
     total = int(state["total_streamlines"])
-    write_concatenated_tck(
-        [Path(chunk["path"]) for chunk in chunks], mother_path, total
-    )
+    if state.get("published_mother"):
+        mother_path = Path(state["published_mother"]["path"])
+    else:
+        write_concatenated_tck(
+            [Path(chunk["path"]) for chunk in chunks], mother_path, total
+        )
     validate_tck(
         mother_path,
         tools["tckinfo"].executable,
@@ -462,6 +522,13 @@ def _build_outputs(
     )
     targets: list[dict[str, Any]] = []
     for target_index, target in enumerate(seed_record["targets"]):
+        metadata = {key: value for key, value in target.items()
+                    if key not in {"path", "hash"}}
+        metadata["native_roi_sha256"] = target["hash"]
+        if not target.get("available", True):
+            targets.append({**metadata, "path": None, "streamline_count": None,
+                            "hit_fraction": None, "sha256": None, "size_bytes": None})
+            continue
         count = int(state["target_hit_counts"][target_index])
         target_path = (
             output_dir
@@ -482,6 +549,7 @@ def _build_outputs(
         )
         targets.append(
             {
+                **metadata,
                 "id": target["id"],
                 "side": target["side"],
                 "key": target["key"],
@@ -517,39 +585,52 @@ def run_seedwide(
     """Generate or resume one subject-side seed-wide target-coverage unit."""
 
     seed_record = preparation["rois"]["seeds"][seed.key]
-    identity, identity_document = seedwide_identity(
-        config,
-        subject_id,
-        preparation,
-        seed,
-        seed_record,
-        tools,
-        code_hash,
-    )
+    prior_seed = preparation.get("reusable_published_seeds", {}).get(seed.key)
+    if prior_seed is not None:
+        identity = prior_seed["seedwide_identity"]
+        identity_document = prior_seed["identity_document"]
+    else:
+        identity, identity_document = seedwide_identity(
+            config,
+            subject_id,
+            preparation,
+            seed,
+            seed_record,
+            tools,
+            code_hash,
+        )
     preparation_artifact_set_hash = str(
         identity_document["preparation_artifact_set_hash"]
     )
     seed_work = work_root / "seedwide" / seed.side / seed.roi_id / identity
     state_path = seed_work / "seed_state.json"
+    classification_identity = target_classification_identity(seed_record)
+    classification_work = seed_work / "classifications" / classification_identity
     state = read_json(state_path, default={})
-    if not isinstance(state, dict) or state.get("seedwide_identity") != identity:
+    if (not isinstance(state, dict) or state.get("seedwide_identity") != identity
+            or state.get("classification_identity") != classification_identity):
         state = {
             "status": "running",
             "subject_id": subject_id,
             "seed_key": seed.key,
             "seedwide_identity": identity,
             "identity_document": identity_document,
+            "classification_identity": classification_identity,
             "chunks": [],
             "total_streamlines": 0,
             "target_hit_counts": [0] * len(seed.targets),
         }
-    if _verify_outputs(state, len(seed.targets), tools["tckinfo"].executable):
+    if (_verify_outputs(state, len(seed.targets), tools["tckinfo"].executable)
+            and coverage_complete(state["target_hit_counts"], config.tracking.minimum_streamlines_per_target)):
+        for output, target in zip(state["outputs"]["targets"], seed_record["targets"], strict=True):
+            output.update({key: value for key, value in target.items() if key not in {"path", "hash"}})
         state["action"] = "reused"
         return state
 
-    target_ids = [target["key"] for target in seed_record["targets"]]
-    target_paths = [Path(target["path"]) for target in seed_record["targets"]]
-    lookup = build_target_lookup(target_ids, target_paths)
+    available_targets = [target for target in seed_record["targets"] if target.get("available", True)]
+    target_ids = [target["key"] for target in available_targets]
+    target_paths = [Path(target["path"]) for target in available_targets]
+    lookup = build_target_lookup(target_ids, target_paths) if available_targets else None
     valid_chunks: list[dict[str, Any]] = []
     total = 0
     cumulative = np.zeros(len(seed.targets), dtype=np.int64)
@@ -558,7 +639,37 @@ def run_seedwide(
         if config.tracking.seedwide_streamlines is not None
         else config.execution.maximum_seedwide_streamlines
     )
-    for index, record in enumerate(state.get("chunks", [])):
+    published = read_json(work_root / "state.json", default={})
+    old_seed = published.get("seed_results", {}).get(seed.key, {})
+    mother = next((item for item in published.get("published_artifacts", [])
+                   if item.get("semantic_key") == f"{seed.key}/seedwide"
+                   and item.get("coordinate_space") == "native"), None)
+    from_publication = (
+        config.tracking.seedwide_streamlines is not None
+        and old_seed.get("seedwide_identity") == identity and mother is not None
+        and int(mother["streamline_count"]) == config.tracking.seedwide_streamlines
+    )
+    if from_publication:
+        path = Path(mother["path"])
+        if not path.is_file() or file_sha256(path) != mother["sha256"]:
+            raise ValidationError(f"published mother failed verification: {path}")
+        total = validate_tck(path, tools["tckinfo"].executable, expected_count=generation_limit)
+        state["published_mother"] = mother
+        iterator = iter_tck(path)
+        classified = 0
+        while classified < total:
+            streamlines = list(islice(iterator, config.execution.generation_chunk_streamlines))
+            if not streamlines:
+                raise ValidationError(f"published mother ended before its declared count: {path}")
+            record = _classify_chunk({
+                "status": "complete", "index": len(valid_chunks), "path": str(path),
+                "sha256": mother["sha256"], "actual_streamlines": len(streamlines),
+                "requested_streamlines": len(streamlines), "source": "published_mother",
+            }, seed_record, lookup, classification_work, tools, streamlines=streamlines)
+            valid_chunks.append(record)
+            classified += len(streamlines)
+            cumulative += np.asarray(record["target_hit_counts"], dtype=np.int64)
+    for index, record in enumerate([] if from_publication else state.get("chunks", [])):
         requested = int(record.get("requested_streamlines", 0))
         expected_request = next_chunk_request(
             total,
@@ -627,22 +738,31 @@ def run_seedwide(
             seed.key,
             index,
         )
-        record = _generate_chunk(
-            config=config,
-            subject_id=subject_id,
-            seed=seed,
-            identity=identity,
-            preparation_artifact_set_hash=preparation_artifact_set_hash,
-            index=index,
-            requested=requested,
-            rng_seed=rng_seed,
-            seed_record=seed_record,
-            preparation=preparation,
-            target_lookup=lookup,
-            seed_work=seed_work,
-            tools=tools,
-            memory_observer=memory_observer,
-        )
+        chunk_record = read_json(seed_work / "chunks" / f"chunk-{index:06d}.json", default={})
+        expected_identity = _chunk_identity(identity, preparation_artifact_set_hash, index, requested, rng_seed)
+        if chunk_record and chunk_record.get("identity") == expected_identity:
+            path = Path(chunk_record["path"])
+            if not path.is_file() or file_sha256(path) != chunk_record["sha256"]:
+                raise ValidationError(f"cached mother chunk failed verification: {path}")
+            validate_tck(path, tools["tckinfo"].executable,
+                         expected_count=int(chunk_record["actual_streamlines"]))
+        else:
+            chunk_record = _generate_mother_chunk(
+                config=config,
+                subject_id=subject_id,
+                seed=seed,
+                identity=identity,
+                preparation_artifact_set_hash=preparation_artifact_set_hash,
+                index=index,
+                requested=requested,
+                rng_seed=rng_seed,
+                seed_record=seed_record,
+                preparation=preparation,
+                seed_work=seed_work,
+                tools=tools,
+                memory_observer=memory_observer,
+            )
+        record = _classify_chunk(chunk_record, seed_record, lookup, classification_work, tools)
         valid_chunks.append(record)
         total += int(record["actual_streamlines"])
         cumulative += np.asarray(record["target_hit_counts"], dtype=np.int64)
@@ -679,7 +799,7 @@ def run_seedwide(
             f"streamlines without covering all targets: {json.dumps(deficient)}"
         )
 
-    state["outputs"] = _build_outputs(state, seed_record, seed_work, tools)
+    state["outputs"] = _build_outputs(state, seed_record, classification_work, tools)
     state["status"] = "staged_complete"
     state["action"] = "generated"
     state["minimum_target_streamlines"] = int(np.min(cumulative))

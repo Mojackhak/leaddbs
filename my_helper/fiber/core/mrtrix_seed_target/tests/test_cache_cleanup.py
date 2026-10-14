@@ -109,6 +109,7 @@ def _validation(tmp_path: Path, *, cleanup: bool = True):
     subject = SimpleNamespace(subject_id="sub-001", output_root=output_root)
     config = SimpleNamespace(
         configuration_hash="current-different-configuration",
+        tracking=SimpleNamespace(unrestricted_targets=False),
         atlas=SimpleNamespace(
             space=target_space,
             seeds=(SimpleNamespace(key="lh/Seed", targets=()),),

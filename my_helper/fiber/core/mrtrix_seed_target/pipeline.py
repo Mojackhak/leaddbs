@@ -17,8 +17,9 @@ from .config import load_config
 from .errors import MrtrixSeedTargetError, PublicationError, ValidationError
 from .identity import file_sha256
 from .models import ResolvedSubjectInputs, ValidationBundle
-from .preparation import prepare_subject
-from .publication import OWNER, publish_subject
+from .preparation import prepare_subject, preparation_identity, native_request_identity
+from .roi import roi_transform_inputs
+from .publication import OWNER, publish_subject, available_target_config, verify_summary_artifacts
 from .resources import ResourcePool
 from .state import atomic_write_json, read_json
 from .tck import validate_tck
@@ -108,12 +109,17 @@ def _process_subject(
         config_record = work_root / "configs" / f"{validation.config.configuration_hash}.json"
         if not config_record.exists():
             atomic_write_json(config_record, _thaw(validation.config.resolved_mapping))
+        fod_identity = preparation_identity(validation, subject)
+        roi_inputs = roi_transform_inputs(subject)
+        request_identity = native_request_identity(validation, subject, fod_identity[0], roi_inputs)
         try:
-            verify_native_publication(
+            native_state = verify_native_publication(
                 validation.config,
                 subject,
                 tckinfo=validation.tools["tckinfo"].executable,
             )
+            if native_state.get("native_request_identity") != request_identity:
+                raise ValidationError("native analysis inputs changed")
         except ValidationError:
             native_reused = False
         else:
@@ -153,7 +159,10 @@ def _process_subject(
                 subject,
                 repo_root,
                 memory_observer=lease.observe_memory_gb,
+                identity_record=fod_identity,
+                roi_inputs=roi_inputs,
             )
+        preparation["native_request_identity"] = request_identity
         progress(f"[{subject.subject_id}] preparation {preparation_action}")
 
         seed_results: dict[str, Mapping[str, Any]] = {}
@@ -242,7 +251,7 @@ def _process_subject(
                     "action": result["action"],
                     "total_streamlines": int(result["total_streamlines"]),
                     "target_hit_counts": [
-                        int(value) for value in result["target_hit_counts"]
+                        target["streamline_count"] for target in result["outputs"]["targets"]
                     ],
                     "minimum_target_streamlines": int(
                         result["minimum_target_streamlines"]
@@ -303,7 +312,7 @@ def run_batch(
             results_by_id[subject.subject_id] = result
             emit(f"[{subject.subject_id}] terminal status: {result['status']}")
     ordered = [results_by_id[subject.subject_id] for subject in validation.subjects]
-    failed = [result for result in ordered if result["status"] not in {"complete"}]
+    failed = [result for result in ordered if result["status"] != "complete"]
     cleanup: dict[str, Any] = {
         "requested": validation.config.execution.cleanup_work_cache_after_success,
         "status": "not_run_batch_incomplete" if failed else "pending",
@@ -341,14 +350,6 @@ def status_batch(path: Path | str) -> dict[str, Any]:
         else Path("tckinfo")
     )
     subjects: list[dict[str, Any]] = []
-    expected_semantic_keys = {
-        key
-        for seed in config.atlas.seeds
-        for key in (
-            f"{seed.key}/seedwide",
-            *(f"{seed.key}/target/{target.key}" for target in seed.targets),
-        )
-    }
     expected_coordinates = {"native", config.atlas.space}
     expected_scene_keys = {seed.key for seed in config.atlas.seeds}
     for subject_config in config.subjects:
@@ -379,6 +380,18 @@ def status_batch(path: Path | str) -> dict[str, Any]:
             )
             continue
         artifact_errors: list[str] = []
+        try:
+            verify_summary_artifacts(state)
+            selected = available_target_config(config, state)
+        except ValidationError as exc:
+            artifact_errors.append(str(exc))
+            selected = config
+        expected_semantic_keys = {
+            key for seed in selected.atlas.seeds for key in (
+                f"{seed.key}/seedwide",
+                *(f"{seed.key}/target/{target.key}" for target in seed.targets),
+            )
+        }
         published = state.get("published_artifacts", [])
         if not isinstance(published, list) or any(
             not isinstance(artifact, Mapping) for artifact in published

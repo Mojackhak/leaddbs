@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import csv
 import hashlib
-import inspect
 import json
 import os
 from pathlib import Path
@@ -22,9 +21,9 @@ from send2trash import send2trash
 
 from .discovery import load_tmat
 from .errors import MrtrixSeedTargetError, ValidationError
-from .identity import canonical_hash, file_sha256
+from .identity import canonical_hash, file_sha256, callable_implementation_hash as _callable_source_hash
 from .models import BatchConfig, ResolvedSubjectInputs, SeedSpec, ToolIdentity
-from .publication import OWNER
+from .publication import OWNER, available_target_config, verify_summary_artifacts
 from .state import atomic_write_json, read_json
 from .tck import (
     iter_tck,
@@ -42,26 +41,6 @@ PAIRED_FIELD_INVERSE_MAX_ITERATIONS = 64
 PAIRED_FIELD_INVERSE_RELAXATION = 0.5
 PAIRED_FIELD_INVERSE_TOLERANCE_MM = 1e-5
 _POINT_FIELD_TRANSFORM_LOCK = threading.Lock()
-
-
-def _callable_source_hash(
-    *functions: object,
-    constants: Mapping[str, object],
-) -> str:
-    """Hash the explicit scientific callables and constants for one component."""
-
-    document = {
-        "callables": [
-            {
-                "module": getattr(function, "__module__", ""),
-                "qualname": getattr(function, "__qualname__", ""),
-                "source": inspect.getsource(function),
-            }
-            for function in functions
-        ],
-        "constants": dict(constants),
-    }
-    return canonical_hash(document)
 
 
 @dataclass(frozen=True)
@@ -702,7 +681,10 @@ def verify_native_publication(
     state = read_json(state_path, default={})
     if not isinstance(state, dict) or state.get("owner") != OWNER:
         raise ValidationError(f"native publication state is missing or foreign: {state_path}")
-    expected = _native_paths(config, subject)
+    if state.get("status") in {"publishing", "publication_failed"}:
+        raise ValidationError(f"native publication transaction is unfinished: {state_path}")
+    verify_summary_artifacts(state)
+    expected = _native_paths(available_target_config(config, state), subject)
     records = {
         str(record.get("semantic_key")): record
         for record in state.get("published_artifacts", [])
@@ -770,6 +752,7 @@ def coordinate_fingerprint(
         }
         for record in state.get("published_artifacts", [])
         if record.get("coordinate_space") == "native"
+        and str(record["semantic_key"]).endswith("/seedwide")
     ]
     native.sort(key=lambda item: str(item["semantic_key"]))
     document: dict[str, object] = {
@@ -892,15 +875,11 @@ def roundtrip_fingerprint(
 def _target_side_paths(
     config: BatchConfig,
     subject: ResolvedSubjectInputs,
-    side: str,
+    seed: SeedSpec,
     *,
     root: Path,
 ) -> tuple[Path, dict[str, Path]]:
-    seeds = [seed for seed in config.atlas.seeds if seed.side == side]
-    if len(seeds) != 1:
-        raise ValidationError(f"expected exactly one configured seed for side {side}")
-    seed = seeds[0]
-    seed_root = root / side / seed.roi_id
+    seed_root = root / seed.side / seed.roi_id
     targets = {
         target.key: seed_root / "targets" / target.side / f"{target.roi_id}.tck"
         for target in seed.targets
@@ -1047,7 +1026,7 @@ def _target_records(
     *,
     config: BatchConfig,
     subject: ResolvedSubjectInputs,
-    side: str,
+    seed: SeedSpec,
     final_seedwide: Path,
     final_targets: Mapping[str, Path],
     native_records: Mapping[str, Mapping[str, object]],
@@ -1055,11 +1034,10 @@ def _target_records(
     coordinate_document: Mapping[str, object],
     roundtrip_identity: str,
     roundtrip_document: Mapping[str, object],
-    domain_stats: DomainStats,
+    domain_stats: Mapping[str, object],
     roundtrip_qc: Mapping[str, object],
     point_backend: str = POINT_BACKEND,
 ) -> list[dict[str, object]]:
-    seed = next(seed for seed in config.atlas.seeds if seed.side == side)
     records: list[dict[str, object]] = []
     keys_and_paths = [(f"{seed.key}/seedwide", final_seedwide)] + [
         (f"{seed.key}/target/{target.key}", final_targets[target.key])
@@ -1079,7 +1057,7 @@ def _target_records(
                 "roundtrip_qc_fingerprint": roundtrip_identity,
                 "coordinate_identity_document": dict(coordinate_document),
                 "roundtrip_identity_document": dict(roundtrip_document),
-                "domain_stats": domain_stats.as_mapping(),
+                "domain_stats": dict(domain_stats),
                 "roundtrip_qc": dict(roundtrip_qc),
                 "production_point_direction": "anchor_to_target",
                 "bulk_point_backend": point_backend,
@@ -1112,7 +1090,7 @@ def _recover_target_space_intent(
     intent = state.get("target_space_intent", {})
     if not isinstance(intent, Mapping) or not intent:
         return False
-    if intent.get("side") != seed.side:
+    if intent.get("seed_key") != seed.key:
         return False
     records = intent.get("artifacts", [])
     if not isinstance(records, list) or any(
@@ -1126,7 +1104,7 @@ def _recover_target_space_intent(
     expected_seedwide, expected_targets = _target_side_paths(
         config,
         subject,
-        seed.side,
+        seed,
         root=subject.output_root / "tractograms" / config.atlas.space,
     )
     expected_paths = {
@@ -1175,7 +1153,7 @@ def _recover_target_space_intent(
         ]
         state["published_artifacts"] = [*prior_artifacts, *records]
         first = records[0]
-        state.setdefault("target_space_sides", {})[seed.side] = {
+        state.setdefault("target_space_sides", {})[seed.key] = {
             "coordinate_fingerprint": coordinate_identity,
             "roundtrip_qc_fingerprint": roundtrip_identity,
             "domain_stats": first.get("domain_stats", {}),
@@ -1190,7 +1168,7 @@ def _recover_target_space_intent(
         character not in "0123456789abcdef" for character in transaction_id
     ):
         raise ValidationError(f"invalid target-space transaction id: {state_path}")
-    rollback = subject.output_root / "work" / "rollback" / transaction_id / seed.side
+    rollback = subject.output_root / "work" / "rollback" / transaction_id / seed.side / seed.roi_id
     if final_side_root.exists():
         actual_paths = {
             str(path.resolve())
@@ -1223,42 +1201,7 @@ def convert_subject_target_space(
 
     state_path = subject.output_root / "work" / "state.json"
     state = verify_native_publication(config, subject, tckinfo=tckinfo)
-    primary_coordinate_identity, primary_coordinate_document = coordinate_fingerprint(
-        config=config,
-        subject=subject,
-        state=state,
-    )
-    inverse_coordinate_identity, inverse_coordinate_document = (
-        paired_field_inverse_fingerprint(
-            config=config,
-            subject=subject,
-            state=state,
-        )
-    )
-    primary_roundtrip_identity, primary_roundtrip_document = roundtrip_fingerprint(
-        coordinate_identity=primary_coordinate_identity,
-        subject=subject,
-        ants=ants,
-    )
-    inverse_roundtrip_identity, inverse_roundtrip_document = roundtrip_fingerprint(
-        coordinate_identity=inverse_coordinate_identity,
-        subject=subject,
-        ants=ants,
-    )
-    coordinate_candidates = {
-        primary_coordinate_identity: (
-            primary_coordinate_document,
-            primary_roundtrip_identity,
-            primary_roundtrip_document,
-            POINT_BACKEND,
-        ),
-        inverse_coordinate_identity: (
-            inverse_coordinate_document,
-            inverse_roundtrip_identity,
-            inverse_roundtrip_document,
-            PAIRED_FIELD_INVERSE_BACKEND,
-        ),
-    }
+    config = available_target_config(config, state)
     state["space_conversion_module_hash"] = code_hash
     target_root = subject.output_root / "tractograms" / config.atlas.space
     target_reference = config.atlas.seeds[0].path
@@ -1280,13 +1223,42 @@ def convert_subject_target_space(
     completed_sides: list[str] = []
     side_coordinate_fingerprints: dict[str, str] = {}
     side_roundtrip_fingerprints: dict[str, str] = {}
+    _, primary_template = coordinate_fingerprint(config=config, subject=subject, state=state)
+    _, inverse_template = paired_field_inverse_fingerprint(config=config, subject=subject, state=state)
+    _, roundtrip_template = roundtrip_fingerprint(coordinate_identity="", subject=subject, ants=ants)
     for seed in config.atlas.seeds:
         side = seed.side
+        mother_records = [record for record in primary_template["native_artifacts"]
+                          if record["semantic_key"] == f"{seed.key}/seedwide"]
+        primary_coordinate_document = {**primary_template, "native_artifacts": mother_records}
+        inverse_coordinate_document = {**inverse_template, "native_artifacts": mother_records}
+        primary_coordinate_identity = canonical_hash(primary_coordinate_document)
+        inverse_coordinate_identity = canonical_hash(inverse_coordinate_document)
+        primary_roundtrip_document = {**roundtrip_template, "coordinate_fingerprint": primary_coordinate_identity}
+        inverse_roundtrip_document = {**roundtrip_template, "coordinate_fingerprint": inverse_coordinate_identity}
+        primary_roundtrip_identity = canonical_hash(primary_roundtrip_document)
+        inverse_roundtrip_identity = canonical_hash(inverse_roundtrip_document)
+        coordinate_candidates = {
+            primary_coordinate_identity: (
+                primary_coordinate_document,
+                primary_roundtrip_identity,
+                primary_roundtrip_document,
+                POINT_BACKEND,
+            ),
+            inverse_coordinate_identity: (
+                inverse_coordinate_document,
+                inverse_roundtrip_identity,
+                inverse_roundtrip_document,
+                PAIRED_FIELD_INVERSE_BACKEND,
+            ),
+        }
         final_seedwide, final_targets = _target_side_paths(
-            config, subject, side, root=target_root
+            config, subject, seed, root=target_root
         )
-        final_side_root = target_root / side
+        final_side_root = final_seedwide.parent
         intent = state.get("target_space_intent", {})
+        if intent.get("seed_key") != seed.key:
+            intent = {}
         intent_records = intent.get("artifacts", []) if isinstance(intent, Mapping) else []
         intent_coordinate_identity = (
             str(intent_records[0].get("coordinate_fingerprint", ""))
@@ -1314,9 +1286,9 @@ def convert_subject_target_space(
             roundtrip_identity=intent_roundtrip_identity,
             final_side_root=final_side_root,
         ):
-            side_coordinate_fingerprints[side] = intent_coordinate_identity
-            side_roundtrip_fingerprints[side] = intent_roundtrip_identity
-            completed_sides.append(side)
+            side_coordinate_fingerprints[seed.key] = intent_coordinate_identity
+            side_roundtrip_fingerprints[seed.key] = intent_roundtrip_identity
+            completed_sides.append(seed.key)
             continue
         expected_records = [
             record
@@ -1334,6 +1306,8 @@ def convert_subject_target_space(
                     == candidate_roundtrip_identity
                     and Path(str(record["path"])).is_file()
                     and file_sha256(Path(str(record["path"]))) == record["sha256"]
+                    and record.get("semantic_key") in native_records
+                    and record.get("source_native_sha256") == native_records[record["semantic_key"]]["sha256"]
                     for record in expected_records
                 ):
                     reusable_identity = candidate_identity
@@ -1345,11 +1319,11 @@ def convert_subject_target_space(
                     tckinfo,
                     expected_count=int(record["streamline_count"]),
                 )
-            side_coordinate_fingerprints[side] = reusable_identity
-            side_roundtrip_fingerprints[side] = coordinate_candidates[
+            side_coordinate_fingerprints[seed.key] = reusable_identity
+            side_roundtrip_fingerprints[seed.key] = coordinate_candidates[
                 reusable_identity
             ][1]
-            completed_sides.append(side)
+            completed_sides.append(seed.key)
             continue
 
         coordinate_identity = primary_coordinate_identity
@@ -1357,6 +1331,16 @@ def convert_subject_target_space(
         roundtrip_identity = primary_roundtrip_identity
         roundtrip_document = primary_roundtrip_document
         point_backend = POINT_BACKEND
+        reusable_mother = next((record for record in expected_records
+            if record.get("semantic_key") == f"{seed.key}/seedwide"
+            and record.get("source_native_sha256") == native_records[f"{seed.key}/seedwide"]["sha256"]
+            and record.get("coordinate_fingerprint") in coordinate_candidates
+            and record.get("roundtrip_qc_fingerprint") == coordinate_candidates[record["coordinate_fingerprint"]][1]
+            and Path(record["path"]).is_file()
+            and file_sha256(record["path"]) == record["sha256"]), None)
+        if reusable_mother is not None:
+            coordinate_identity = reusable_mother["coordinate_fingerprint"]
+            coordinate_document, roundtrip_identity, roundtrip_document, point_backend = coordinate_candidates[coordinate_identity]
 
         transaction_id = uuid.uuid4().hex
         transaction_root = (
@@ -1367,25 +1351,32 @@ def convert_subject_target_space(
         )
         staged_root = transaction_root / config.atlas.space
         staged_seedwide, staged_targets = _target_side_paths(
-            config, subject, side, root=staged_root
+            config, subject, seed, root=staged_root
         )
         native_seedwide, native_targets = _target_side_paths(
             config,
             subject,
-            side,
+            seed,
             root=subject.output_root / "tractograms" / "native",
         )
         domain_stats = DomainStats()
         try:
-            domain_stats, _memberships = transform_seedwide_and_targets(
-                native_seedwide=native_seedwide,
-                native_targets=native_targets,
-                target_seedwide=staged_seedwide,
-                target_targets=staged_targets,
-                b0_to_anchor_transform=subject.b0_to_anchor_transform,
-                production_field=production_field,
-                stats=domain_stats,
-            )
+            if reusable_mother is not None:
+                staged_seedwide.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(final_seedwide, staged_seedwide)
+                _, memberships = ordered_target_memberships(native_seedwide, native_targets)
+                for key, ordinals in memberships.items():
+                    write_ordinal_subset_tck(staged_seedwide, ordinals, staged_targets[key])
+            else:
+                domain_stats, _memberships = transform_seedwide_and_targets(
+                    native_seedwide=native_seedwide,
+                    native_targets=native_targets,
+                    target_seedwide=staged_seedwide,
+                    target_targets=staged_targets,
+                    b0_to_anchor_transform=subject.b0_to_anchor_transform,
+                    production_field=production_field,
+                    stats=domain_stats,
+                )
         except MrtrixSeedTargetError as exc:
             if "point_transform_domain_failed:" not in str(exc):
                 raise
@@ -1413,7 +1404,7 @@ def convert_subject_target_space(
             staged_seedwide, staged_targets = _target_side_paths(
                 config,
                 subject,
-                side,
+                seed,
                 root=staged_root,
             )
             domain_stats = DomainStats()
@@ -1451,7 +1442,7 @@ def convert_subject_target_space(
                 expected_count=int(native_records[semantic_key]["streamline_count"]),
                 full_coordinate_check=True,
             )
-        roundtrip_qc = _roundtrip_qc(
+        roundtrip_qc = reusable_mother["roundtrip_qc"] if reusable_mother is not None else _roundtrip_qc(
             native_seedwide=native_seedwide,
             streamline_count=int(native_records[f"{seed.key}/seedwide"]["streamline_count"]),
             subject=subject,
@@ -1460,11 +1451,12 @@ def convert_subject_target_space(
             ants=ants,
             work_dir=transaction_root / "qc",
         )
-        staged_side_root = staged_root / side
+        staged_side_root = staged_seedwide.parent
+        domain_mapping = reusable_mother["domain_stats"] if reusable_mother is not None else domain_stats.as_mapping()
         desired_records = _target_records(
             config=config,
             subject=subject,
-            side=side,
+            seed=seed,
             final_seedwide=final_seedwide,
             final_targets=final_targets,
             native_records=native_records,
@@ -1472,7 +1464,7 @@ def convert_subject_target_space(
             coordinate_document=coordinate_document,
             roundtrip_identity=roundtrip_identity,
             roundtrip_document=roundtrip_document,
-            domain_stats=domain_stats,
+            domain_stats=domain_mapping,
             roundtrip_qc=roundtrip_qc,
             point_backend=point_backend,
         )
@@ -1482,11 +1474,12 @@ def convert_subject_target_space(
         state["target_space_intent"] = {
             "transaction_id": transaction_id,
             "side": side,
+            "seed_key": seed.key,
             "artifacts": desired_records,
         }
         atomic_write_json(state_path, state)
         rollback = (
-            subject.output_root / "work" / "rollback" / transaction_id / side
+            subject.output_root / "work" / "rollback" / transaction_id / side / seed.roi_id
         )
         if final_side_root.exists():
             owned_paths = {str(record["path"]) for record in expected_records}
@@ -1524,14 +1517,14 @@ def convert_subject_target_space(
         ]
         state["published_artifacts"] = [*prior_artifacts, *desired_records]
         state["target_space_intent"] = {}
-        state.setdefault("target_space_sides", {})[side] = {
+        state.setdefault("target_space_sides", {})[seed.key] = {
             "coordinate_fingerprint": coordinate_identity,
             "roundtrip_qc_fingerprint": roundtrip_identity,
-            "domain_stats": domain_stats.as_mapping(),
+            "domain_stats": domain_mapping,
             "roundtrip_qc": roundtrip_qc,
         }
-        side_coordinate_fingerprints[side] = coordinate_identity
-        side_roundtrip_fingerprints[side] = roundtrip_identity
+        side_coordinate_fingerprints[seed.key] = coordinate_identity
+        side_roundtrip_fingerprints[seed.key] = roundtrip_identity
         atomic_write_json(state_path, state)
         if rollback.exists():
             send2trash(str(rollback))
@@ -1546,7 +1539,7 @@ def convert_subject_target_space(
                     }
                 )
                 atomic_write_json(state_path, state)
-        completed_sides.append(side)
+        completed_sides.append(seed.key)
     state["status"] = "target_space_complete"
     state["target_space"] = config.atlas.space
     state["coordinate_fingerprints_by_side"] = side_coordinate_fingerprints

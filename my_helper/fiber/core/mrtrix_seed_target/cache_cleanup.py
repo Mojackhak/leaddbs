@@ -11,7 +11,7 @@ from send2trash import send2trash
 from .errors import PublicationError
 from .identity import file_sha256
 from .models import ValidationBundle
-from .publication import OWNER
+from .publication import OWNER, available_target_config, verify_summary_artifacts
 from .state import atomic_write_json, read_json
 from .tck import validate_tck
 from .visualization import visualization_state_errors
@@ -43,6 +43,7 @@ def _verify_public_state(
         )
     if state.get("status") != "complete":
         raise PublicationError(f"incomplete state blocks cache cleanup: {state_path}")
+    verify_summary_artifacts(state)
     if state.get("target_space") != target_space:
         raise PublicationError(f"target-space mismatch blocks cache cleanup: {state_path}")
     semantic_spaces: dict[str, set[str]] = {}
@@ -86,19 +87,20 @@ def cleanup_batch_work_caches(
 
     tckinfo = validation.tools["tckinfo"].executable
     states: dict[str, tuple[Path, dict[str, Any]]] = {}
-    expected_semantic_keys = {
-        key
-        for seed in validation.config.atlas.seeds
-        for key in (
-            f"{seed.key}/seedwide",
-            *(f"{seed.key}/target/{target.key}" for target in seed.targets),
-        )
-    }
+    expected_by_subject: dict[str, set[str]] = {}
     for subject in validation.subjects:
         state_path = subject.output_root / "work" / "state.json"
         state = read_json(state_path, default={})
         if not isinstance(state, dict):
             raise PublicationError(f"invalid state blocks cache cleanup: {state_path}")
+        selected = available_target_config(validation.config, state)
+        expected_semantic_keys = {
+            key for seed in selected.atlas.seeds for key in (
+                f"{seed.key}/seedwide",
+                *(f"{seed.key}/target/{target.key}" for target in seed.targets),
+            )
+        }
+        expected_by_subject[subject.subject_id] = expected_semantic_keys
         _verify_public_state(
             state,
             state_path=state_path,
@@ -114,6 +116,7 @@ def cleanup_batch_work_caches(
     warnings: list[str] = []
     for subject in validation.subjects:
         state_path, state = states[subject.subject_id]
+        expected_semantic_keys = expected_by_subject[subject.subject_id]
         work_root = state_path.parent.resolve()
         if not requested:
             cleanup = {

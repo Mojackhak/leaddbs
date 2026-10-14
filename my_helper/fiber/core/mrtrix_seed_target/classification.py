@@ -8,8 +8,8 @@ from typing import Sequence
 import nibabel as nib
 import numpy as np
 
-from ..seed_target_connectivity.models import FiberChunk, ResolvedMask
-from ..seed_target_connectivity.traversal import (
+from my_helper.fiber.core.seed_target_connectivity.models import FiberChunk, ResolvedMask
+from my_helper.fiber.core.seed_target_connectivity.traversal import (
     SparseVoxelLookup,
     build_sparse_lookup,
     optimized_membership,

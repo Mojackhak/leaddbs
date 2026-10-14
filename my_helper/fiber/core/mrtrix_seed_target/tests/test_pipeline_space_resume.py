@@ -79,7 +79,11 @@ def test_native_complete_fast_path_never_enters_native_producers(
         space_conversion_code_hash="space-code",
         visualization_code_hash="visualization-code",
     )
-    monkeypatch.setattr(pipeline, "verify_native_publication", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(pipeline, "preparation_identity", lambda *_args: ("fod", {}))
+    monkeypatch.setattr(pipeline, "roi_transform_inputs", lambda *_args: {})
+    monkeypatch.setattr(pipeline, "native_request_identity", lambda *_args: "native-request")
+    monkeypatch.setattr(pipeline, "verify_native_publication", lambda *_args, **_kwargs: {
+        "native_request_identity": "native-request", "status": "transform_domain_failed"})
     monkeypatch.setattr(
         pipeline,
         "convert_subject_target_space",

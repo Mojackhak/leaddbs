@@ -105,6 +105,9 @@ def _normalize_version(output: str) -> str:
     lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()]
     if not lines:
         raise ValidationError("external tool returned an empty version response")
+    matlab_version = next((line for line in lines if re.fullmatch(r"MATLAB .+ release \S+", line)), None)
+    if matlab_version is not None:
+        return matlab_version
     return " | ".join(lines[:4])
 
 

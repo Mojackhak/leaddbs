@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from pathlib import Path
 import subprocess
@@ -30,6 +31,20 @@ def canonical_hash(value: Mapping[str, Any] | list[Any]) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def callable_implementation_hash(*functions: object, constants: Mapping[str, object]) -> str:
+    """Hash only the explicit scientific callables and constants of a stage."""
+
+    return canonical_hash({
+        "callables": [
+            {"module": getattr(function, "__module__", ""),
+             "qualname": getattr(function, "__qualname__", ""),
+             "source": inspect.getsource(function)}
+            for function in functions
+        ],
+        "constants": dict(constants),
+    })
 
 
 def implementation_hash(paths: Iterable[Path]) -> str:

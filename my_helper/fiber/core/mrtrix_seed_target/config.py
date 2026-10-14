@@ -306,6 +306,10 @@ def resolve_config(
         raise ConfigurationError(
             "tracking.min_length_mm must not exceed tracking.max_length_mm"
         )
+    if tracking.minimum_streamlines_per_target == 0 and tracking.seedwide_streamlines is None:
+        raise ConfigurationError(
+            "zero minimum_streamlines_per_target requires fixed seedwide_streamlines"
+        )
 
     execution = ExecutionConfig(
         subject_workers=int(execution_document["subject_workers"]),

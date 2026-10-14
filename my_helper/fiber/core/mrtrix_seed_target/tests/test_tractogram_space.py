@@ -446,6 +446,7 @@ def test_interrupted_target_side_publication_is_promoted_without_retransform(
         "target_space_intent": {
             "transaction_id": "a" * 32,
             "side": "lh",
+            "seed_key": seed.key,
             "artifacts": records,
         },
     }
@@ -460,9 +461,9 @@ def test_interrupted_target_side_publication_is_promoted_without_retransform(
         tckinfo=Path("/tmp/tckinfo"),
         coordinate_identity="coordinate",
         roundtrip_identity="roundtrip",
-        final_side_root=root / "lh",
+        final_side_root=root / "lh" / "Seed",
     )
     recovered = read_json(state_path)
     assert recovered["target_space_intent"] == {}
     assert len(recovered["published_artifacts"]) == 3
-    assert recovered["target_space_sides"]["lh"]["roundtrip_qc"]["max_mm"] == 0.01
+    assert recovered["target_space_sides"][seed.key]["roundtrip_qc"]["max_mm"] == 0.01

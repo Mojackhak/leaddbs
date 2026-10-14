@@ -115,7 +115,7 @@ def test_fresh_publication_and_unchanged_reuse_preserve_tck_mtime(
         == "artifact-set"
     )
     assert state["seed_results"]["lh/Seed"]["targets"] == [
-        {"key": "lh/Target", "streamline_count": 1, "hit_fraction": 1.0}
+        {"id": "Target", "side": "lh", "key": "lh/Target", "streamline_count": 1, "hit_fraction": 1.0}
     ]
     final = (
         subject.output_root
@@ -253,7 +253,7 @@ def test_stale_tool_owned_target_is_transactionally_retired(
     assert second["retired_artifacts"] == 1
     assert not stale.exists()
     assert replacement.is_file()
-    assert len(trashed) == 1
+    assert len(trashed) == 2  # Retired target and replaced statistics report.
     assert "rollback" in trashed[0]
 
 
