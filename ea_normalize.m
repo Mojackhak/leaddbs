@@ -2,6 +2,12 @@ function ea_normalize(options)
 % Entry function to run normalization
 
 if ~ea_reglocked(options, options.subj.preopAnat.(options.subj.AnchorModality).norm)
+    if ismember(lower(options.normalize.method), lower({'ANTs (Avants 2008)', 'ANTs'})) && ...
+            strcmp(options.prefs.machine.normsettings.ants_preset, 'ea_antspreset_macaque_d99_deep')
+        ea_normalize_ants_d99_deep(options);
+        return;
+    end
+
     % Setup log
     if options.prefs.diary
         ea_mkdir(fileparts(options.subj.norm.log.logBaseName));

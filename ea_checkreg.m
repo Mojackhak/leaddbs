@@ -368,31 +368,40 @@ currvol = checkregImages{activevolume};
 anchorImage = options.subj.coreg.anat.preop.(options.subj.AnchorModality);
 
 if strcmp(currvol, options.subj.norm.anat.preop.(options.subj.AnchorModality))
-    ea_delete(struct2cell(options.subj.norm.anat.preop));
-    if isfield(options.subj.norm.anat, 'postop')
-        ea_delete(struct2cell(options.subj.norm.anat.postop));
-    end
-
-    % Get normalization method
+    % Settings may have been saved after this checkreg window was opened.
     options.normalize.method = handles.coregmrmethod.String{handles.coregmrmethod.Value};
+    prefs = ea_prefs('');
+    options.prefs.machine.normsettings = prefs.machine.normsettings;
+    setappdata(handles.leadfigure, 'options', options);
+    stagedD99 = ismember(lower(options.normalize.method), lower({'ANTs (Avants 2008)', 'ANTs'})) && ...
+        strcmp(options.prefs.machine.normsettings.ants_preset, 'ea_antspreset_macaque_d99_deep');
+
+    if ~stagedD99
+        ea_delete(struct2cell(options.subj.norm.anat.preop));
+        if isfield(options.subj.norm.anat, 'postop')
+            ea_delete(struct2cell(options.subj.norm.anat.postop));
+        end
+    end
 
     % Re-run normlization
     ea_normalize(options);
 
-    % Create checkreg fig
-    fprintf('\nRegenerating checkreg figure...\n\n');
-    ea_gencheckregfigs(options, 'norm');
+    if ~stagedD99
+        % Create checkreg fig
+        fprintf('\nRegenerating checkreg figure...\n\n');
+        ea_gencheckregfigs(options, 'norm');
 
-    % Disapprove after recompute
-    json = loadjson(options.subj.norm.log.method);
-    json.approval = 0;
-    savejson('', json, options.subj.norm.log.method);
+        % Disapprove after recompute
+        json = loadjson(options.subj.norm.log.method);
+        json.approval = 0;
+        savejson('', json, options.subj.norm.log.method);
 
-    % Clean up segmask
-    ea_segmask_cleanup(options);
+        % Clean up segmask
+        ea_segmask_cleanup(options);
 
-    if isfolder(options.subj.brainshiftDir)
-        ea_cprintf('CmdWinWarnings', 'Normalization has been rerun. Please also rerun brain shift correction!\n');
+        if isfolder(options.subj.brainshiftDir)
+            ea_cprintf('CmdWinWarnings', 'Normalization has been rerun. Please also rerun brain shift correction!\n');
+        end
     end
 
 elseif strcmp(options.subj.postopModality, 'CT') && strcmp(currvol, options.subj.coreg.anat.postop.tonemapCT)

@@ -1,5 +1,7 @@
-function transformfiles=ea_gettransformfiles(options)
+function [transformfiles, json]=ea_gettransformfiles(options)
+% The optional second output reuses the normalization log already read here.
 
+json = [];
 try
     json = loadjson(options.subj.norm.log.method);
 catch

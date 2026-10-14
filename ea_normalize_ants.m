@@ -25,6 +25,11 @@ if ischar(options) % return name of method.
     return
 end
 
+if strcmp(options.prefs.machine.normsettings.ants_preset, 'ea_antspreset_macaque_d99_deep')
+    ea_normalize_ants_d99_deep(options);
+    return;
+end
+
 usefa = options.prefs.machine.normsettings.ants_usefa;
 usebrainmask=0;
 

@@ -114,6 +114,8 @@ set(handles.skullstripped,'Value',prefs.machine.normsettings.ants_skullstripped)
 
 set(handles.usepreexisting,'Value',prefs.machine.normsettings.ants_usepreexisting);
 
+apply_preset_constraints(handles);
+
 
 % UIWAIT makes ea_normsettings_ants wait for user response (see UIRESUME)
 
@@ -140,6 +142,35 @@ selpc=selpc{get(hObject,'Value')};
 if strcmp(selpc,'User-Defined')
    uipeerdir=ea_getpatients;
    setappdata(hObject,'peersetcell',uipeerdir);
+end
+
+apply_preset_constraints(handles);
+
+
+function apply_preset_constraints(handles)
+
+presets = getappdata(handles.pcpopup, 'funcell');
+fixedPreset = strcmp(presets{get(handles.pcpopup, 'Value')}, 'ea_antspreset_macaque_d99_deep');
+controls = [handles.strategy, handles.metric, handles.scrf, handles.includefa, ...
+    handles.skullstripped, handles.usepreexisting, handles.restrcores];
+
+if fixedPreset
+    set(handles.strategy, 'Value', find(strcmp(get(handles.strategy, 'String'), 'SyN'), 1));
+    set(handles.metric, 'Value', find(strcmp(get(handles.metric, 'String'), 'Mutual Information'), 1));
+    set(handles.scrf, 'Value', 1);
+    set(handles.includefa, 'Value', 0);
+    set(handles.skullstripped, 'Value', 0);
+    set(handles.usepreexisting, 'Value', 3);
+    set(handles.restrcores, 'Value', 1);
+    set(handles.numcores, 'String', '1');
+    set([controls, handles.numcores], 'Enable', 'off');
+else
+    set(controls, 'Enable', 'on');
+    if get(handles.restrcores, 'Value')
+        set(handles.numcores, 'Enable', 'on');
+    else
+        set(handles.numcores, 'Enable', 'off');
+    end
 end
 
 
