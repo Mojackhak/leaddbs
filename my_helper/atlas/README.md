@@ -60,6 +60,17 @@ Use `build_stnvo_plus_atlas()` to create a new output directory, record overlap,
 and preserve reference qform/sform metadata. It refuses an existing destination
 and does not modify source atlases or start tractography.
 
+## D99 Limbic, Frontal, and Pallidal Atlas
+
+`build_d99_limbic_atlas.py` creates the approved D99 atlas with 36 bilateral
+entries: independent NAc/ALIC/GPi/GPe, 29 retained subregions, and exact AMY,
+HIP, and mPFC unions. Masks remain on the original 0.25 mm D99 grid without
+resampling. Existing derived ALIC masks are embedded on that same lattice.
+`build_d99_limbic_atlas_index.m` uses the native ROI interfaces to generate a
+display cache with merged and subregion presets. See
+[`d99_limbic_atlas.md`](d99_limbic_atlas.md) for definitions, commands, and QC;
+the explicit source map is `specs/d99_limbic_regions.json`.
+
 ## Current Threshold Policy
 
 - STN/SNr: `Custom_Ewert_Zhang_Middlebrooks > 0.05`.

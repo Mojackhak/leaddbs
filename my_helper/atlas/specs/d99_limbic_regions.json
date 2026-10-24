@@ -1,0 +1,431 @@
+{
+  "atlas_name": "D99 NAc_ALIC_HIP_AMY_GPi_GPe_mPFC",
+  "space": "D99v2",
+  "reference_image": "templates/space/D99v2/t1.nii",
+  "label_image": "templates/space/D99v2/other_files/D99_atlas_hemi_v2.0.nii",
+  "label_text": "templates/space/D99v2/other_files/D99_hemi_v2.0_labels.txt",
+  "label_workbook": "templates/space/D99v2/other_files/D99_hemi_Suppl_Table_1.xlsx",
+  "label_sheet": "Combo_subcortical_corticalabels",
+  "output_dir": "templates/space/D99v2/atlases/D99 NAc_ALIC_HIP_AMY_GPi_GPe_mPFC",
+  "rois": [
+    {
+      "name": "NAc",
+      "family": "NAc",
+      "kind": "label",
+      "labels": {
+        "lh": 3,
+        "rh": 525
+      },
+      "abbreviation": "NA",
+      "parent": null
+    },
+    {
+      "name": "ALIC",
+      "family": "ALIC",
+      "kind": "derived_mask",
+      "parent": null,
+      "sources": {
+        "lh": "templates/space/D99v2/atlases/D99 v2.0 NAc_ALIC/lh/ALIC.nii.gz",
+        "rh": "templates/space/D99v2/atlases/D99 v2.0 NAc_ALIC/rh/ALIC.nii.gz"
+      },
+      "support_labels": {
+        "lh": 157,
+        "rh": 679
+      }
+    },
+    {
+      "name": "GPi",
+      "family": "GPi",
+      "kind": "label",
+      "labels": {
+        "lh": 5,
+        "rh": 527
+      },
+      "abbreviation": "GPi",
+      "parent": null
+    },
+    {
+      "name": "GPe",
+      "family": "GPe",
+      "kind": "label",
+      "labels": {
+        "lh": 4,
+        "rh": 526
+      },
+      "abbreviation": "GPe",
+      "parent": null
+    },
+    {
+      "name": "AMY",
+      "family": "AMY",
+      "kind": "union",
+      "parent": null,
+      "members": [
+        "AMY_Ld",
+        "AMY_Lv",
+        "AMY_Bmc",
+        "AMY_Bi",
+        "AMY_Bpc",
+        "AMY_ABmc",
+        "AMY_ABpc",
+        "AMY_AAA",
+        "AMY_CE",
+        "AMY_COa",
+        "AMY_COp",
+        "AMY_PL",
+        "AMY_ME"
+      ]
+    },
+    {
+      "name": "AMY_Ld",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 307,
+        "rh": 829
+      },
+      "abbreviation": "Ld"
+    },
+    {
+      "name": "AMY_Lv",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 319,
+        "rh": 841
+      },
+      "abbreviation": "Lv"
+    },
+    {
+      "name": "AMY_Bmc",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 445,
+        "rh": 967
+      },
+      "abbreviation": "Bmc"
+    },
+    {
+      "name": "AMY_Bi",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 340,
+        "rh": 862
+      },
+      "abbreviation": "Bi"
+    },
+    {
+      "name": "AMY_Bpc",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 466,
+        "rh": 988
+      },
+      "abbreviation": "Bpc"
+    },
+    {
+      "name": "AMY_ABmc",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 331,
+        "rh": 853
+      },
+      "abbreviation": "ABmc"
+    },
+    {
+      "name": "AMY_ABpc",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 356,
+        "rh": 878
+      },
+      "abbreviation": "ABpc"
+    },
+    {
+      "name": "AMY_AAA",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 311,
+        "rh": 833
+      },
+      "abbreviation": "AAA"
+    },
+    {
+      "name": "AMY_CE",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 302,
+        "rh": 824
+      },
+      "abbreviation": "CE"
+    },
+    {
+      "name": "AMY_COa",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 324,
+        "rh": 846
+      },
+      "abbreviation": "COa"
+    },
+    {
+      "name": "AMY_COp",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 346,
+        "rh": 868
+      },
+      "abbreviation": "COp"
+    },
+    {
+      "name": "AMY_PL",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 477,
+        "rh": 999
+      },
+      "abbreviation": "PL_prime"
+    },
+    {
+      "name": "AMY_ME",
+      "family": "AMY",
+      "kind": "label",
+      "parent": "AMY",
+      "labels": {
+        "lh": 436,
+        "rh": 958
+      },
+      "abbreviation": "ME"
+    },
+    {
+      "name": "HIP",
+      "family": "HIP",
+      "kind": "union",
+      "parent": null,
+      "members": [
+        "HIP_CA1",
+        "HIP_CA2",
+        "HIP_CA3",
+        "HIP_CA4",
+        "HIP_FD",
+        "HIP_Sub",
+        "HIP_proS",
+        "HIP_preS",
+        "HIP_paraS"
+      ]
+    },
+    {
+      "name": "HIP_CA1",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 317,
+        "rh": 839
+      },
+      "abbreviation": "CA1"
+    },
+    {
+      "name": "HIP_CA2",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 386,
+        "rh": 908
+      },
+      "abbreviation": "CA2"
+    },
+    {
+      "name": "HIP_CA3",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 488,
+        "rh": 1010
+      },
+      "abbreviation": "CA3"
+    },
+    {
+      "name": "HIP_CA4",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 489,
+        "rh": 1011
+      },
+      "abbreviation": "CA4"
+    },
+    {
+      "name": "HIP_FD",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 490,
+        "rh": 1012
+      },
+      "abbreviation": "FD"
+    },
+    {
+      "name": "HIP_Sub",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 381,
+        "rh": 903
+      },
+      "abbreviation": "Sub"
+    },
+    {
+      "name": "HIP_proS",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 487,
+        "rh": 1009
+      },
+      "abbreviation": "proS"
+    },
+    {
+      "name": "HIP_preS",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 352,
+        "rh": 874
+      },
+      "abbreviation": "preS"
+    },
+    {
+      "name": "HIP_paraS",
+      "family": "HIP",
+      "kind": "label",
+      "parent": "HIP",
+      "labels": {
+        "lh": 455,
+        "rh": 977
+      },
+      "abbreviation": "paraS"
+    },
+    {
+      "name": "mPFC",
+      "family": "mPFC",
+      "kind": "union",
+      "parent": null,
+      "members": [
+        "mPFC_9m",
+        "mPFC_10mc",
+        "mPFC_10mr",
+        "mPFC_14r",
+        "mPFC_14c",
+        "mPFC_25",
+        "mPFC_32"
+      ]
+    },
+    {
+      "name": "mPFC_9m",
+      "family": "mPFC",
+      "kind": "label",
+      "parent": "mPFC",
+      "labels": {
+        "lh": 364,
+        "rh": 886
+      },
+      "abbreviation": "9m"
+    },
+    {
+      "name": "mPFC_10mc",
+      "family": "mPFC",
+      "kind": "label",
+      "parent": "mPFC",
+      "labels": {
+        "lh": 312,
+        "rh": 834
+      },
+      "abbreviation": "10mc"
+    },
+    {
+      "name": "mPFC_10mr",
+      "family": "mPFC",
+      "kind": "label",
+      "parent": "mPFC",
+      "labels": {
+        "lh": 345,
+        "rh": 867
+      },
+      "abbreviation": "10mr"
+    },
+    {
+      "name": "mPFC_14r",
+      "family": "mPFC",
+      "kind": "label",
+      "parent": "mPFC",
+      "labels": {
+        "lh": 303,
+        "rh": 825
+      },
+      "abbreviation": "14r"
+    },
+    {
+      "name": "mPFC_14c",
+      "family": "mPFC",
+      "kind": "label",
+      "parent": "mPFC",
+      "labels": {
+        "lh": 486,
+        "rh": 1008
+      },
+      "abbreviation": "14c"
+    },
+    {
+      "name": "mPFC_25",
+      "family": "mPFC",
+      "kind": "label",
+      "parent": "mPFC",
+      "labels": {
+        "lh": 415,
+        "rh": 937
+      },
+      "abbreviation": "area 25"
+    },
+    {
+      "name": "mPFC_32",
+      "family": "mPFC",
+      "kind": "label",
+      "parent": "mPFC",
+      "labels": {
+        "lh": 343,
+        "rh": 865
+      },
+      "abbreviation": "area 32"
+    }
+  ]
+}
