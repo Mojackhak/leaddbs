@@ -22,14 +22,15 @@ trajectory=elstruct.trajectory;
 if ~isfield(elstruct,'elmodel') % usually, elspec is defined by the GUI. In case of group analyses, for each patient, a different electrode model can be selected for rendering.
     elspec=options.elspec;
 else % if elspec is defined for each electrode, overwrite options-struct settings here.
-    o=ea_resolve_elspec(elstruct);
+    o=ea_resolve_elspec(elstruct, options.sides(1));
     elspec=o.elspec; clear o
 end
 
 options.elmodel = elspec.elmodel;
 options.elspec = elspec;
-if ~isfield(elstruct,'activecontacts')
-    for side = options.sides
+for side = options.sides
+    if ~isfield(elstruct,'activecontacts') || numel(elstruct.activecontacts) < side || ...
+            isempty(elstruct.activecontacts{side})
         elstruct.activecontacts{side}=zeros(elspec.numContacts,1);
     end
 end
@@ -47,11 +48,12 @@ try
 end
 
 for side=options.sides
-    try
-        startpoint=trajectory{side}(1,:)-(2*(coords_mm{side}(1,:)-trajectory{side}(1,:)));
-    catch
-        keyboard
+    if ea_arenopoints4side(coords_mm, side) || ea_arenopoints4side(trajectory, side)
+        error('LeadDBS:MissingElectrodeGeometry', ...
+            'Subject %s, electrode %d: contact coordinates or trajectory are missing. Reload the group localizations.', ...
+            elstruct.name, side);
     end
+    startpoint=trajectory{side}(1,:)-(2*(coords_mm{side}(1,:)-trajectory{side}(1,:)));
 
     if options.d3.elrendering<3
         set(0,'CurrentFigure',resultfig);

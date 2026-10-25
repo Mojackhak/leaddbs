@@ -220,45 +220,15 @@ if ~isfield(M.ui,'lastupdated') || t-M.ui.lastupdated>0 % 0 mins time limit
                 options = ea_resolve_elspec(options);
 
                 if isfile(options.subj.recon.recon)
-                    [coords_mm,trajectory,markers,elmodel,manually_corrected,coords_acpc]=ea_load_reconstruction(options);
-
-                    if M.ui.elmodelselect==1 % use patient specific elmodel
-                        if exist('elmodel','var')
-                            M.elstruct(pt).elmodel=elmodel;
-                        else
-                            M.elstruct(pt).elmodel='Medtronic 3389'; % use default for older reconstructions that did not store elmodel.
-                        end
-                    else
-                        elmodels = [{'Patient specified'}; ea_resolve_elspec];
-                        M.elstruct(pt).elmodel = elmodels{M.ui.elmodelselect};
+                    model = [];
+                    if M.ui.elmodelselect ~= 1
+                        available = [{'Patient specified'}; ea_resolve_elspec];
+                        model = available{M.ui.elmodelselect};
                     end
-
-                    % make sure coords_mm is congruent to coded electrode model
-                    poptions=options;
-                    poptions.native=0;
-                    poptions.elmodel=M.elstruct(pt).elmodel;
-                    poptions=ea_resolve_elspec(poptions);
-                    [coords_mm,trajectory,markers]=ea_resolvecoords(markers,poptions,0);
-
-                    M.elstruct(pt).coords_mm=coords_mm;
-                    M.elstruct(pt).coords_acpc=coords_acpc;
-                    M.elstruct(pt).trajectory=trajectory;
-                    M.elstruct(pt).name = patientname;
-
-                    if ~exist('markers','var') % backward compatibility to old recon format
-                        for side=1:2
-                            try
-                                %if side is present, process the old recon format
-                                markers(side).head=coords_mm{side}(1,:);
-                                markers(side).tail=coords_mm{side}(4,:);
-                                [xunitv, yunitv] = ea_calcxy(markers(side).head, markers(side).tail);
-                                markers(side).x = markers(side).head +  xunitv*(options.elspec.lead_diameter/2);
-                                markers(side).y = markers(side).head + yunitv*(options.elspec.lead_diameter/2);
-                            catch
-                            end
-                        end
+                    loaded = ea_load_group_reconstruction(options, M.elstruct(pt), model);
+                    for field = fieldnames(loaded)'
+                        M.elstruct(pt).(field{1}) = loaded.(field{1});
                     end
-                    M.elstruct(pt).markers=markers;
                 end
             catch
                 if pt>1 % first patient has worked but some other patient seems not to have worked.

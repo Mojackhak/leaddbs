@@ -14,15 +14,12 @@ end
 
 popts = options;
 if strcmp(options.leadprod,'group')
+    popts.nowrite = 1; % Group visualization must not rewrite subject reconstructions.
     [popts.root, popts.patientname] = fileparts(options.patient_list{pt});
     popts.root = [popts.root, filesep];
-    recon = ea_regexpdir([options.patient_list{pt}, filesep, 'reconstruction'], ['^', popts.patientname,'_desc-reconstruction\.mat$'], 0, 'file');
-    if ~isempty(recon)
-    % assignin("base","recon",recon) % for 3D recon, if do not have
-    % % reconstruction.mat file in the recontruction folder, ignore it
-        popts.subj.recon.recon = recon{1};
-        popts = ea_detsides(popts);
-    end
+    popts.subj.recon.recon = fullfile(options.patient_list{pt}, 'reconstruction', ...
+        [popts.patientname, '_desc-reconstruction.mat']);
+    popts.sides = find(~cellfun(@(c) isempty(c) || all(isnan(c(:))), elstruct(pt).coords_mm));
 end
 
 elSide = popts.sides;
@@ -33,7 +30,7 @@ end
 for side=elSide
     pobj = struct;
     try
-        pobj = ea_load_electrode(options.subj.recon.recon, side);
+        pobj = ea_load_electrode(popts.subj.recon.recon, side);
         pobj.hasPlanning = 1;
         pobj.showPlanning = strcmp(options.leadprod,'or');
     end
@@ -48,6 +45,9 @@ for side=elSide
         if isfield(reconstruction.reco.props, 'labels')
             pobj.elstruct.labels = {reconstruction.reco.props.labels};
         end
+    elseif strcmp(options.leadprod, 'group') && isfield(elstruct, 'elmodels')
+        pobj.elmodel = elstruct(pt).elmodels{side};
+        pobj.elstruct.elmodel = pobj.elmodel;
     end
 
     set(0,'CurrentFigure',resultfig);

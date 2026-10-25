@@ -594,7 +594,7 @@ function vizbutton_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 clc;
-M=getappdata(gcf,'M');
+M=getappdata(handles.leadfigure,'M');
 ea_busyaction('on',handles.leadfigure,'group');
 % set options
 options=ea_setopts_local(handles);
@@ -608,13 +608,34 @@ options.root = [options.root, filesep];
 options.expstatvat.do=M.ui.statvat;
 options.native=0;
 
+% Refresh only the requested display records, including groups saved with
+% truncated multi-electrode geometry by earlier localization loaders.
+ptidx = get(handles.patientlist, 'Value');
+model = [];
+if M.ui.elmodelselect ~= 1
+    available = [{'Patient specified'}; ea_resolve_elspec];
+    model = available{M.ui.elmodelselect};
+end
+for pt = ptidx(:)'
+    poptions = options;
+    [poptions.root, poptions.patientname] = fileparts(M.patient.list{pt});
+    poptions.root = [poptions.root, filesep];
+    poptions.subj.recon.recon = fullfile(M.patient.list{pt}, 'reconstruction', ...
+        [poptions.patientname, '_desc-reconstruction.mat']);
+    loaded = ea_load_group_reconstruction(poptions, M.elstruct(pt), model);
+    for field = fieldnames(loaded)'
+        M.elstruct(pt).(field{1}) = loaded.(field{1});
+    end
+end
+setappdata(handles.leadfigure, 'M', M);
+
 try
-    options.numcontacts=size(M.elstruct(1).coords_mm{1},1);
+    options.numcontacts=size(M.elstruct(ptidx(1)).coords_mm{1},1);
 catch
     warning('Localizations seem not properly defined.');
 end
 
-options.elmodel=M.elstruct(1).elmodel;
+options.elmodel=M.elstruct(ptidx(1)).elmodel;
 options=ea_resolve_elspec(options);
 options.prefs=ea_prefs(options.patientname);
 options.d3.verbose='on';
@@ -724,14 +745,6 @@ if options.prefs.env.dev && get(handles.mercheck,'Value')
     elseif strcmpi(choice,'Yes')
         load(filename,'vizstruct')
     end
-end
-
-elmodels = [{'Patient specified'};ea_resolve_elspec];
-whichelmodel = elmodels{M.ui.elmodelselect};
-% account for electrode model specified in lead group
-if ~strcmp(whichelmodel,'Patient specified')
-    arcell=repmat({whichelmodel},length(ptidx),1);
-    [M.elstruct(ptidx).elmodel]=arcell{:};
 end
 
 resultfig=ea_elvis(options, M.elstruct, ptidx);

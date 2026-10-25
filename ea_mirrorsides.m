@@ -4,6 +4,15 @@ function elstruct=ea_mirrorsides(elstruct)
 % function that will duplicate elstruct with mirrored sides
 if isstruct(elstruct) % proper elstruct
     dim=length(elstruct);
+    for el = 1:dim
+        if numel(elstruct(el).coords_mm) > 2 || ...
+                (isfield(elstruct, 'elmodels') && ...
+                numel(unique(strrep(elstruct(el).elmodels, 'St. Jude', 'Abbott'))) > 1)
+            error('LeadDBS:UnsupportedGroupMirroring', ...
+                'Group mirroring supports homogeneous bilateral electrodes only. Disable mirroring to display %s.', ...
+                elstruct(el).name);
+        end
+    end
 
 
     % 1st loop: Aggregate points to warp!! Important, this loop needs to be
@@ -11,6 +20,9 @@ if isstruct(elstruct) % proper elstruct
     cnt=1;
     for el=1:dim
         elstruct(el+dim)=elstruct(el);
+        if isfield(elstruct, 'labels') && ~isempty(elstruct(el).labels)
+            elstruct(el+dim).labels = elstruct(el).labels([2,1]);
+        end
 
 
         for side=1:2

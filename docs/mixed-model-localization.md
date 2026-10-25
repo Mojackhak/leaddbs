@@ -2,6 +2,46 @@
 
 ## Scope
 
+### Lead Group visualization repair
+
+Lead Group 3D visualization also reads all indexed electrodes and their individual
+models from the saved reconstruction. Patient-specified visualization preserves
+saved contact locations, trajectories, and labels. An explicit group model override
+rebuilds display geometry for every populated electrode without changing the source
+reconstruction. Group refresh, model selection, and the 3D entry point share this
+loading behavior; the 3D entry point reloads only selected subjects so an existing
+in-memory group record with empty electrodes 3 onward cannot hide those electrodes.
+Subject paths must be subset in the same order as visualization records.
+The visualization callback reads group state from its owning Lead Group figure,
+not the global current figure, which can change after a failed viewer or another
+figure gains focus.
+
+Rendering uses the electrodes present in the displayed coordinate space. Missing
+trajectory data for a populated electrode raises a subject/electrode-specific
+error instead of entering an interactive `keyboard` pause. The bilateral mirroring
+operation remains limited to homogeneous bilateral electrodes; unsupported indexed
+configurations must be rejected before mirroring rather than silently dropping or
+mislabeling electrodes. This repair does not extend stimulation, VTA, or group
+statistics to multi-electrode configurations.
+
+Only selected display records are reloaded when opening 3D. A model override affects
+display geometry only. No image preprocessing, registration, normalization, or
+source reconstruction is invalidated by visualization. Focused checks cover eight
+electrodes, mixed models, sparse electrode indices, subject selection, model override,
+and an explicit missing-trajectory error.
+
+Validation: all eight tests in `tests/test_group_multielectrode_display.m`, all
+30 single-subject localization tests, and the three Python display-refresh tests
+passed. A read-only rendering check of the reported five-subject group produced
+2, 6, 4, 2, and 8 electrode objects (22 total), preserving the reconstruction
+contents and modification times. Rendering honors the existing `nowrite` flag in
+both geometry recalculation and trajectory-object persistence; the latter previously
+wrote planning metadata even when the viewer was intended to be read-only.
+The existing desktop MATLAB session was refreshed and its five-subject Visualize
+3D callback completed with all 22 electrode controls, the selected atlas, and anatomy
+slices. The scene title returned from `Electrode-Scene...building...` to
+`Electrode-Scene`.
+
 One subject may contain three or more electrodes with independently selected
 models. The supported workflow is electrode setup, Manual or Slicer (Manual)
 initial localization, LeGUI import, manual refinement including manual directional
@@ -15,7 +55,8 @@ existing detector behavior.
 
 TRAC/CORE, Refined TRAC/CORE, and PaCER are unavailable for this mode. Both the GUI
 workflow and processing entry points must reject these methods before running
-them. VTA, stimulation parameter editing, and Lead Group are outside this update.
+them. VTA, stimulation parameter editing, and Lead Group analyses are outside this update;
+the visualization-only exception is described above.
 The existing algorithms remain available for conventional homogeneous bilateral
 reconstructions.
 
